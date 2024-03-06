@@ -262,6 +262,9 @@
                             <include>org.apache.httpcomponents:httpmime</include>
                             <include>org.eclipse.jetty:jetty-client</include>
                         </includes>
+                        <excludes>
+                            <exclude>org.eclipse.jetty:jetty-alpn-java-client</exclude>
+                        </excludes>
                     </artifactSet>
                     <filters>
                         <filter>
