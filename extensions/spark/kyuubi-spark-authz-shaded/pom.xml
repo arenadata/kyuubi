@@ -151,6 +151,12 @@
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-solrj</artifactId>
             <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-alpn-java-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -262,6 +268,9 @@
                             <include>org.apache.httpcomponents:httpmime</include>
                             <include>org.eclipse.jetty:jetty-client</include>
                         </includes>
+                        <excludes>
+                            <exclude>org.eclipse.jetty:jetty-alpn-java-client</exclude>
+                        </excludes>
                     </artifactSet>
                     <filters>
                         <filter>
