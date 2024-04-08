@@ -17,7 +17,6 @@
 
 package org.apache.kyuubi.engine.flink.session
 
-import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.mapAsJavaMap
 
 import org.apache.flink.table.gateway.api.session.SessionEnvironment
