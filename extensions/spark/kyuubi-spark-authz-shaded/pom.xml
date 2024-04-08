@@ -33,8 +33,9 @@
     <properties>
         <!-- the following components' version may need to tune to align w/ the ranger.version-->
         <gethostname4j.version>1.0.0</gethostname4j.version>
-        <jersey.client.version>1.19.4</jersey.client.version>
+        <jersey.client.version>2.36</jersey.client.version>
         <jna.version>5.7.0</jna.version>
+        <solr.version>8.11.2</solr.version>
     </properties>
 
     <dependencies>
@@ -109,7 +110,7 @@
         </dependency>
 
         <dependency>
-            <groupId>com.sun.jersey</groupId>
+            <groupId>org.glassfish.jersey.core</groupId>
             <artifactId>jersey-client</artifactId>
             <version>${jersey.client.version}</version>
             <exclusions>
@@ -136,6 +137,18 @@
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
             <version>${jna.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.solr</groupId>
+            <artifactId>solr-solrj</artifactId>
+            <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-alpn-java-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -232,20 +245,21 @@
                     <shadedArtifactAttached>false</shadedArtifactAttached>
                     <artifactSet>
                         <includes>
-                            <include>org.apache.kyuubi:kyuubi-util-scala_${scala.binary.version}</include>
-                            <include>org.apache.kyuubi:kyuubi-spark-authz_${scala.binary.version}</include>
-                            <include>org.apache.kyuubi:kyuubi-util</include>
-                            <include>org.apache.ranger:ranger-plugins-common</include>
-                            <include>org.apache.ranger:ranger-plugins-audit</include>
-                            <include>org.codehaus.jackson:jackson-jaxrs</include>
-                            <include>org.codehaus.jackson:jackson-core-asl</include>
-                            <include>org.codehaus.jackson:jackson-mapper-asl</include>
-                            <include>com.sun.jersey:jersey-client</include>
-                            <include>com.sun.jersey:jersey-core</include>
+                            <include>org.apache.kyuubi:*</include>
+                            <include>org.apache.ranger:*</include>
+                            <include>org.codehaus.jackson:*</include>
+                            <include>org.glassfish.jersey:*</include>
                             <include>com.kstruct:gethostname4j</include>
+                            <!-- JNA is the transitive dependency of gethostname4j -->
                             <include>net.java.dev.jna:jna</include>
                             <include>net.java.dev.jna:jna-platform</include>
+                            <include>org.apache.solr:solr-solrj</include>
+                            <include>org.apache.httpcomponents:httpmime</include>
+                            <include>org.eclipse.jetty:jetty-client</include>
                         </includes>
+                        <excludes>
+                            <exclude>org.eclipse.jetty:jetty-alpn-java-client</exclude>
+                        </excludes>
                     </artifactSet>
                     <filters>
                         <filter>
@@ -275,8 +289,8 @@
                             <shadedPattern>${kyuubi.shade.packageName}.org.codehaus.jackson</shadedPattern>
                         </relocation>
                         <relocation>
-                            <pattern>com.sun.jersey</pattern>
-                            <shadedPattern>${kyuubi.shade.packageName}.com.sun.jersey</shadedPattern>
+                            <pattern>org.glassfish.jersey.core</pattern>
+                            <shadedPattern>${kyuubi.shade.packageName}.org.glassfish.jersey.core</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>com.sun.ws.rs.ext</pattern>
