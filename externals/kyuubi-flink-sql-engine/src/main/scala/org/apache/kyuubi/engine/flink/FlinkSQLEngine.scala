@@ -22,7 +22,7 @@ import java.nio.file.Paths
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 import org.apache.flink.configuration.{Configuration, DeploymentOptions, GlobalConfiguration, PipelineOptions}
 import org.apache.flink.table.api.TableEnvironment
@@ -92,7 +92,7 @@ object FlinkSQLEngine extends Logging {
       val flinkConfFromArgs =
         kyuubiConf.getAll.filterKeys(_.startsWith("flink."))
           .map { case (k, v) => (k.stripPrefix("flink."), v) }
-      flinkConf.addAll(Configuration.fromMap(flinkConfFromArgs.asJava))
+      flinkConf.addAll(Configuration.fromMap(flinkConfFromArgs.toMap.asJava))
 
       val executionTarget = flinkConf.getString(DeploymentOptions.TARGET)
       setDeploymentConf(executionTarget, flinkConf)
