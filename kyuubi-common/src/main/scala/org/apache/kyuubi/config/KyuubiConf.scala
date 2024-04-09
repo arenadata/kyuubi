@@ -3005,6 +3005,8 @@ object KyuubiConf {
           "org.apache.kyuubi.engine.jdbc.postgresql.PostgreSQLConnectionProvider"
         case "StarRocks" | "starrocks" | "StarRocksConnectionProvider" =>
           "org.apache.kyuubi.engine.jdbc.starrocks.StarRocksConnectionProvider"
+        case "Impala" | "impala" | "ImpalaConnectionProvider" =>
+          "org.apache.kyuubi.engine.jdbc.impala.ImpalaConnectionProvider"
         case other => other
       }
       .createOptional
