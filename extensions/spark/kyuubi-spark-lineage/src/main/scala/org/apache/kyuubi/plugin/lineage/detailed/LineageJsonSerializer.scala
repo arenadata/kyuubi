@@ -15,10 +15,23 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.detailed
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import java.nio.charset.{Charset, StandardCharsets}
 
-  val SPARK_EVENT, KYUUBI_EVENT, KYUUBI_DETAILED_EVENT, ATLAS = Value
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+
+import org.apache.kyuubi.plugin.lineage.Lineage
+
+class LineageJsonSerializer(
+    val charset: Charset = StandardCharsets.UTF_8) extends LineageSerializer {
+
+  private val objectWriter = new ObjectMapper()
+    .registerModule(DefaultScalaModule)
+    .writerWithDefaultPrettyPrinter()
+
+  override def serialize(lineage: Lineage): Array[Byte] = {
+    objectWriter.writeValueAsString(lineage).getBytes(charset)
+  }
 }

@@ -179,6 +179,12 @@
             <artifactId>jakarta.servlet-api</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-minicluster</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.detailed
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import org.apache.spark.sql.execution.QueryExecution
 
-  val SPARK_EVENT, KYUUBI_EVENT, KYUUBI_DETAILED_EVENT, ATLAS = Value
+import org.apache.kyuubi.plugin.lineage.Lineage
+
+trait LineageLogger {
+  def log(execution: QueryExecution, lineage: Lineage): Unit
 }

@@ -38,6 +38,7 @@ case class KyuubiConf(loadSysDefault: Boolean = true) extends Logging {
 
   private val settings = new ConcurrentHashMap[String, String]()
   private lazy val reader: ConfigProvider = new ConfigProvider(settings)
+
   private def loadFromMap(props: Map[String, String]): Unit = {
     settings.putAll(props.asJava)
   }
@@ -163,7 +164,8 @@ case class KyuubiConf(loadSysDefault: Boolean = true) extends Logging {
   /**
    * Retrieve key-value pairs from [[KyuubiConf]] starting with `dropped.remainder`, and put them to
    * the result map with the `dropped` of key being dropped.
-   * @param dropped first part of prefix which will dropped for the new key
+   *
+   * @param dropped   first part of prefix which will dropped for the new key
    * @param remainder second part of the prefix which will be remained in the key
    */
   def getAllWithPrefix(dropped: String, remainder: String): Map[String, String] = {
@@ -2574,6 +2576,7 @@ object KyuubiConf {
   object OperationLanguages extends Enumeration with Logging {
     type OperationLanguage = Value
     val PYTHON, SQL, SCALA, UNKNOWN = Value
+
     def apply(language: String): OperationLanguage = {
       language.toUpperCase(Locale.ROOT) match {
         case "PYTHON" => PYTHON
@@ -3137,7 +3140,7 @@ object KyuubiConf {
   /**
    * Holds information about keys that have been deprecated.
    *
-   * @param key The deprecated key.
+   * @param key     The deprecated key.
    * @param version Version of Kyuubi where key was deprecated.
    * @param comment Additional info regarding to the removed config. For example,
    *                reasons of config deprecation, what users should use instead of it.
@@ -3528,4 +3531,18 @@ object KyuubiConf {
       .version("1.9.1")
       .serverOnly
       .fallbackConf(HIVE_SERVER2_THRIFT_RESULTSET_DEFAULT_FETCH_SIZE)
+
+  val HDFS_LOGGER_URL: OptionalConfigEntry[String] =
+    buildConf("kyuubi.lineage.hdfs.url")
+      .doc("URL of the HDFS namenode where lineage metadata files will be written")
+      .version("1.9.0")
+      .stringConf
+      .createOptional
+
+  val HDFS_LOGGER_ROOT: ConfigEntry[String] =
+    buildConf("kyuubi.lineage.hdfs.root")
+      .doc("HDFS root directory where lineage metadata files will be written")
+      .version("1.9.0")
+      .stringConf
+      .createWithDefault("/kyuubi/lineage")
 }

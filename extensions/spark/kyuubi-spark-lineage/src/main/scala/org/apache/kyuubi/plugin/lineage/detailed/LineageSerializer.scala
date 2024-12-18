@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.detailed
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import org.apache.kyuubi.plugin.lineage.Lineage
 
-  val SPARK_EVENT, KYUUBI_EVENT, KYUUBI_DETAILED_EVENT, ATLAS = Value
+trait LineageSerializer {
+  def serialize(lineage: Lineage): Array[Byte]
 }
