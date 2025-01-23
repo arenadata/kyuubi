@@ -36,6 +36,7 @@ import org.eclipse.jetty.util.thread.ExecutorThreadPool
 import org.apache.kyuubi.KyuubiException
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.ha.client.{KyuubiServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.MetricsConstants.{THRIFT_HTTP_CONN_FAIL, THRIFT_HTTP_CONN_OPEN, THRIFT_HTTP_CONN_TOTAL}
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.server.http.ThriftHttpServlet
@@ -237,7 +238,13 @@ final class KyuubiTHttpFrontendService(
 
   override protected def isServer(): Boolean = true
 
-  override val discoveryService: Option[Service] = None
+  override lazy val discoveryService: Option[Service] = {
+    if (ServiceDiscovery.supportServiceDiscovery(conf)) {
+      Some(new KyuubiServiceDiscovery(this))
+    } else {
+      None
+    }
+  }
 
   private def getHttpPath(httpPath: String): String = {
     if (httpPath == null || httpPath == "") return "/*"
