@@ -26,6 +26,8 @@ import scala.language.reflectiveCalls
 
 import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars
+import org.apache.hive.service.AbstractService
+import org.apache.hive.service.Service.STATE
 import org.apache.hive.service.cli.{SessionHandle => ImportedSessionHandle}
 import org.apache.hive.service.cli.session.{HiveSessionImpl => ImportedHiveSessionImpl}
 import org.apache.hive.service.cli.session.{HiveSessionImplwithUGI => ImportedHiveSessionImplwithUGI}
@@ -49,7 +51,7 @@ class HiveSessionManager(engine: HiveSQLEngine) extends SessionManager("HiveSess
 
   override val operationManager: OperationManager = new HiveOperationManager()
 
-  private val internalSessionManager = new ImportedHiveSessionManager(null) {
+  private val internalSessionManager = new ImportedHiveSessionManager(null, true) {
 
     var doAsEnabled: Boolean = _
 
@@ -154,6 +156,8 @@ class HiveSessionManager(engine: HiveSQLEngine) extends SessionManager("HiveSess
             ipAddress,
             Seq(ipAddress).asJava)
       }
+      initializeAndStartService(internalSessionManager, HiveSQLEngine.hiveConf)
+      initializeAndStartService(internalSessionManager.getOperationManager, HiveSQLEngine.hiveConf)
       hive.setSessionManager(internalSessionManager)
       hive.setOperationManager(internalSessionManager.getOperationManager)
       operationLogRoot.foreach(dir => hive.setOperationLogSessionDir(new File(dir)))
@@ -166,6 +170,13 @@ class HiveSessionManager(engine: HiveSQLEngine) extends SessionManager("HiveSess
         this,
         sessionHandle,
         hive)
+    }
+  }
+
+  private def initializeAndStartService(service: AbstractService, config: HiveConf): Unit = {
+    if (service.getServiceState == STATE.NOTINITED) {
+      service.init(config)
+      service.start()
     }
   }
 
