@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.client
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+trait AuthenticationTokenProvider {
+  def provide(): Option[String]
+}
 
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
+object NoOpAuthenticationTokenProvider extends AuthenticationTokenProvider {
+  override def provide(): Option[String] = None
 }
