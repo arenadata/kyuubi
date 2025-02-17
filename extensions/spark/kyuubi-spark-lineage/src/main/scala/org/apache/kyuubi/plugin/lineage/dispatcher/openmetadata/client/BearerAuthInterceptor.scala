@@ -15,10 +15,27 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.client
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import feign.{RequestInterceptor, RequestTemplate}
 
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
+import org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.client.BearerAuthInterceptor.{AUTH_HEADER, BEARER_PREFIX}
+
+class BearerAuthInterceptor(
+    val tokenProvider: AuthenticationTokenProvider) extends RequestInterceptor {
+  override def apply(requestTemplate: RequestTemplate): Unit = {
+    if (requestTemplate.headers.containsKey(AUTH_HEADER)) {
+      return
+    }
+
+    tokenProvider.provide()
+      .foreach { token =>
+        requestTemplate.header(AUTH_HEADER, s"$BEARER_PREFIX $token")
+      }
+  }
+}
+
+object BearerAuthInterceptor {
+  val AUTH_HEADER = "Authorization"
+  val BEARER_PREFIX = "Bearer"
 }

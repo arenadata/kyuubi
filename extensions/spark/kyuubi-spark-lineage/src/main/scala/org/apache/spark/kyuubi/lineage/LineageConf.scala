@@ -36,6 +36,7 @@ object LineageConf {
       "`org.apache.kyuubi.plugin.lineage.LineageDispatcher` for dispatching lineage events.<ul>" +
       "<li>SPARK_EVENT: send lineage event to spark event bus</li>" +
       "<li>KYUUBI_EVENT: send lineage event to kyuubi event bus</li>" +
+      "<li>OPEN_METADATA: send lineage to OpenMetadata</li>" +
       "<li>ATLAS: send lineage to apache atlas</li>" +
       "</ul>")
     .version("1.8.0")
@@ -47,5 +48,4 @@ object LineageConf {
     .createWithDefault(Seq(LineageDispatcherType.SPARK_EVENT.toString))
 
   val DEFAULT_CATALOG: String = SQLConf.get.getConf(SQLConf.DEFAULT_CATALOG)
-
 }

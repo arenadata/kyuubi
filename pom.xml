@@ -191,6 +191,7 @@
         <scopt.version>4.1.0</scopt.version>
         <slf4j.version>1.7.36</slf4j.version>
         <snakeyaml.version>2.2</snakeyaml.version>
+        <feign.version>13.5</feign.version>
         <!--
           DO NOT forget to change the following properties when change the minor version of Spark:
           `delta.version`, `delta.artifact`, `maven.plugin.scalatest.exclude.tags`

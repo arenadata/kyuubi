@@ -15,10 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.model
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+case class LineageDetails(
+    pipeline: OpenMetadataEntityReference,
+    description: String,
+    sqlQuery: String,
+    columnsLineage: Seq[EntityColumnLineage],
+    source: String = "SparkLineage")
 
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
-}
+case class EntityColumnLineage(
+    toColumn: String,
+    fromColumns: Seq[String])

@@ -15,10 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.model
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import com.fasterxml.jackson.annotation.JsonProperty
 
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
-}
+case class OpenMetadataEntitySearchResponse(hits: OpenMetadataEntitySearchHits)
+
+case class OpenMetadataEntitySearchHits(hits: Seq[OpenMetadataEntitySearchHit])
+
+case class OpenMetadataEntitySearchHit(
+    @JsonProperty("_source")
+    entity: OpenMetadataEntity)

@@ -15,10 +15,21 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.client
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
+import org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.model.{LineageDetails, OpenMetadataEntity}
 
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
+trait OpenMetadataClient {
+  def createPipelineServiceIfNotExists(pipelineService: String): OpenMetadataEntity
+
+  def createPipelineIfNotExists(
+      pipelineService: String,
+      pipeline: String): OpenMetadataEntity
+
+  def getTableEntity(fullyQualifiedNameTemplate: String): Option[OpenMetadataEntity]
+
+  def addLineage(
+      from: OpenMetadataEntity,
+      to: OpenMetadataEntity,
+      lineageDetails: LineageDetails): Unit
 }
