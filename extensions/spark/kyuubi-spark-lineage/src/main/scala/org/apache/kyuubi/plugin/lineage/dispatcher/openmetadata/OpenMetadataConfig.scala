@@ -17,12 +17,13 @@
 
 package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata
 
-import org.apache.spark.kyuubi.lineage.OpenMetadataSparkConf.{OPEN_METADATA_DATABASE_SERVICE_NAMES, OPEN_METADATA_JWT, OPEN_METADATA_PIPELINE_SERVICE_NAME, OPEN_METADATA_SERVER_ADDRESS}
+import org.apache.spark.kyuubi.lineage.OpenMetadataSparkConf.{OPEN_METADATA_DATABASE_SERVICE_NAMES, OPEN_METADATA_JWT, OPEN_METADATA_PIPELINE_NAME, OPEN_METADATA_PIPELINE_SERVICE_NAME, OPEN_METADATA_SERVER_ADDRESS}
 import org.apache.spark.kyuubi.lineage.SparkContextHelper
 
 case class OpenMetadataConfig(
     serverAddress: String,
     pipelineServiceName: String,
+    pipelineName: String,
     databaseServiceNames: Seq[String] = Seq(),
     jwt: String)
 
@@ -34,6 +35,7 @@ object OpenMetadataConfig {
           s"${OPEN_METADATA_SERVER_ADDRESS.key} option shouldn't be empty")
       },
       SparkContextHelper.getConf(OPEN_METADATA_PIPELINE_SERVICE_NAME),
+      SparkContextHelper.getConf(OPEN_METADATA_PIPELINE_NAME),
       SparkContextHelper.getConf(OPEN_METADATA_DATABASE_SERVICE_NAMES),
       SparkContextHelper.getConf(OPEN_METADATA_JWT).orNull)
   }

@@ -26,7 +26,8 @@ import org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.model.{EntityCol
 class OpenMetadataLineageLogger(
     val openMetadataClient: OpenMetadataClient,
     val databaseServiceNames: Seq[String],
-    pipelineServiceName: String) {
+    pipelineServiceName: String,
+    val pipelineName: String = null) {
 
   private lazy val pipelineService = openMetadataClient
     .createPipelineServiceIfNotExists(pipelineServiceName)
@@ -175,8 +176,12 @@ class OpenMetadataLineageLogger(
   }
 
   private def getPipelineName(execution: QueryExecution): String = {
-    val context = execution.sparkSession.sparkContext
-    s"${context.appName}_${context.sparkUser}"
+    pipelineName match {
+      case null =>
+        val context = execution.sparkSession.sparkContext
+        s"${context.appName}_${context.sparkUser}"
+      case name => name
+    }
   }
 
   private def splitColumnName(fullColumnName: String): (String, String) = {
