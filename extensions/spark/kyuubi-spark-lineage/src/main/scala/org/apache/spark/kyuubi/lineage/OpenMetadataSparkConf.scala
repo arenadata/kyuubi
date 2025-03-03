@@ -43,6 +43,14 @@ object OpenMetadataSparkConf {
       .stringConf
       .createWithDefault("SparkOnKyuubi")
 
+  val OPEN_METADATA_PIPELINE_NAME: ConfigEntry[String] =
+    ConfigBuilder("spark.kyuubi.plugin.lineage.openmetadata.pipelineName")
+      .doc("The name of the OpenMetadata pipeline. If pipeline " +
+        "with specified name already exists it will be used, otherwise it will be created.")
+      .version("1.9.2")
+      .stringConf
+      .createWithDefault("SparkOnKyuubi")
+
   val OPEN_METADATA_DATABASE_SERVICE_NAMES: ConfigEntry[Seq[String]] =
     ConfigBuilder("spark.kyuubi.plugin.lineage.openmetadata.databaseServiceNames")
       .doc("The comma separated list of database service names which contains the source tables " +
