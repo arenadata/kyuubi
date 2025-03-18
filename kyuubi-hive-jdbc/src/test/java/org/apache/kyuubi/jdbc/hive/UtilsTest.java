@@ -20,6 +20,7 @@ package org.apache.kyuubi.jdbc.hive;
 
 import static org.apache.kyuubi.jdbc.hive.Utils.extractURLComponents;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 import com.google.common.collect.ImmutableMap;
 import java.io.UnsupportedEncodingException;
@@ -186,6 +187,67 @@ public class UtilsTest {
                 .put("k3", "hostname:10018")
                 .build(),
             "jdbc:impala://hostname:10018/catalog/db;k1=v1?k2=v2;k3=hostname:10018"
+          },
+          {
+            "impala-host",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>()
+                .put("kyuubi.engine.type", "JDBC")
+                .put(
+                    "kyuubi.engine.jdbc.connection.url",
+                    "jdbc:impala://impala-host:21050/default;auth=noSasl")
+                .put("kyuubi.engine.jdbc.driver.class", "org.apache.hive.jdbc.HiveDriver")
+                .build(),
+            "jdbc:hive2://impala-host:10009/default?"
+                + "kyuubi.engine.type=JDBC;"
+                + "kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl;"
+                + "kyuubi.engine.jdbc.driver.class=org.apache.hive.jdbc.HiveDriver"
+          },
+          {
+            "impala-host",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>()
+                .put("kyuubi.engine.type", "JDBC")
+                .put(
+                    "kyuubi.engine.jdbc.connection.url",
+                    "jdbc:impala://impala-host:21050/default;auth=noSasl")
+                .build(),
+            "jdbc:hive2://impala-host:10009/default?"
+                + "kyuubi.engine.type=JDBC;"
+                + "kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl"
+          },
+          {
+            "impala-host",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>()
+                .put("kyuubi.engine.type", "JDBC")
+                .put(
+                    "kyuubi.engine.jdbc.connection.url",
+                    "jdbc:impala://impala-host:21050/default;auth=noSasl;ssl=true;sslTrustStore=/etc/ssl/truststore.jks;trustStorePassword=bigdata")
+                .build(),
+            "jdbc:hive2://impala-host:10009/default?"
+                + "kyuubi.engine.type=JDBC;"
+                + "kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl;ssl=true;sslTrustStore=/etc/ssl/truststore.jks;trustStorePassword=bigdata"
+          },
+          {
+            "hostname",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>()
+                .put("kyuubi.engine.type", "JDBC")
+                .put("kyuubi.engine.jdbc.driver.class", "org.apache.kyuubi.jdbc.KyuubiHiveDriver")
+                .put(
+                    "kyuubi.engine.jdbc.connection.url",
+                    "jdbc:impala://impala-host:21050/default;auth=noSasl")
+                .build(),
+            "jdbc:kyuubi://hostname:10009?kyuubi.engine.type=JDBC;kyuubi.engine.jdbc.driver.class=org.apache.kyuubi.jdbc.KyuubiHiveDriver;kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl"
           }
         });
   }
@@ -264,5 +326,50 @@ public class UtilsTest {
     assertEquals("--comments\n" + "select --? \n", splitSql.get(0));
     assertEquals(" from ", splitSql.get(1));
     assertEquals("", splitSql.get(2));
+  }
+
+  @Test
+  public void testSimpleProperties() {
+    String url = "user=foo;password=bar;auth=noSasl";
+    assertEquals("foo", Utils.parsePropertyFromUrl(url, "user"));
+    assertEquals("bar", Utils.parsePropertyFromUrl(url, "password"));
+    assertEquals("noSasl", Utils.parsePropertyFromUrl(url, "auth"));
+  }
+
+  @Test
+  public void testPropertiesWithConnectionUrlAtStart() {
+    String url =
+        "kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl;"
+            + "kyuubi.engine.jdbc.driver.class=org.apache.hive.jdbc.HiveDriver;user=foo;password=bar";
+    assertNull(Utils.parsePropertyFromUrl(url, "auth"));
+    assertNull(Utils.parsePropertyFromUrl(url, "kyuubi.engine.jdbc.connection.url"));
+    assertEquals(
+        "org.apache.hive.jdbc.HiveDriver",
+        Utils.parsePropertyFromUrl(url, "kyuubi.engine.jdbc.driver.class"));
+    assertEquals("foo", Utils.parsePropertyFromUrl(url, "user"));
+    assertEquals("bar", Utils.parsePropertyFromUrl(url, "password"));
+  }
+
+  @Test
+  public void testPropertiesWithConnectionUrlInMiddle() {
+    String url =
+        "user=foo;kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;"
+            + "auth=noSasl;ssl=true;kyuubi.engine.jdbc.driver.class=org.apache.hive.jdbc.HiveDriver;password=bar";
+    assertNull(Utils.parsePropertyFromUrl(url, "auth"));
+    assertNull(Utils.parsePropertyFromUrl(url, "ssl"));
+    assertNull(Utils.parsePropertyFromUrl(url, "kyuubi.engine.jdbc.connection.url"));
+    assertEquals(
+        "org.apache.hive.jdbc.HiveDriver",
+        Utils.parsePropertyFromUrl(url, "kyuubi.engine.jdbc.driver.class"));
+    assertEquals("foo", Utils.parsePropertyFromUrl(url, "user"));
+    assertEquals("bar", Utils.parsePropertyFromUrl(url, "password"));
+  }
+
+  @Test
+  public void testConnectionUrlOnlyProperties() {
+    String url =
+        "kyuubi.engine.jdbc.connection.url=jdbc:impala://impala-host:21050/default;auth=noSasl;ssl=true";
+    assertNull(Utils.parsePropertyFromUrl(url, "auth"));
+    assertNull(Utils.parsePropertyFromUrl(url, "ssl"));
   }
 }

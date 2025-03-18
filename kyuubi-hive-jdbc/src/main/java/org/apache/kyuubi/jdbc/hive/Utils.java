@@ -27,7 +27,6 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TStatus;
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TStatusCode;
 import org.apache.kyuubi.util.reflect.DynConstructors;
@@ -280,20 +279,39 @@ public class Utils {
       }
     }
 
-    Pattern confPattern = Pattern.compile("([^;]*)([^;]*);?");
-
     // parse hive conf settings
     String confStr = jdbcURI.getQuery();
     if (confStr != null) {
-      Matcher confMatcher = confPattern.matcher(confStr);
-      while (confMatcher.find()) {
-        String connParam = confMatcher.group(1);
-        if (StringUtils.isNotBlank(connParam) && connParam.contains("=")) {
-          int symbolIndex = connParam.indexOf('=');
-          connParams
-              .getHiveConfs()
-              .put(connParam.substring(0, symbolIndex), connParam.substring(symbolIndex + 1));
+      String[] segments = confStr.split(";");
+      Map<String, String> hiveConfs = connParams.getHiveConfs();
+      for (int i = 0; i < segments.length; i++) {
+        String segment = segments[i].trim();
+        if (segment.isEmpty()) {
+          continue;
         }
+        int eqPos = segment.indexOf('=');
+        if (eqPos == -1) {
+          continue;
+        }
+        String key = segment.substring(0, eqPos).trim();
+        String value = segment.substring(eqPos + 1).trim();
+        if (key.contains(".")) {
+          while (i + 1 < segments.length) {
+            String nextSegment = segments[i + 1].trim();
+            int nextEqPos = nextSegment.indexOf('=');
+            if (nextEqPos == -1) {
+              break;
+            }
+            String nextKey = nextSegment.substring(0, nextEqPos).trim();
+            if (!nextKey.contains(".")) {
+              value = value + ";" + nextSegment;
+              i++;
+            } else {
+              break;
+            }
+          }
+        }
+        hiveConfs.put(key, value);
       }
     }
 
@@ -545,9 +563,26 @@ public class Utils {
 
   public static String parsePropertyFromUrl(final String url, final String key) {
     String[] tokens = url.split(";");
+    boolean skipMode = false;
     for (String token : tokens) {
-      if (token.trim().startsWith(key.trim() + "=")) {
-        return token.trim().substring((key.trim() + "=").length());
+      String trimmed = token.trim();
+      if (trimmed.startsWith("kyuubi.engine.jdbc.connection.url=")) {
+        skipMode = true;
+        continue;
+      }
+      if (skipMode) {
+        int eqPos = trimmed.indexOf('=');
+        if (eqPos != -1) {
+          String potentialKey = trimmed.substring(0, eqPos).trim();
+          if (potentialKey.contains(".")) {
+            skipMode = false;
+          } else {
+            continue;
+          }
+        }
+      }
+      if (trimmed.startsWith(key.trim() + "=")) {
+        return trimmed.substring((key.trim() + "=").length());
       }
     }
     return null;
