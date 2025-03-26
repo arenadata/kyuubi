@@ -32,11 +32,12 @@
     <url>https://kyuubi.apache.org/</url>
 
     <properties>
-        <ranger.version>2.5.0</ranger.version>
+        <ranger.version>2.6.0</ranger.version>
         <!-- the following components' version may need to tune to align w/ the ranger.version-->
         <gethostname4j.version>1.0.0</gethostname4j.version>
-        <jersey.client.version>1.19.4</jersey.client.version>
+        <jersey.client.version>2.40</jersey.client.version>
         <jna.version>5.7.0</jna.version>
+        <solr.version>8.11.3</solr.version>
     </properties>
 
     <dependencies>
@@ -60,7 +61,7 @@
                 </exclusion>
                 <!-- this is going to be replaced with jersey-client -->
                 <exclusion>
-                    <groupId>com.sun.jersey</groupId>
+                    <groupId>org.glassfish.jersey.core</groupId>
                     <artifactId>jersey-bundle</artifactId>
                 </exclusion>
                 <exclusion>
@@ -103,7 +104,7 @@
         </dependency>
 
         <dependency>
-            <groupId>com.sun.jersey</groupId>
+            <groupId>org.glassfish.jersey.core</groupId>
             <artifactId>jersey-client</artifactId>
             <version>${jersey.client.version}</version>
         </dependency>
@@ -393,6 +394,18 @@
             <version>${project.version}</version>
             <type>test-jar</type>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.solr</groupId>
+            <artifactId>solr-solrj</artifactId>
+            <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-alpn-java-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
