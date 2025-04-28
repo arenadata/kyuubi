@@ -136,6 +136,39 @@ class TrinoSessionImpl(
         Optional.ofNullable(truststoreType.orNull),
         true)
     }
+
+    val kerberosEnabled = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_ENABLED)
+
+    if (kerberosEnabled) {
+      val servicePrincipalPattern = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_SERVICE_PRINCIPAL_PATTERN)
+      val remoteServiceName = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_REMOTE_SERVICE_NAME)
+      val useCanonicalHostname = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_USE_CANONICAL_HOSTNAME)
+      val principal = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_PRINCIPAL)
+      val kerberosConfig = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_CONFIG)
+      val keytab = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_KEYTAB)
+      val credentialCache = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_CREDENTIAL_CACHE)
+      val delegatedKerberos = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_DELEGATED_KERBEROS)
+
+      OkHttpUtil.setupKerberos(
+        builder,
+        servicePrincipalPattern,
+        remoteServiceName,
+        useCanonicalHostname,
+        Optional.ofNullable(principal),
+        Optional.ofNullable(kerberosConfig),
+        Optional.ofNullable(keytab),
+        Optional.ofNullable(credentialCache),
+        delegatedKerberos)
+    }
+
     sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_PASSWORD).foreach { password =>
       require(
         serverScheme.equalsIgnoreCase("https"),
