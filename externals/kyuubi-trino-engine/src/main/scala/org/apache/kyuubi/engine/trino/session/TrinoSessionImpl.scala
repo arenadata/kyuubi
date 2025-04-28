@@ -17,6 +17,7 @@
 
 package org.apache.kyuubi.engine.trino.session
 
+import java.io.File
 import java.net.URI
 import java.time.ZoneId
 import java.util.{Locale, Optional}
@@ -157,15 +158,20 @@ class TrinoSessionImpl(
       val delegatedKerberos = sessionConf
         .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_DELEGATED_KERBEROS)
 
+      val configFile = kerberosConfig.map(new File(_))
+      val keytabFile = keytab.map(new File(_))
+      val credCacheFile = credentialCache.map(new File(_))
+
+
       OkHttpUtil.setupKerberos(
         builder,
         servicePrincipalPattern,
         remoteServiceName,
         useCanonicalHostname,
-        Optional.ofNullable(principal),
-        Optional.ofNullable(kerberosConfig),
-        Optional.ofNullable(keytab),
-        Optional.ofNullable(credentialCache),
+        Optional.ofNullable(principal.orNull),
+        Optional.ofNullable(configFile.orNull),
+        Optional.ofNullable(keytabFile.orNull),
+        Optional.ofNullable(credCacheFile.orNull),
         delegatedKerberos)
     }
 
