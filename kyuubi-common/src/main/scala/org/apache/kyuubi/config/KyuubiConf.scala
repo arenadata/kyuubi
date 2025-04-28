@@ -1585,7 +1585,8 @@ object KyuubiConf {
 
   val ENGINE_TRINO_CONNECTION_KERBEROS_SERVICE_PRINCIPAL_PATTERN: ConfigEntry[String] =
     buildConf("kyuubi.engine.trino.connection.kerberos.servicePrincipalPattern")
-      .doc("Pattern for constructing the Kerberos service principal, using variables ${SERVICE} and ${HOST}")
+      .doc("Pattern for constructing the Kerberos service principal," +
+        " using variables ${SERVICE} and ${HOST}")
       .version("1.10.1")
       .stringConf
       .createWithDefault("${SERVICE}@${HOST}")
