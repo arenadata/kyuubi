@@ -162,7 +162,6 @@ class TrinoSessionImpl(
       val keytabFile = keytab.map(new File(_))
       val credCacheFile = credentialCache.map(new File(_))
 
-
       OkHttpUtil.setupKerberos(
         builder,
         servicePrincipalPattern,
