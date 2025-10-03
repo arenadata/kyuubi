@@ -93,6 +93,10 @@
                             <shadedPattern>${kyuubi.shade.packageName}.com.sun.jersey</shadedPattern>
                         </relocation>
                         <relocation>
+                            <pattern>jersey.repackaged.org</pattern>
+                            <shadedPattern>${kyuubi.shade.packageName}.jersey.repackaged.org</shadedPattern>
+                        </relocation>
+                        <relocation>
                             <pattern>com.sun.ws.rs.ext</pattern>
                             <shadedPattern>${kyuubi.shade.packageName}.com.sun.ws.rs.ext</shadedPattern>
                         </relocation>
