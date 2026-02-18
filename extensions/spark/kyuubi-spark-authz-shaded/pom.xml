@@ -30,11 +30,31 @@
     <name>Kyuubi Dev Spark Authorization Extension Shaded</name>
     <url>https://kyuubi.apache.org/</url>
 
+    <properties>
+        <graalvm.version>22.3.0</graalvm.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
             <artifactId>kyuubi-spark-authz_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <!-- To be added for JDK15 and above -->
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js</artifactId>
+            <version>${graalvm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js-scriptengine</artifactId>
+            <version>${graalvm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.truffle</groupId>
+            <artifactId>truffle-api</artifactId>
+            <version>${graalvm.version}</version>
         </dependency>
     </dependencies>
 
