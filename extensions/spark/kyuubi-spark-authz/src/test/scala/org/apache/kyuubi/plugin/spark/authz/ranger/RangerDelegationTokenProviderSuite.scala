@@ -19,11 +19,9 @@ package org.apache.kyuubi.plugin.spark.authz.ranger
 
 import java.net.InetAddress
 import java.util.ServiceLoader
-
-import scala.collection.JavaConverters._
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
+import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 import org.apache.spark.SparkConf
 import org.apache.spark.security.HadoopDelegationTokenProvider
 // scalastyle:off
@@ -39,8 +37,12 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
   }
 
   test("ServiceLoader discovers RangerDelegationTokenProvider") {
-    val providers = ServiceLoader.load(classOf[HadoopDelegationTokenProvider])
-      .iterator().asScala.toSeq
+    import scala.util.Try
+    val it = ServiceLoader.load(classOf[HadoopDelegationTokenProvider]).iterator()
+    val providers = Iterator.continually(())
+      .takeWhile(_ => it.hasNext)
+      .flatMap(_ => Try(it.next()).toOption)
+      .toSeq
     val rangerProvider = providers.find(_.serviceName == "ranger")
     assert(rangerProvider.isDefined)
     assert(rangerProvider.get.isInstanceOf[RangerDelegationTokenProvider])
@@ -56,7 +58,7 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
     val hadoopConf = new Configuration(false)
     hadoopConf.set("yarn.resourcemanager.principal", "yarn/rm-host@REALM")
 
-    val renewer = provider.getTokenRenewer(sparkConf, hadoopConf)
+    val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
     assert(renewer === "yarn/rm-host@REALM")
   }
 
@@ -65,7 +67,7 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
     val hadoopConf = new Configuration(false)
     hadoopConf.set("yarn.resourcemanager.principal", "yarn/_HOST@REALM")
 
-    val renewer = provider.getTokenRenewer(sparkConf, hadoopConf)
+    val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
     val expectedHost = InetAddress.getLocalHost.getCanonicalHostName.toLowerCase
     assert(renewer === s"yarn/$expectedHost@REALM")
   }
@@ -74,7 +76,7 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
     val sparkConf = new SparkConf().set("spark.master", "yarn")
     val hadoopConf = new Configuration(false)
 
-    val renewer = provider.getTokenRenewer(sparkConf, hadoopConf)
+    val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
     assert(renewer === UserGroupInformation.getCurrentUser.getUserName)
   }
 
@@ -83,7 +85,7 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
     val hadoopConf = new Configuration(false)
     hadoopConf.set("yarn.resourcemanager.principal", "yarn/rm-host@REALM")
 
-    val renewer = provider.getTokenRenewer(sparkConf, hadoopConf)
+    val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
     // RM principal is ignored for non-YARN master
     assert(renewer === UserGroupInformation.getCurrentUser.getUserName)
   }
@@ -92,7 +94,7 @@ class RangerDelegationTokenProviderSuite extends AnyFunSuite {
     val sparkConf = new SparkConf()
     val hadoopConf = new Configuration(false)
 
-    val renewer = provider.getTokenRenewer(sparkConf, hadoopConf)
+    val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
     assert(renewer === UserGroupInformation.getCurrentUser.getUserName)
   }
 

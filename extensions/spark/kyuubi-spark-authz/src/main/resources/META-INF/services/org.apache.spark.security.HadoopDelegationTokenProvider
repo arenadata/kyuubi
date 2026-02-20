@@ -16,3 +16,4 @@
 #
 
 org.apache.kyuubi.plugin.spark.authz.ranger.RangerDelegationTokenProvider
+org.apache.kyuubi.plugin.spark.authz.ranger.SolrDelegationTokenProvider

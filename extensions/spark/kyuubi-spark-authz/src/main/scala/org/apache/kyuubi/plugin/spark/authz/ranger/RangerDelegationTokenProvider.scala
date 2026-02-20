@@ -18,9 +18,9 @@
 package org.apache.kyuubi.plugin.spark.authz.ranger
 
 import scala.util.control.NonFatal
-
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.security.{Credentials, SecurityUtil, UserGroupInformation}
+import org.apache.hadoop.security.{Credentials, UserGroupInformation}
+import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 import org.apache.ranger.admin.client.RangerAdminRESTClient
 import org.apache.spark.SparkConf
 import org.apache.spark.security.HadoopDelegationTokenProvider
@@ -62,7 +62,7 @@ class RangerDelegationTokenProvider extends HadoopDelegationTokenProvider {
         return None
       }
 
-      val renewer = getTokenRenewer(sparkConf, hadoopConf)
+      val renewer = DTokenUtils.getTokenRenewer(sparkConf, hadoopConf)
 
       LOG.info(s"Obtaining Ranger delegation token from $rangerUrl, renewer=$renewer")
 
@@ -83,16 +83,4 @@ class RangerDelegationTokenProvider extends HadoopDelegationTokenProvider {
     }
   }
 
-  private[ranger] def getTokenRenewer(
-      sparkConf: SparkConf,
-      hadoopConf: Configuration): String = {
-    val master = sparkConf.get("spark.master", "")
-    if (master.contains("yarn")) {
-      val rmPrincipal = hadoopConf.get("yarn.resourcemanager.principal")
-      if (rmPrincipal != null && rmPrincipal.nonEmpty) {
-        return SecurityUtil.getServerPrincipal(rmPrincipal, null: String)
-      }
-    }
-    UserGroupInformation.getCurrentUser.getUserName
-  }
 }

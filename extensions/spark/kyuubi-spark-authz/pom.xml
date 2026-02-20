@@ -37,7 +37,7 @@
         <gethostname4j.version>1.0.0</gethostname4j.version>
         <jersey.client.version>2.40</jersey.client.version>
         <jna.version>5.7.0</jna.version>
-        <solr.version>8.11.3</solr.version>
+        <solr.version>8.11.4</solr.version>
     </properties>
 
     <dependencies>
@@ -396,6 +396,17 @@
             <scope>test</scope>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.solr</groupId>
+            <artifactId>solr-hadoop-auth-framework</artifactId>
+            <version>${solr.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>org.apache.solr</groupId>
             <artifactId>solr-solrj</artifactId>
