@@ -35,6 +35,23 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     super.initialize(conf)
   }
 
+  // Wraps a StreamObserver to silently absorb errors with CANCELLED status that occur when
+  // the client disconnects or cancels the request before the engine responds.
+  private def safeObserver[T](observer: StreamObserver[T]): StreamObserver[T] =
+    new StreamObserver[T] {
+      override def onNext(value: T): Unit = observer.onNext(value)
+      override def onError(t: Throwable): Unit = {
+        val status = io.grpc.Status.fromThrowable(t)
+        if (status.getCode == io.grpc.Status.Code.CANCELLED) {
+          warn(s"Ignoring error forwarding on CANCELLED call: $t")
+        } else {
+          observer.onError(t)
+        }
+      }
+
+      override def onCompleted(): Unit = observer.onCompleted()
+    }
+
   override def executePlan(
       req: proto.ExecutePlanRequest,
       respObserver: StreamObserver[proto.ExecutePlanResponse]): Unit = {
@@ -45,7 +62,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.executePlan(req, respObserver)
+    session.client.astub.executePlan(req, safeObserver(respObserver))
   }
 
   override def analyzePlan(
@@ -58,7 +75,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.analyzePlan(req, respObserver)
+    session.client.astub.analyzePlan(req, safeObserver(respObserver))
   }
 
   override def config(
@@ -71,13 +88,14 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.config(req, respObserver)
+    session.client.astub.config(req, safeObserver(respObserver))
   }
 
   // FIXME this is dummy implementation to discard any uploaded artifacts
   override def addArtifacts(respObserver: StreamObserver[proto.AddArtifactsResponse])
       : StreamObserver[proto.AddArtifactsRequest] = {
     warn(s"addArtifacts")
+    val safe = safeObserver(respObserver)
     new StreamObserver[proto.AddArtifactsRequest] {
 
       private var grcpSession: KyuubiGrpcSession = _
@@ -87,20 +105,20 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
           grcpSession = grpcSessionManager.getOrCreateSession(
             new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
             Option(req.getClientObservedServerSideSessionId))
-          grcpSession.client.astub.addArtifacts(respObserver)
+          grcpSession.client.astub.addArtifacts(safe)
         }
       }
 
       override def onError(t: Throwable): Unit = {
-        respObserver.onError(t)
+        safe.onError(t)
       }
 
       override def onCompleted(): Unit = {
         val builder = proto.AddArtifactsResponse.newBuilder()
         builder.setSessionId(grcpSession.handle.sessionId)
         builder.setServerSideSessionId(grcpSession.handle.sessionId)
-        respObserver.onNext(builder.build())
-        respObserver.onCompleted()
+        safe.onNext(builder.build())
+        safe.onCompleted()
       }
     }
   }
@@ -115,7 +133,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.artifactStatus(req, respObserver)
+    session.client.astub.artifactStatus(req, safeObserver(respObserver))
   }
 
   override def interrupt(
@@ -128,7 +146,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.interrupt(req, respObserver)
+    session.client.astub.interrupt(req, safeObserver(respObserver))
   }
 
   override def reattachExecute(
@@ -141,7 +159,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.reattachExecute(req, respObserver)
+    session.client.astub.reattachExecute(req, safeObserver(respObserver))
   }
 
   override def releaseExecute(
@@ -154,7 +172,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.releaseExecute(req, respObserver)
+    session.client.astub.releaseExecute(req, safeObserver(respObserver))
   }
 
   override def releaseSession(
@@ -164,7 +182,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       None)
-    session.client.astub.releaseSession(req, respObserver)
+    session.client.astub.releaseSession(req, safeObserver(respObserver))
   }
 
   override def fetchErrorDetails(
@@ -177,6 +195,6 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val session = grpcSessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
-    session.client.astub.fetchErrorDetails(req, respObserver)
+    session.client.astub.fetchErrorDetails(req, safeObserver(respObserver))
   }
 }

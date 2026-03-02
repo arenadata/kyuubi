@@ -39,6 +39,7 @@ class SparkGrpcFrontendService(
 
   override lazy val discoveryService: Option[Service] = {
     assert(ServiceDiscovery.supportServiceDiscovery(conf))
+    logger.warn("discoveryService")
     Some(new EngineServiceDiscovery(this))
   }
 
@@ -47,6 +48,7 @@ class SparkGrpcFrontendService(
     SparkConnectService.start(sc)
     val (host, port) = KyuubiSparkConnectService.hostAndPort
     _connectionUrl = s"$host:$port"
+    logger.warn("_connectionUrl: " + _connectionUrl)
     super.initialize(conf)
   }
 }

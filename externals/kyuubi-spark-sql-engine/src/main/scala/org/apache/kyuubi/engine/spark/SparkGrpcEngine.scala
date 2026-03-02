@@ -126,6 +126,8 @@ class SparkGrpcEngine(spark: SparkSession) extends Serverable("SparkGrpcEngine")
             currentEngine.get.stop()
           }
         }
+
+
       }
     }
   }
