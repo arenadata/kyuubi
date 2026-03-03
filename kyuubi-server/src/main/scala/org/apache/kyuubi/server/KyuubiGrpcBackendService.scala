@@ -21,11 +21,11 @@ import io.grpc.stub.StreamObserver
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.service.AbstractBackendService
-import org.apache.kyuubi.session.{GrpcSessionHandle, KyuubiGrpcSession, KyuubiGrpcSessionManager, KyuubiSessionManager}
+import org.apache.kyuubi.session.{GrpcSessionHandle, KyuubiGrpcSessionManager, KyuubiSessionManager}
 import org.apache.kyuubi.shaded.spark.connect.proto
 
 class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackendService")
-  with proto.SparkConnectServiceGrpc.AsyncService with Logging {
+  with proto.SparkConnectServiceGrpc.AsyncService with BackendServiceMetric with Logging {
 
   override val sessionManager: KyuubiSessionManager = new KyuubiSessionManager()
   val grpcSessionManager: KyuubiGrpcSessionManager = new KyuubiGrpcSessionManager()
@@ -91,34 +91,44 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     session.client.astub.config(req, safeObserver(respObserver))
   }
 
-  // FIXME this is dummy implementation to discard any uploaded artifacts
   override def addArtifacts(respObserver: StreamObserver[proto.AddArtifactsResponse])
       : StreamObserver[proto.AddArtifactsRequest] = {
-    warn(s"addArtifacts")
+    info(s"addArtifacts")
     val safe = safeObserver(respObserver)
     new StreamObserver[proto.AddArtifactsRequest] {
 
-      private var grcpSession: KyuubiGrpcSession = _
+      private var sparkRequestObserver: StreamObserver[proto.AddArtifactsRequest] = _
 
       override def onNext(req: proto.AddArtifactsRequest): Unit = {
-        if (grcpSession == null) {
-          grcpSession = grpcSessionManager.getOrCreateSession(
+        if (sparkRequestObserver == null) {
+          val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
+            Some(req.getClientObservedServerSideSessionId)
+          } else None
+          val session = grpcSessionManager.getOrCreateSession(
             new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
-            Option(req.getClientObservedServerSideSessionId))
-          grcpSession.client.astub.addArtifacts(safe)
+            previousSessionId)
+          sparkRequestObserver = session.client.astub.addArtifacts(safe)
         }
+        sparkRequestObserver.onNext(req)
       }
 
       override def onError(t: Throwable): Unit = {
-        safe.onError(t)
+        if (sparkRequestObserver != null) {
+          sparkRequestObserver.onError(t)
+        } else {
+          safe.onError(t)
+        }
       }
 
       override def onCompleted(): Unit = {
-        val builder = proto.AddArtifactsResponse.newBuilder()
-        builder.setSessionId(grcpSession.handle.sessionId)
-        builder.setServerSideSessionId(grcpSession.handle.sessionId)
-        safe.onNext(builder.build())
-        safe.onCompleted()
+        sparkRequestObserver.onCompleted()
+        /*
+        if (sparkRequestObserver != null) {
+          sparkRequestObserver.onCompleted()
+        } else {
+          safe.onCompleted()
+        }
+        */
       }
     }
   }
