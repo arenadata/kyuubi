@@ -1,0 +1,153 @@
+---
+config:
+  layout: elk
+---
+flowchart TB
+ subgraph Clients["Client Applications"]
+        C1["JDBC Client"]
+        C2["Spark Connect / PySpark"]
+        C3["REST Client"]
+        C4["MySQL Client"]
+        C5["Beeline CLI"]
+  end
+ subgraph Frontends["Frontend Services"]
+        F1["KyuubiTBinaryFrontendService<br>Thrift Binary"]
+        F2["KyuubiTHttpFrontendService<br>Thrift over HTTP"]
+        F3["KyuubiGrpcFrontendService<br>gRPC / Spark Connect"]
+        F4["KyuubiRestFrontendService<br>HTTP REST"]
+        F5["KyuubiMySQLFrontendService<br>MySQL Wire Protocol"]
+  end
+ subgraph Backends["Backend Services"]
+        B1["KyuubiBackendService<br>Thrift sessions"]
+        B2["KyuubiGrpcBackendService<br>gRPC sessions"]
+  end
+ subgraph SessionMgmt["Session Management"]
+        SM1["KyuubiSessionManager<br>Interactive + Batch"]
+        SM2["KyuubiGrpcSessionManager<br>gRPC sessions"]
+        S1["KyuubiSessionImpl<br>Interactive session"]
+        S2["KyuubiGrpcSession<br>gRPC session"]
+        S3["KyuubiBatchSession<br>Batch session"]
+  end
+ subgraph EngineDisc["Engine Discovery"]
+        ED1["EngineRef"]
+        ED2["ServiceDiscovery<br>ZooKeeper / etcd"]
+  end
+ subgraph Clients_["Engine Clients"]
+        EC1["KyuubiSyncThriftClient<br>Thrift → Engine"]
+        EC2["KyuubiGrpcClient<br>gRPC → Engine"]
+  end
+ subgraph KyuubiServer["KyuubiServer (kyuubi-server)"]
+    direction TB
+        Frontends
+        Backends
+        SessionMgmt
+        EngineDisc
+        Clients_
+  end
+ subgraph SparkEngine["SparkGrpcEngine (kyuubi-spark-sql-engine)"]
+        SE1["SparkGrpcFrontendService<br>SparkConnectService"]
+        SE2["SparkGrpcBackendService"]
+        SE3["SparkSQLSessionManager"]
+        SE4["SparkSession / SparkContext"]
+  end
+ subgraph SparkThriftEngine["SparkSQLEngine (Thrift)"]
+        STE1["SparkTBinaryFrontendService<br>Thrift"]
+        STE2["SparkSQLBackendService"]
+        STE3["SparkSQLSessionManager"]
+  end
+ subgraph Engines["Execution Engines"]
+    direction TB
+        SparkEngine
+        SparkThriftEngine
+        E2["HiveSQLEngine"]
+        E3["FlinkSQLEngine"]
+        E4["TrinoEngine"]
+        E5["JDBCEngine"]
+  end
+ subgraph HA["High Availability"]
+        ZK["ZooKeeper / etcd<br>Service Registry"]
+        LB["Load Balancer"]
+  end
+ subgraph Observability["Observability"]
+        M["Metrics<br>Codahale"]
+        EV["Events<br>KyuubiSessionEvent<br>KyuubiOperationEvent"]
+        LOG["Audit Log<br>JSON / Kafka"]
+  end
+    C1 -- Thrift Binary --> F1
+    C1 -- Thrift HTTP --> F2
+    C5 -- Thrift Binary --> F1
+    C2 -- gRPC Spark Connect --> F3
+    C3 -- HTTP REST --> F4
+    C4 -- MySQL Protocol --> F5
+    F1 --> B1
+    F2 --> B1
+    F3 --> B2
+    F4 --> B1
+    F5 --> B1
+    B1 --> SM1
+    B2 --> SM2
+    SM1 --> S1 & S3
+    SM2 --> S2
+    S1 --> EC1 & ED1
+    S2 --> EC2 & ED1
+    ED1 --> ED2
+    EC1 -- Thrift RPC --> STE1
+    EC2 -- gRPC streaming --> SE1
+    SE1 --> SE2
+    SE2 --> SE3
+    SE3 --> SE4
+    STE1 --> STE2
+    STE2 --> STE3
+    ED2 <-- Register / Discover --> ZK
+    SparkEngine -- Register --> ZK
+    SparkThriftEngine -- Register --> ZK
+    E2 -- Register --> ZK
+    E3 -- Register --> ZK
+    LB -- Route --> KyuubiServer
+    KyuubiServer --> M & EV
+    EV --> LOG
+
+     C1:::client
+     C2:::client
+     C3:::client
+     C4:::client
+     C5:::client
+     F1:::frontend
+     F2:::frontend
+     F3:::frontend
+     F4:::frontend
+     F5:::frontend
+     B1:::backend
+     B2:::backend
+     SM1:::session
+     SM2:::session
+     S1:::session
+     S2:::session
+     S3:::session
+     ED1:::infra
+     ED2:::infra
+     EC1:::infra
+     EC2:::infra
+     SE1:::engine
+     SE2:::engine
+     SE3:::engine
+     SE4:::engine
+     STE1:::engine
+     STE2:::engine
+     STE3:::engine
+     E2:::engine
+     E3:::engine
+     E4:::engine
+     E5:::engine
+     ZK:::infra
+     LB:::infra
+     M:::obs
+     EV:::obs
+     LOG:::obs
+    classDef client fill:#4A90D9,color:#fff,stroke:#2C5F8A
+    classDef frontend fill:#7B68EE,color:#fff,stroke:#4B3A8A
+    classDef backend fill:#9B59B6,color:#fff,stroke:#6C3483
+    classDef session fill:#E67E22,color:#fff,stroke:#A04000
+    classDef engine fill:#27AE60,color:#fff,stroke:#1A6B3A
+    classDef infra fill:#7F8C8D,color:#fff,stroke:#4D5656
+    classDef obs fill:#E74C3C,color:#fff,stroke:#922B21
