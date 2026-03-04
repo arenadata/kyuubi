@@ -20,7 +20,8 @@ package org.apache.kyuubi.server
 import org.apache.kyuubi.service.{AbstractGrpcFrontendService, Serverable, Service}
 import org.apache.kyuubi.shaded.spark.connect.proto
 
-class KyuubiGrpcFrontendService(override val serverable: Serverable)
+class KyuubiGrpcFrontendService(override val serverable: Serverable,
+                                grpcBackendService: KyuubiGrpcBackendService)
   extends AbstractGrpcFrontendService("KyuubiGrpcFrontend") {
 
   override protected def isServer: Boolean = true
@@ -28,5 +29,10 @@ class KyuubiGrpcFrontendService(override val serverable: Serverable)
   override val discoveryService: Option[Service] = None
 
   override def sparkConnectAsyncService: proto.SparkConnectServiceGrpc.AsyncService =
-    serverable.backendService.asInstanceOf[KyuubiGrpcBackendService]
+    grpcBackendService
+
+  override def initialize(conf: org.apache.kyuubi.config.KyuubiConf): Unit = {
+    addService(grpcBackendService)
+    super.initialize(conf)
+  }
 }

@@ -21,17 +21,15 @@ import io.grpc.stub.StreamObserver
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.service.AbstractBackendService
-import org.apache.kyuubi.session.{GrpcSessionHandle, KyuubiGrpcSessionManager, KyuubiSessionManager}
+import org.apache.kyuubi.session.{GrpcSessionHandle, KyuubiGrpcSessionManager}
 import org.apache.kyuubi.shaded.spark.connect.proto
 
 class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackendService")
-  with proto.SparkConnectServiceGrpc.AsyncService with BackendServiceMetric with Logging {
+  with proto.SparkConnectServiceGrpc.AsyncService with Logging {
 
-  override val sessionManager: KyuubiSessionManager = new KyuubiSessionManager()
-  val grpcSessionManager: KyuubiGrpcSessionManager = new KyuubiGrpcSessionManager()
+  override val sessionManager: KyuubiGrpcSessionManager = new KyuubiGrpcSessionManager()
 
   override def initialize(conf: org.apache.kyuubi.config.KyuubiConf): Unit = {
-    addService(grpcSessionManager)
     super.initialize(conf)
   }
 
@@ -59,7 +57,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.executePlan(req, safeObserver(respObserver))
@@ -72,7 +70,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.analyzePlan(req, safeObserver(respObserver))
@@ -85,7 +83,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.config(req, safeObserver(respObserver))
@@ -104,7 +102,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
           val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
             Some(req.getClientObservedServerSideSessionId)
           } else None
-          val session = grpcSessionManager.getOrCreateSession(
+          val session = sessionManager.getOrCreateSession(
             new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
             previousSessionId)
           sparkRequestObserver = session.client.astub.addArtifacts(safe)
@@ -140,7 +138,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.artifactStatus(req, safeObserver(respObserver))
@@ -153,7 +151,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.interrupt(req, safeObserver(respObserver))
@@ -166,7 +164,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.reattachExecute(req, safeObserver(respObserver))
@@ -179,7 +177,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.releaseExecute(req, safeObserver(respObserver))
@@ -189,7 +187,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
       req: proto.ReleaseSessionRequest,
       respObserver: StreamObserver[proto.ReleaseSessionResponse]): Unit = {
     warn(s"releaseSession - session_id: ${req.getSessionId}")
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       None)
     session.client.astub.releaseSession(req, safeObserver(respObserver))
@@ -202,7 +200,7 @@ class KyuubiGrpcBackendService extends AbstractBackendService("KyuubiGrpcBackend
     val previousSessionId = if (req.hasClientObservedServerSideSessionId) {
       Some(req.getClientObservedServerSideSessionId)
     } else None
-    val session = grpcSessionManager.getOrCreateSession(
+    val session = sessionManager.getOrCreateSession(
       new GrpcSessionHandle(req.getUserContext.getUserId, req.getSessionId),
       previousSessionId)
     session.client.astub.fetchErrorDetails(req, safeObserver(respObserver))

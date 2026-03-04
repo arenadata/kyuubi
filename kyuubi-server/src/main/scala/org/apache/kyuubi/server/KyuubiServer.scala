@@ -183,7 +183,9 @@ class KyuubiServer(name: String) extends Serverable(name) {
   def this() = this(classOf[KyuubiServer].getSimpleName)
 
   override val backendService: AbstractBackendService =
-    // new KyuubiBackendService() with BackendServiceMetric
+    new KyuubiBackendService() with BackendServiceMetric
+
+  val grpcBackendService: KyuubiGrpcBackendService =
     new KyuubiGrpcBackendService
 
   override lazy val frontendServices: Seq[AbstractFrontendService] =
@@ -201,7 +203,7 @@ class KyuubiServer(name: String) extends Serverable(name) {
         new KyuubiTrinoFrontendService(this)
       case GRPC =>
         warn("gRPC frontend protocol is experimental.")
-        new KyuubiGrpcFrontendService(this)
+        new KyuubiGrpcFrontendService(this, grpcBackendService)
       case other =>
         throw new UnsupportedOperationException(s"Frontend protocol $other is not supported yet.")
     }
