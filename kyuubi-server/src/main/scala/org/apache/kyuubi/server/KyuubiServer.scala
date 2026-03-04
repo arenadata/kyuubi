@@ -32,6 +32,7 @@ import org.apache.kyuubi.ha.HighAvailabilityConf._
 import org.apache.kyuubi.ha.client.{AuthTypes, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConf, MetricsSystem}
 import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf
+import org.apache.kyuubi.server.connect.SparkConnectFrontendService
 import org.apache.kyuubi.service.{AbstractBackendService, AbstractFrontendService, Serverable, ServiceState}
 import org.apache.kyuubi.session.KyuubiSessionManager
 import org.apache.kyuubi.util.{KyuubiHadoopUtils, SignalRegister}
@@ -193,11 +194,14 @@ class KyuubiServer(name: String) extends Serverable(name) {
         warn("REST frontend protocol is experimental, API may change in the future.")
         new KyuubiRestFrontendService(this)
       case MYSQL =>
-        warn("MYSQL frontend protocol is experimental.")
+        warn("MYSQL frontengtod protocol is experimental.")
         new KyuubiMySQLFrontendService(this)
       case TRINO =>
         warn("Trino frontend protocol is experimental.")
         new KyuubiTrinoFrontendService(this)
+      case SPARK_CONNECT =>
+        warn("SPARK_CONNECT frontend protocol is experimental.")
+        new SparkConnectFrontendService(this)
       case other =>
         throw new UnsupportedOperationException(s"Frontend protocol $other is not supported yet.")
     }

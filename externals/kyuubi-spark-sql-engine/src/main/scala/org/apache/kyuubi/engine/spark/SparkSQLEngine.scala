@@ -38,6 +38,7 @@ import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_SUBMIT_TIME_KEY, KYUUBI_ENGINE_URL}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.spark.SparkSQLEngine.{countDownLatch, currentEngine}
+import org.apache.kyuubi.engine.spark.connect.SparkConnectServerHelper
 import org.apache.kyuubi.engine.spark.events.{EngineEvent, EngineEventsStore, SparkEventHandlerRegister}
 import org.apache.kyuubi.engine.spark.session.{SparkSessionImpl, SparkSQLSessionManager}
 import org.apache.kyuubi.events.EventBus
@@ -56,6 +57,9 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   private val shutdown = new AtomicBoolean(false)
   private val gracefulStopDeregistered = new AtomicBoolean(false)
 
+  @volatile private var _connectUrl: Option[String] = None
+  def connectUrl: Option[String] = _connectUrl
+
   @volatile private var lifetimeTerminatingChecker: Option[ScheduledExecutorService] = None
   @volatile private var stopEngineExec: Option[ThreadPoolExecutor] = None
   private lazy val engineSavePath =
@@ -72,6 +76,12 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
 
   override def start(): Unit = {
     super.start()
+    if (conf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+      val port = SparkConnectServerHelper.start(spark, 0)
+      val host = JavaUtils.findLocalInetAddress.getHostAddress
+      _connectUrl = Some(s"$host:$port")
+      info(s"SparkConnect server started at ${_connectUrl.get}")
+    }
     // Start engine self-terminating checker after all services are ready and it can be reached by
     // all servers in engine spaces.
     backendService.sessionManager.startTerminatingChecker(() => {
@@ -98,6 +108,9 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   }
 
   override def stop(): Unit = if (shutdown.compareAndSet(false, true)) {
+    if (conf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+      Utils.tryLogNonFatalError(SparkConnectServerHelper.stop())
+    }
     super.stop()
     lifetimeTerminatingChecker.foreach(checker => {
       val shutdownTimeout = conf.get(ENGINE_EXEC_POOL_SHUTDOWN_TIMEOUT)

@@ -416,7 +416,7 @@ object KyuubiConf {
 
   object FrontendProtocols extends Enumeration {
     type FrontendProtocol = Value
-    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO = Value
+    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO, SPARK_CONNECT = Value
   }
 
   val FRONTEND_PROTOCOLS: ConfigEntry[Seq[String]] =
@@ -1199,6 +1199,30 @@ object KyuubiConf {
     .intConf
     .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
     .createWithDefault(10999)
+
+  val FRONTEND_CONNECT_BIND_HOST: ConfigEntry[Option[String]] =
+    buildConf("kyuubi.frontend.connect.bind.host")
+      .doc("Hostname or IP on which to run the Spark Connect gRPC frontend service.")
+      .version("1.11.0")
+      .serverOnly
+      .fallbackConf(FRONTEND_BIND_HOST)
+
+  val FRONTEND_CONNECT_BIND_PORT: ConfigEntry[Int] =
+    buildConf("kyuubi.frontend.connect.bind.port")
+      .doc("Port on which to run the Spark Connect gRPC frontend service.")
+      .version("1.11.0")
+      .serverOnly
+      .intConf
+      .checkValue(_ > 0, "Port must be positive")
+      .createWithDefault(10099)
+
+  val ENGINE_SPARK_CONNECT_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.spark.connect.enabled")
+      .doc("Whether to start SparkConnectService inside the Spark engine. " +
+        "Required when the SPARK_CONNECT frontend protocol is enabled.")
+      .version("1.11.0")
+      .booleanConf
+      .createWithDefault(false)
 
   val FRONTEND_TRINO_MAX_WORKER_THREADS: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.trino.max.worker.threads")
