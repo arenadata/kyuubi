@@ -38,7 +38,7 @@ import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_SUBMIT_TIME_KEY, KYUUBI_ENGINE_URL}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.spark.SparkSQLEngine.{countDownLatch, currentEngine}
-import org.apache.kyuubi.engine.spark.connect.SparkConnectServerHelper
+import org.apache.spark.sql.connect.SparkConnectServerHelper
 import org.apache.kyuubi.engine.spark.events.{EngineEvent, EngineEventsStore, SparkEventHandlerRegister}
 import org.apache.kyuubi.engine.spark.session.{SparkSessionImpl, SparkSQLSessionManager}
 import org.apache.kyuubi.events.EventBus
@@ -77,7 +77,7 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   override def start(): Unit = {
     super.start()
     if (conf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
-      val port = SparkConnectServerHelper.start(spark, 0)
+      val port = SparkConnectServerHelper.start(spark)
       val host = JavaUtils.findLocalInetAddress.getHostAddress
       _connectUrl = Some(s"$host:$port")
       info(s"SparkConnect server started at ${_connectUrl.get}")
@@ -328,6 +328,12 @@ object SparkSQLEngine extends Logging {
       kyuubiConf.getAll.foreach { case (k, v) =>
         debug(s"KyuubiConf: $k = $v")
       }
+    }
+
+    if (_kyuubiConf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+      val socket = new java.net.ServerSocket(0)
+      val connectPort = try socket.getLocalPort finally socket.close()
+      _sparkConf.set("spark.connect.grpc.binding.port", connectPort.toString)
     }
   }
 
