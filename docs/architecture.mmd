@@ -1,0 +1,92 @@
+flowchart TB
+    %% ── Clients ──────────────────────────────────────────────────────────────
+    subgraph Clients
+        C1[JDBC / Beeline / ODBC]
+        C2[REST Client]
+        C3[PySpark — Spark Connect]
+        C4[MySQL / Trino Client]
+    end
+
+    %% ── Kyuubi Server ────────────────────────────────────────────────────────
+    subgraph KyuubiServer["Kyuubi Server"]
+        direction TB
+
+        subgraph Frontends["Frontend Services"]
+            F1[Thrift Binary & HTTP<br>:10009]
+            F2[REST :10099]
+            F3[SparkConnect gRPC :10099]
+            F4[MySQL / Trino]
+        end
+
+        subgraph Core["Session & Backend"]
+            SM[SessionManager<br>+ BatchService]
+            BS[BackendService<br>KyuubiSyncThriftClient]
+        end
+
+        MB[MetadataStore<br>JDBC / LevelDB]
+    end
+
+    %% ── HA / Discovery ───────────────────────────────────────────────────────
+    DISC[(ZooKeeper / etcd)]
+
+    %% ── Engines ──────────────────────────────────────────────────────────────
+    subgraph Engines["Compute Engines  (separate JVM processes)"]
+        direction LR
+
+        subgraph SparkEngine["Spark SQL Engine"]
+            SE_T[Thrift Frontend]
+            SE_G[SparkConnect gRPC]
+            SE_B[SparkSQL Backend]
+        end
+
+        OE[Flink / Hive / JDBC /<br>Trino / Chat Engines]
+    end
+
+    %% ── Spark Extensions ─────────────────────────────────────────────────────
+    subgraph SparkExt["Spark Extensions"]
+        EX[spark-authz · spark-lineage<br>extension-spark · connectors]
+    end
+
+    %% ── Observability ────────────────────────────────────────────────────────
+    OB[Metrics · Event Logging · Spark UI]
+
+    %% ── Connections ──────────────────────────────────────────────────────────
+    C1 -->|Thrift| F1
+    C2 -->|HTTP| F2
+    C3 -->|gRPC| F3
+    C4 --> F4
+
+    F1 & F2 & F4 --> SM
+    F3 -->|open session via Thrift,<br>then gRPC proxy| SM
+
+    SM --> BS
+    SM <-->|discover & register| DISC
+    SM --> MB
+
+    BS -->|Thrift| SE_T
+    BS -->|Thrift / HTTP| OE
+    F3 -->|gRPC ExecutePlan| SE_G
+
+    SE_T -->|register| DISC
+    SE_B --> EX
+
+    KyuubiServer --> OB
+
+    %% ── Styles ───────────────────────────────────────────────────────────────
+    classDef client     fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef frontend   fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef core       fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    classDef engine     fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef discovery  fill:#fce7f3,stroke:#db2777,color:#831843
+    classDef extension  fill:#ecfdf5,stroke:#059669,color:#064e3b
+    classDef observ     fill:#f1f5f9,stroke:#64748b,color:#1e293b
+    classDef store      fill:#fef9c3,stroke:#ca8a04,color:#713f12
+
+    class C1,C2,C3,C4 client
+    class F1,F2,F3,F4 frontend
+    class SM,BS core
+    class SE_T,SE_G,SE_B,OE engine
+    class DISC discovery
+    class EX extension
+    class OB observ
+    class MB store
