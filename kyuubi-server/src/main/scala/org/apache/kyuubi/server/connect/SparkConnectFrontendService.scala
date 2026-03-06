@@ -43,6 +43,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
       }
     }
 
+  private def userContext(user: String): UserContext =
+    UserContext.newBuilder().setUserId(user).build()
+
   private lazy val serviceImpl = new SparkConnectServiceGrpc.SparkConnectServiceImplBase {
 
     override def executePlan(
@@ -50,7 +53,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ExecutePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.executePlan(request, responseObserver)
+      session.stub.executePlan(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def analyzePlan(
@@ -58,7 +63,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[AnalyzePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.analyzePlan(request, responseObserver)
+      session.stub.analyzePlan(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def config(
@@ -66,7 +73,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ConfigResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.config(request, responseObserver)
+      session.stub.config(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def addArtifacts(
@@ -80,7 +89,7 @@ class SparkConnectFrontendService(override val serverable: Serverable)
             val session = connectSessionManager.getOrOpen(req.getSessionId, user, "", "")
             upstreamObserver = session.stub.addArtifacts(responseObserver)
           }
-          upstreamObserver.onNext(req)
+          upstreamObserver.onNext(req.toBuilder.setUserContext(userContext(user)).build())
         }
         override def onError(t: Throwable): Unit =
           Option(upstreamObserver).foreach(_.onError(t))
@@ -94,7 +103,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ArtifactStatusesResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.artifactStatus(request, responseObserver)
+      session.stub.artifactStatus(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def interrupt(
@@ -102,7 +113,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[InterruptResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.interrupt(request, responseObserver)
+      session.stub.interrupt(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def reattachExecute(
@@ -110,7 +123,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ExecutePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.reattachExecute(request, responseObserver)
+      session.stub.reattachExecute(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def releaseExecute(
@@ -118,7 +133,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ReleaseExecuteResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.releaseExecute(request, responseObserver)
+      session.stub.releaseExecute(
+        request.toBuilder.setUserContext(userContext(user)).build(),
+        responseObserver)
     }
 
     override def releaseSession(
