@@ -124,7 +124,6 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
     server.addHandler(authenticationFactory.httpHandlerWrapperFactory.wrapHandler(proxyHandler))
     if (conf.get(FRONTEND_REST_UI_ENABLED)) {
       installWebUI()
-      // JettyUtils.createStaticHandlerSpnego("", "", "", "", "")
     }
   }
 
