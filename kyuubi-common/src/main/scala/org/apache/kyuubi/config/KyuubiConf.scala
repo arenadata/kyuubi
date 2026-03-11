@@ -1214,7 +1214,7 @@ object KyuubiConf {
       .serverOnly
       .intConf
       .checkValue(_ > 0, "Port must be positive")
-      .createWithDefault(10099)
+      .createWithDefault(10199)
 
   val ENGINE_SPARK_CONNECT_ENABLED: ConfigEntry[Boolean] =
     buildConf("kyuubi.engine.spark.connect.enabled")
