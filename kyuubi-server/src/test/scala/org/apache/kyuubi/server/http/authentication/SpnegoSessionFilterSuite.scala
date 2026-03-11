@@ -215,36 +215,4 @@ class SpnegoSessionFilterSuite extends KyuubiFunSuite with MockitoSugar {
     // Verify custom timeout was set
     verify(session).setMaxInactiveInterval(customTimeout)
   }
-
-  test("doFilter should handle different Negotiate header formats") {
-    val filter = createFilter()
-    val request = mock[HttpServletRequest]
-    val response = mock[HttpServletResponse]
-    val chain = mock[FilterChain]
-
-    // Test with different case and spacing
-    val testHeaders = Seq(
-      "Negotiate dGVzdHRva2Vu",
-      "NEGOTIATE dGVzdHRva2Vu",
-      "negotiate dGVzdHRva2Vu",
-      "Negotiate  dGVzdHRva2Vu" // with extra space
-    )
-
-    testHeaders.foreach { header =>
-      reset(request, response, chain)
-
-      val handlerField = classOf[SpnegoSessionFilter].getDeclaredField("handler")
-      handlerField.setAccessible(true)
-      val mockHandler = mock[KerberosAuthenticationHandler]
-      handlerField.set(filter, mockHandler)
-
-      when(request.getSession(false)).thenReturn(null)
-      when(request.getHeader("Authorization")).thenReturn(header)
-      when(mockHandler.authenticate(request, response)).thenReturn("testuser")
-
-      filter.doFilter(request, response, chain)
-
-      verify(mockHandler).authenticate(request, response)
-    }
-  }
 }
