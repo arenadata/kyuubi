@@ -33,8 +33,11 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
 
   val USER_KEY: Context.Key[String] = SparkConnectAuthInterceptor.USER_KEY
 
-  private val authTypes = conf.get(AUTHENTICATION_METHOD).map(AuthTypes.withName)
-  private val saslDisabled = AuthUtils.saslDisabled(authTypes)
+  private val authTypes =
+    conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
+
+  // private val saslDisabled = AuthUtils.saslDisabled(authTypes)
+  private val saslDisabled = authTypes.contains(AuthTypes.NOSASL)
   private val effectivePlainAuthType = AuthUtils.effectivePlainAuthType(authTypes)
 
   private val authProvider = effectivePlainAuthType match {
