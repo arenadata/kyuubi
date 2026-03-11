@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.connect
+package org.apache.kyuubi.server.grpc
 
 import java.util.Base64
 

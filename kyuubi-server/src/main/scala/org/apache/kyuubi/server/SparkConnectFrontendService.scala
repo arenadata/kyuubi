@@ -15,26 +15,27 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.connect
+package org.apache.kyuubi.server
 
 import io.grpc.{Server, ServerInterceptors}
 import io.grpc.netty.NettyServerBuilder
 import io.grpc.stub.StreamObserver
-import org.apache.kyuubi.shaded.spark.connect.proto._
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_CONNECT_BIND_HOST, FRONTEND_CONNECT_BIND_PORT}
+import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_SPARK_CONNECT_BIND_HOST, FRONTEND_SPARK_CONNECT_BIND_PORT}
+import org.apache.kyuubi.server.grpc.{SparkConnectAuthInterceptor, SparkConnectSessionManager}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
+import org.apache.kyuubi.shaded.spark.connect.proto._
 import org.apache.kyuubi.util.JavaUtils
 
 class SparkConnectFrontendService(override val serverable: Serverable)
   extends AbstractFrontendService("SparkConnectFrontendService") {
 
   private var grpcServer: Server = _
-  private var connectSessionManager: ConnectSessionManager = _
+  private var connectSessionManager: SparkConnectSessionManager = _
   private var authInterceptor: SparkConnectAuthInterceptor = _
 
-  private lazy val host: String = conf.get(FRONTEND_CONNECT_BIND_HOST)
+  private lazy val host: String = conf.get(FRONTEND_SPARK_CONNECT_BIND_HOST)
     .getOrElse {
       if (conf.get(KyuubiConf.FRONTEND_CONNECTION_URL_USE_HOSTNAME)) {
         JavaUtils.findLocalInetAddress.getCanonicalHostName
@@ -157,13 +158,13 @@ class SparkConnectFrontendService(override val serverable: Serverable)
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
-    connectSessionManager = new ConnectSessionManager(serverable.backendService)
+    connectSessionManager = new SparkConnectSessionManager(serverable.backendService)
     authInterceptor = new SparkConnectAuthInterceptor(conf)
     super.initialize(conf)
   }
 
   override def start(): Unit = synchronized {
-    val port = conf.get(FRONTEND_CONNECT_BIND_PORT)
+    val port = conf.get(FRONTEND_SPARK_CONNECT_BIND_PORT)
     val boundService = ServerInterceptors.intercept(serviceImpl, authInterceptor)
     grpcServer = NettyServerBuilder
       .forPort(port)

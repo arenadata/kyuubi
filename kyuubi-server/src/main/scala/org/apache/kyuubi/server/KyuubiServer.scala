@@ -32,7 +32,6 @@ import org.apache.kyuubi.ha.HighAvailabilityConf._
 import org.apache.kyuubi.ha.client.{AuthTypes, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConf, MetricsSystem}
 import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf
-import org.apache.kyuubi.server.connect.SparkConnectFrontendService
 import org.apache.kyuubi.service.{AbstractBackendService, AbstractFrontendService, Serverable, ServiceState}
 import org.apache.kyuubi.session.KyuubiSessionManager
 import org.apache.kyuubi.util.{KyuubiHadoopUtils, SignalRegister}

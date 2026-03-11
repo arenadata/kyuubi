@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.connect
+package org.apache.kyuubi.server.grpc
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -23,14 +23,14 @@ import scala.collection.JavaConverters._
 
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
-import org.apache.kyuubi.shaded.spark.connect.proto.SparkConnectServiceGrpc
 
 import org.apache.kyuubi.{KyuubiException, Logging}
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
+import org.apache.kyuubi.shaded.spark.connect.proto.SparkConnectServiceGrpc
 
-class ConnectSessionManager(be: BackendService) extends Logging {
+class SparkConnectSessionManager(be: BackendService) extends Logging {
 
   case class ConnectSession(
       kyuubiHandle: SessionHandle,
@@ -75,7 +75,8 @@ class ConnectSessionManager(be: BackendService) extends Logging {
       try {
         be.closeSession(s.kyuubiHandle)
       } catch {
-        case e: Throwable => warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
+        case e: Throwable =>
+          warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
       }
     }
   }

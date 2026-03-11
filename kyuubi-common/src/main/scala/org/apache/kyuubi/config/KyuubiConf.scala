@@ -1200,15 +1200,15 @@ object KyuubiConf {
     .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
     .createWithDefault(10999)
 
-  val FRONTEND_CONNECT_BIND_HOST: ConfigEntry[Option[String]] =
-    buildConf("kyuubi.frontend.connect.bind.host")
+  val FRONTEND_SPARK_CONNECT_BIND_HOST: ConfigEntry[Option[String]] =
+    buildConf("kyuubi.frontend.spark.connect.bind.host")
       .doc("Hostname or IP on which to run the Spark Connect gRPC frontend service.")
       .version("1.11.0")
       .serverOnly
       .fallbackConf(FRONTEND_BIND_HOST)
 
-  val FRONTEND_CONNECT_BIND_PORT: ConfigEntry[Int] =
-    buildConf("kyuubi.frontend.connect.bind.port")
+  val FRONTEND_SPARK_CONNECT_BIND_PORT: ConfigEntry[Int] =
+    buildConf("kyuubi.frontend.spark.connect.bind.port")
       .doc("Port on which to run the Spark Connect gRPC frontend service.")
       .version("1.11.0")
       .serverOnly

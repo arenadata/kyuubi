@@ -30,6 +30,7 @@ import org.apache.spark.{ui, SparkConf}
 import org.apache.spark.kyuubi.{SparkContextHelper, SparkSQLEngineEventListener, SparkSQLEngineListener}
 import org.apache.spark.kyuubi.SparkUtilsHelper.getLocalDir
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.connect.SparkConnectServerHelper
 
 import org.apache.kyuubi.{KyuubiException, Logging, Utils}
 import org.apache.kyuubi.Utils._
@@ -38,7 +39,6 @@ import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_SUBMIT_TIME_KEY, KYUUBI_ENGINE_URL}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.spark.SparkSQLEngine.{countDownLatch, currentEngine}
-import org.apache.spark.sql.connect.SparkConnectServerHelper
 import org.apache.kyuubi.engine.spark.events.{EngineEvent, EngineEventsStore, SparkEventHandlerRegister}
 import org.apache.kyuubi.engine.spark.session.{SparkSessionImpl, SparkSQLSessionManager}
 import org.apache.kyuubi.events.EventBus
