@@ -76,7 +76,7 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
 
   override def start(): Unit = {
     super.start()
-    if (conf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+    if (conf.isSparkConnectEnabled) {
       val port = SparkConnectServerHelper.start(spark)
       val host = JavaUtils.findLocalInetAddress.getHostAddress
       _connectUrl = Some(s"$host:$port")
@@ -108,7 +108,7 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   }
 
   override def stop(): Unit = if (shutdown.compareAndSet(false, true)) {
-    if (conf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+    if (conf.isSparkConnectEnabled) {
       Utils.tryLogNonFatalError(SparkConnectServerHelper.stop())
     }
     super.stop()
@@ -330,7 +330,7 @@ object SparkSQLEngine extends Logging {
       }
     }
 
-    if (_kyuubiConf.get(ENGINE_SPARK_CONNECT_ENABLED)) {
+    if (_kyuubiConf.isSparkConnectEnabled) {
       val socket = new java.net.ServerSocket(0)
       val connectPort = try socket.getLocalPort finally socket.close()
       _sparkConf.set("spark.connect.grpc.binding.port", connectPort.toString)

@@ -232,6 +232,9 @@ case class KyuubiConf(loadSysDefault: Boolean = true) extends Logging {
   }
 
   def isRESTEnabled: Boolean = get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.REST.toString)
+
+  def isSparkConnectEnabled: Boolean =
+    get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.SPARK_CONNECT.toString)
 }
 
 /**
@@ -1215,14 +1218,6 @@ object KyuubiConf {
       .intConf
       .checkValue(_ > 0, "Port must be positive")
       .createWithDefault(10199)
-
-  val ENGINE_SPARK_CONNECT_ENABLED: ConfigEntry[Boolean] =
-    buildConf("kyuubi.engine.spark.connect.enabled")
-      .doc("Whether to start SparkConnectService inside the Spark engine. " +
-        "Required when the SPARK_CONNECT frontend protocol is enabled.")
-      .version("1.11.0")
-      .booleanConf
-      .createWithDefault(false)
 
   val FRONTEND_TRINO_MAX_WORKER_THREADS: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.trino.max.worker.threads")
