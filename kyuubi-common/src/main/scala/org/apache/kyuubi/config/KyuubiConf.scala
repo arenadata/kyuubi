@@ -1219,6 +1219,14 @@ object KyuubiConf {
       .checkValue(_ > 0, "Port must be positive")
       .createWithDefault(10199)
 
+  val FRONTEND_SPARK_CONNECT_SSL_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.spark.connect.ssl.enabled")
+      .doc("Set this to true to enable TLS/SSL encryption on the Spark Connect gRPC frontend.")
+      .version("1.11.0")
+      .serverOnly
+      .booleanConf
+      .createWithDefault(false)
+
   val FRONTEND_TRINO_MAX_WORKER_THREADS: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.trino.max.worker.threads")
       .doc("Maximum number of threads in the frontend worker thread pool for the Trino " +

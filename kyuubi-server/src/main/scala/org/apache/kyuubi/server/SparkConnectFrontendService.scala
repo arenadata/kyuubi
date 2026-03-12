@@ -17,12 +17,24 @@
 
 package org.apache.kyuubi.server
 
+import java.io.FileInputStream
+import java.security.KeyStore
+import javax.net.ssl.KeyManagerFactory
+
 import io.grpc.{Server, ServerInterceptors}
-import io.grpc.netty.NettyServerBuilder
+import io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.stub.StreamObserver
+import io.netty.handler.ssl.SslContextBuilder
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_SPARK_CONNECT_BIND_HOST, FRONTEND_SPARK_CONNECT_BIND_PORT}
+import org.apache.kyuubi.config.KyuubiConf.{
+  FRONTEND_SPARK_CONNECT_BIND_HOST,
+  FRONTEND_SPARK_CONNECT_BIND_PORT,
+  FRONTEND_SPARK_CONNECT_SSL_ENABLED,
+  FRONTEND_SSL_KEYSTORE_ALGORITHM,
+  FRONTEND_SSL_KEYSTORE_PASSWORD,
+  FRONTEND_SSL_KEYSTORE_PATH,
+  FRONTEND_SSL_KEYSTORE_TYPE}
 import org.apache.kyuubi.server.grpc.{SparkConnectAuthInterceptor, SparkConnectSessionManager}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.shaded.spark.connect.proto._
@@ -166,11 +178,43 @@ class SparkConnectFrontendService(override val serverable: Serverable)
   override def start(): Unit = synchronized {
     val port = conf.get(FRONTEND_SPARK_CONNECT_BIND_PORT)
     val boundService = ServerInterceptors.intercept(serviceImpl, authInterceptor)
-    grpcServer = NettyServerBuilder
-      .forPort(port)
-      .addService(boundService)
-      .build()
-      .start()
+    val builder = NettyServerBuilder.forPort(port).addService(boundService)
+
+    if (conf.get(FRONTEND_SPARK_CONNECT_SSL_ENABLED)) {
+      val keyStorePath = conf.get(FRONTEND_SSL_KEYSTORE_PATH)
+      val keyStorePassword = conf.get(FRONTEND_SSL_KEYSTORE_PASSWORD)
+      val keyStoreType = conf.get(FRONTEND_SSL_KEYSTORE_TYPE).getOrElse(KeyStore.getDefaultType)
+      val keyStoreAlgorithm = conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
+        .getOrElse(KeyManagerFactory.getDefaultAlgorithm)
+
+      if (keyStorePath.isEmpty) {
+        throw new IllegalArgumentException(
+          s"${FRONTEND_SSL_KEYSTORE_PATH.key} not configured for SSL connection")
+      }
+
+      if (keyStorePassword.isEmpty) {
+        throw new IllegalArgumentException(
+          s"${FRONTEND_SSL_KEYSTORE_PASSWORD.key} not configured for SSL connection")
+      }
+
+      val keyStore = KeyStore.getInstance(keyStoreType)
+
+      val fis = new FileInputStream(keyStorePath.get)
+      try {
+        keyStore.load(fis, keyStorePassword.get.toCharArray)
+      } finally {
+          fis.close()
+      }
+      val keyManagerFactory = KeyManagerFactory.getInstance(keyStoreAlgorithm)
+      keyManagerFactory.init(keyStore, keyStorePassword.get.toCharArray)
+      val sslContext =
+        GrpcSslContexts.configure(SslContextBuilder.forServer(keyManagerFactory)).build()
+
+      builder.sslContext(sslContext)
+      info(s"SparkConnect frontend SSL enabled (keystore: ${keyStorePath.get})")
+    }
+
+    grpcServer = builder.build().start()
     info(s"SparkConnect frontend service started at $host:${grpcServer.getPort}")
     super.start()
   }
