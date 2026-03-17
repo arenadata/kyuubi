@@ -23,7 +23,8 @@ import io.grpc.{Context, Contexts, Metadata, ServerCall, ServerCallHandler, Serv
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, SERVER_SPNEGO_KEYTAB, SERVER_SPNEGO_PRINCIPAL}
+import org.apache.kyuubi.server.http.util.HttpAuthUtils.NEGOTIATE
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 
 class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor with Logging {
@@ -47,11 +48,41 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
     case None => None
   }
 
+  private val kerberosValidator: Option[SparkConnectKerberosValidator] = {
+    if (conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty && conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+      Some(new SparkConnectKerberosValidator(conf))
+    } else {
+      None
+    }
+  }
+
   override def interceptCall[Req, Resp](
       call: ServerCall[Req, Resp],
       headers: Metadata,
       next: ServerCallHandler[Req, Resp]): ServerCall.Listener[Req] = {
     Option(headers.get(AUTH_HEADER)) match {
+      case Some(NegotiateHeader(token)) =>
+        kerberosValidator match {
+          case None =>
+            call.close(
+              Status.UNAUTHENTICATED.withDescription("Kerberos is not configured on this server"),
+              new Metadata())
+            new ServerCall.Listener[Req] {}
+          case Some(validator) =>
+            try {
+              val user = validator.validate(token)
+              val ctx = Context.current().withValue(USER_KEY, user)
+              Contexts.interceptCall(ctx, call, headers, next)
+            } catch {
+              case e: Exception =>
+                warn(s"Kerberos authentication failed: ${e.getMessage}", e)
+                call.close(
+                  Status.UNAUTHENTICATED.withDescription(
+                    "Kerberos authentication failed: " + e.getMessage),
+                  new Metadata())
+                new ServerCall.Listener[Req] {}
+            }
+        }
       case Some(authHeader) =>
         val (user, pass) = decodeBasic(authHeader)
         try {
@@ -79,6 +110,12 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
           new Metadata())
         new ServerCall.Listener[Req] {}
     }
+  }
+
+  private object NegotiateHeader {
+    def unapply(header: String): Option[String] =
+      if (header.startsWith(s"$NEGOTIATE ")) Some(header.stripPrefix(s"$NEGOTIATE "))
+      else None
   }
 
   private def decodeBasic(header: String): (String, String) = {
