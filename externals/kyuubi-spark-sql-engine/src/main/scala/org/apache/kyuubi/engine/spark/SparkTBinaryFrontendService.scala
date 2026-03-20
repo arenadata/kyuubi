@@ -73,12 +73,13 @@ class SparkTBinaryFrontendService(
       val sessionHandle = getSessionHandle(req, resp)
       // connectUrl must be read after getSessionHandle
       // SparkConnect starts lazily on first session
-      val connectUrlEntry = serverable.asInstanceOf[SparkSQLEngine].connectUrl
-        .map(url => KYUUBI_ENGINE_CONNECT_URL -> url)
       val respConfiguration = (Map(
         KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId,
         KYUUBI_ENGINE_NAME -> KyuubiSparkUtil.engineName,
-        KYUUBI_ENGINE_URL -> KyuubiSparkUtil.engineUrl) ++ connectUrlEntry).asJava
+        KYUUBI_ENGINE_URL -> KyuubiSparkUtil.engineUrl) ++
+        serverable.asInstanceOf[SparkSQLEngine].connectUrl
+          .map(KYUUBI_ENGINE_CONNECT_URL -> _)).asJava
+
       resp.setSessionHandle(sessionHandle.toTSessionHandle)
       resp.setConfiguration(respConfiguration)
       resp.setStatus(OK_STATUS)

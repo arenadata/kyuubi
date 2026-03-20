@@ -18,7 +18,7 @@
 package org.apache.kyuubi.server.grpc
 
 import java.io.File
-import java.security.{PrivilegedActionException, PrivilegedExceptionAction}
+import java.security.{MessageDigest, PrivilegedActionException, PrivilegedExceptionAction}
 import java.util.Base64
 import javax.security.auth.Subject
 import javax.security.auth.kerberos.{KerberosPrincipal, KeyTab}
@@ -34,8 +34,7 @@ import org.apache.kyuubi.config.KyuubiConf.{SERVER_SPNEGO_KEYTAB, SERVER_SPNEGO_
 
 /**
  * Validates SPNEGO tokens for the Spark Connect gRPC frontend.
- * Reuses the same GSS-API pattern as KerberosAuthenticationHandler
- * but adapted for gRPC (no HttpServletRequest/Response involved).
+ * Reuses the same GSS-API pattern as KerberosAuthenticationHandler but adapted for gRPC
  */
 class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
 
@@ -84,12 +83,16 @@ class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
     }
   }
 
+  private def tokenHash(bytes: Array[Byte]): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).map("%02x".format(_)).mkString
+
   private def validateToken(clientToken: Array[Byte]): String = {
+    val tokenHashValue = tokenHash(clientToken)
     val serverPrincipalName = getTokenServerName(clientToken)
     var gssContext: GSSContext = null
     var gssCreds: GSSCredential = null
     try {
-      debug(s"SPNEGO initialized with server principal $serverPrincipalName")
+      debug(s"SPNEGO validating token hash=$tokenHashValue server principal=$serverPrincipalName")
       gssCreds = gssManager.createCredential(
         gssManager.createName(serverPrincipalName, NT_GSS_KRB5_PRINCIPAL_OID),
         GSSCredential.INDEFINITE_LIFETIME,
