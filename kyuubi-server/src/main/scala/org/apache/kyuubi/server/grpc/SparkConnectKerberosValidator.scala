@@ -20,6 +20,7 @@ package org.apache.kyuubi.server.grpc
 import java.io.File
 import java.security.{MessageDigest, PrivilegedActionException, PrivilegedExceptionAction}
 import java.util.Base64
+import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
 import javax.security.auth.Subject
 import javax.security.auth.kerberos.{KerberosPrincipal, KeyTab}
 import javax.security.sasl.AuthenticationException
@@ -58,6 +59,24 @@ class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
     KerberosName.setRules("DEFAULT")
   }
 
+  // Cache: SHA-256(token) -> (user, expireMillis)
+  private val tokenCacheTtlMs = 30_000L
+  private val tokenCache = new ConcurrentHashMap[String, (String, Long)]()
+  private val cacheCleanupExecutor = {
+    val executor = Executors.newSingleThreadScheduledExecutor(r => {
+      val t = new Thread(r, "spnego-token-cache-cleanup")
+      t.setDaemon(true)
+      t
+    })
+    executor.scheduleAtFixedRate(
+      new Runnable {
+        override def run(): Unit =
+          tokenCache.entrySet().removeIf(e => e.getValue._2 < System.currentTimeMillis())
+      },
+      60, 60, TimeUnit.SECONDS)
+    executor
+  }
+
   info(s"SparkConnectKerberosValidator initialized with principal $principal, keytab $keytab")
 
   /**
@@ -83,16 +102,26 @@ class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
     }
   }
 
+  def close(): Unit = cacheCleanupExecutor.shutdownNow()
+
   private def tokenHash(bytes: Array[Byte]): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).map("%02x".format(_)).mkString
 
   private def validateToken(clientToken: Array[Byte]): String = {
-    val tokenHashValue = tokenHash(clientToken)
+    val hash = tokenHash(clientToken)
+
+    // we can get duplicate token (concurrent streams can use same metadata)
+    val cached = tokenCache.get(hash)
+    if (cached != null && cached._2 > System.currentTimeMillis()) {
+      debug(s"SPNEGO token cache hit hash=$hash user=${cached._1}")
+      return cached._1
+    }
+
     val serverPrincipalName = getTokenServerName(clientToken)
     var gssContext: GSSContext = null
     var gssCreds: GSSCredential = null
     try {
-      debug(s"SPNEGO validating token hash=$tokenHashValue server principal=$serverPrincipalName")
+      debug(s"SPNEGO validating token hash=$hash server principal=$serverPrincipalName")
       gssCreds = gssManager.createCredential(
         gssManager.createName(serverPrincipalName, NT_GSS_KRB5_PRINCIPAL_OID),
         GSSCredential.INDEFINITE_LIFETIME,
@@ -105,7 +134,9 @@ class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
       }
       val clientPrincipal = gssContext.getSrcName.toString
       val shortName = new KerberosName(clientPrincipal).getShortName
-      debug(s"SPNEGO completed for client principal $clientPrincipal, short name $shortName")
+      debug(s"SPNEGO completed for client principal $clientPrincipal:" +
+        s" $shortName, caching hash=$hash")
+      tokenCache.put(hash, (shortName, System.currentTimeMillis() + tokenCacheTtlMs))
       shortName
     } finally {
       if (gssContext != null) gssContext.dispose()

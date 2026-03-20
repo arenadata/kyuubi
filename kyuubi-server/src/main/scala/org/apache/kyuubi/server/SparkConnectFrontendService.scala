@@ -226,6 +226,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     if (connectSessionManager != null) {
       connectSessionManager.closeAll()
     }
+    if (authInterceptor != null) {
+      authInterceptor.close()
+    }
     super.stop()
   }
 

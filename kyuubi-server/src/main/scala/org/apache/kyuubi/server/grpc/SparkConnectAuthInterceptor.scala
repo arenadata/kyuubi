@@ -56,6 +56,8 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
     }
   }
 
+  def close(): Unit = kerberosValidator.foreach(_.close())
+
   override def interceptCall[Req, Resp](
       call: ServerCall[Req, Resp],
       headers: Metadata,
