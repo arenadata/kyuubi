@@ -49,7 +49,9 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
   }
 
   private val kerberosValidator: Option[SparkConnectKerberosValidator] = {
-    if (conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty && conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+    if (AuthUtils.kerberosEnabled(authTypes) &&
+        conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
+        conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
       Some(new SparkConnectKerberosValidator(conf))
     } else {
       None
@@ -85,20 +87,25 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
                 new ServerCall.Listener[Req] {}
             }
         }
-      case Some(authHeader) =>
-        val (user, pass) = decodeBasic(authHeader)
+      case Some(BearerHeader(token)) =>
+        val (user, pass) = decodeCredentials(token)
         try {
           authProvider.foreach(_.authenticate(user, pass))
           val ctx = Context.current().withValue(USER_KEY, user)
           Contexts.interceptCall(ctx, call, headers, next)
         } catch {
           case e: Exception =>
-            warn(s"Authentication failed for user $user: ${e.getMessage}")
+            warn(s"Bearer authentication failed for user $user: ${e.getMessage}")
             call.close(
               Status.UNAUTHENTICATED.withDescription("Authentication failed: " + e.getMessage),
               new Metadata())
             new ServerCall.Listener[Req] {}
         }
+      case Some(_) =>
+        call.close(
+          Status.UNAUTHENTICATED.withDescription("Unsupported Authorization scheme, use Bearer"),
+          new Metadata())
+        new ServerCall.Listener[Req] {}
       case None if saslDisabled =>
         // NOSASL mode: extract username from x-user-name header or fall back to OS user
         val xUserNameKey = Metadata.Key.of("x-user-name", Metadata.ASCII_STRING_MARSHALLER)
@@ -120,8 +127,14 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
       else None
   }
 
-  private def decodeBasic(header: String): (String, String) = {
-    val decoded = new String(Base64.getDecoder.decode(header.stripPrefix("Basic ")))
+  private object BearerHeader {
+    def unapply(header: String): Option[String] =
+      if (header.startsWith("Bearer ")) Some(header.stripPrefix("Bearer "))
+      else None
+  }
+
+  private def decodeCredentials(base64token: String): (String, String) = {
+    val decoded = new String(Base64.getDecoder.decode(base64token))
     val idx = decoded.indexOf(':')
     if (idx < 0) (decoded, "")
     else (decoded.substring(0, idx), decoded.substring(idx + 1))
