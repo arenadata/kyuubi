@@ -36,7 +36,7 @@ SparkSession available as 'spark'.
 
 ```
 
-##### with enabled KERBEROS (SPNEGO) 
+#### with enabled KERBEROS (SPNEGO)
 
 set in config `/etc/kyuubi/conf/kyuubi-defaults.conf`
 
@@ -120,7 +120,7 @@ python3.10 spark_connect_client.py
 
 ```
 
-##### with enabled LDAP authentication 
+#### with enabled LDAP authentication
 
 set in `/etc/kyuubi/conf/kyuubi-defaults.conf`
 
