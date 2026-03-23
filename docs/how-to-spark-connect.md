@@ -22,7 +22,7 @@ run command:
 ```
 export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
-pyspark3 --remote 'sc://vdmitriev-adh-orion-hadoop-3.ru-central1.internal:10199/;use_ssl=true;x-user-name=vdmitrieva'
+pyspark3 --remote 'sc://vdmitriev-adh-orion-hadoop-3.ru-central1.internal:10199/;use_ssl=true;x-user-name=vdmitriev'
 
 Using Python version 3.10.4 (main, Apr 21 2025 10:41:58)
 Client connected to the Spark Connect server at vdmitriev-adh-orion-hadoop-3.ru-central1.internal:10199
