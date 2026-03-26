@@ -31,12 +31,22 @@ import org.apache.kyuubi.config.KyuubiConf.{
   FRONTEND_SPARK_CONNECT_BIND_HOST,
   FRONTEND_SPARK_CONNECT_BIND_PORT,
   FRONTEND_SPARK_CONNECT_SSL_ENABLED,
+  FRONTEND_SPARK_CONNECT_TOKEN_TTL,
   FRONTEND_SSL_KEYSTORE_ALGORITHM,
   FRONTEND_SSL_KEYSTORE_PASSWORD,
   FRONTEND_SSL_KEYSTORE_PATH,
-  FRONTEND_SSL_KEYSTORE_TYPE}
-import org.apache.kyuubi.server.grpc.{SparkConnectAuthInterceptor, SparkConnectSessionManager}
+  FRONTEND_SSL_KEYSTORE_TYPE,
+  SERVER_SPNEGO_KEYTAB,
+  SERVER_SPNEGO_PRINCIPAL}
+import org.apache.kyuubi.server.grpc.{
+  SparkConnectAuthInterceptor,
+  SparkConnectAuthServiceImpl,
+  SparkConnectKerberosValidator,
+  SparkConnectRawHeaderContext,
+  SparkConnectSessionManager,
+  SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
+import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 import org.apache.kyuubi.shaded.spark.connect.proto._
 import org.apache.kyuubi.util.JavaUtils
 
@@ -46,6 +56,8 @@ class SparkConnectFrontendService(override val serverable: Serverable)
   private var grpcServer: Server = _
   private var connectSessionManager: SparkConnectSessionManager = _
   private var authInterceptor: SparkConnectAuthInterceptor = _
+  private var tokenStore: Option[SparkConnectTokenStore] = None
+  private var authService: Option[SparkConnectAuthServiceImpl] = None
 
   private lazy val host: String = conf.get(FRONTEND_SPARK_CONNECT_BIND_HOST)
     .getOrElse {
@@ -171,7 +183,19 @@ class SparkConnectFrontendService(override val serverable: Serverable)
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
     connectSessionManager = new SparkConnectSessionManager(serverable.backendService)
-    authInterceptor = new SparkConnectAuthInterceptor(conf)
+    val authTypes = conf.get(KyuubiConf.AUTHENTICATION_METHOD)
+      .map[AuthTypes.AuthType](AuthTypes.withName)
+    if (AuthUtils.kerberosEnabled(authTypes) &&
+        conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
+        conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+      val store = new SparkConnectTokenStore(conf.get(FRONTEND_SPARK_CONNECT_TOKEN_TTL))
+      tokenStore = Some(store)
+      authService = Some(new SparkConnectAuthServiceImpl(
+        new SparkConnectKerberosValidator(conf),
+        store))
+      info("Spark Connect token auth service initialized")
+    }
+    authInterceptor = new SparkConnectAuthInterceptor(conf, tokenStore)
     super.initialize(conf)
   }
 
@@ -179,6 +203,13 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     val port = conf.get(FRONTEND_SPARK_CONNECT_BIND_PORT)
     val boundService = ServerInterceptors.intercept(serviceImpl, authInterceptor)
     val builder = NettyServerBuilder.forPort(port).addService(boundService)
+
+    // auth service is not behind authInterceptor
+    // it does its own SPNEGO check internally
+    if (authService.nonEmpty) {
+      builder.addService(
+        ServerInterceptors.intercept(authService.get, SparkConnectRawHeaderContext.interceptor))
+    }
 
     if (conf.get(FRONTEND_SPARK_CONNECT_SSL_ENABLED)) {
       val keyStorePath = conf.get(FRONTEND_SSL_KEYSTORE_PATH)
@@ -226,6 +257,7 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     if (connectSessionManager != null) {
       connectSessionManager.closeAll()
     }
+    tokenStore.foreach(_.stop())
     super.stop()
   }
 

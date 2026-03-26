@@ -27,7 +27,10 @@ import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, SERVER_SPNEGO
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.NEGOTIATE
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 
-class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor with Logging {
+class SparkConnectAuthInterceptor(
+    conf: KyuubiConf,
+    tokenStore: Option[SparkConnectTokenStore] = None)
+  extends ServerInterceptor with Logging {
 
   val AUTH_HEADER: Metadata.Key[String] =
     Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER)
@@ -37,8 +40,8 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
   private val authTypes =
     conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
 
-  // private val saslDisabled = AuthUtils.saslDisabled(authTypes)
-  private val saslDisabled = authTypes.contains(AuthTypes.NOSASL)
+  private val saslDisabled = AuthUtils.saslDisabled(authTypes)
+  // private val saslDisabled = authTypes.contains(AuthTypes.NOSASL)
   private val effectivePlainAuthType = AuthUtils.effectivePlainAuthType(authTypes)
 
   private val authProvider = effectivePlainAuthType match {
@@ -63,6 +66,25 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
       headers: Metadata,
       next: ServerCallHandler[Req, Resp]): ServerCall.Listener[Req] = {
     Option(headers.get(AUTH_HEADER)) match {
+      case Some(KyuubiTokenHeader(token)) =>
+        tokenStore match {
+          case None =>
+            call.close(
+              Status.UNAUTHENTICATED.withDescription("Token auth not available"),
+              new Metadata())
+            new ServerCall.Listener[Req] {}
+          case Some(store) =>
+            store.getUser(token) match {
+              case Some(user) =>
+                val ctx = Context.current().withValue(USER_KEY, user)
+                Contexts.interceptCall(ctx, call, headers, next)
+              case None =>
+                call.close(
+                  Status.UNAUTHENTICATED.withDescription("Invalid or expired token"),
+                  new Metadata())
+                new ServerCall.Listener[Req] {}
+            }
+        }
       case Some(NegotiateHeader(token)) =>
         kerberosValidator match {
           case None =>
@@ -117,6 +139,12 @@ class SparkConnectAuthInterceptor(conf: KyuubiConf) extends ServerInterceptor wi
           new Metadata())
         new ServerCall.Listener[Req] {}
     }
+  }
+
+  private object KyuubiTokenHeader {
+    def unapply(header: String): Option[String] =
+      if (header.startsWith("KyuubiToken ")) Some(header.stripPrefix("KyuubiToken "))
+      else None
   }
 
   private object NegotiateHeader {

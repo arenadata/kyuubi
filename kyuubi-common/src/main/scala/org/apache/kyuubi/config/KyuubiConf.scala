@@ -1206,14 +1206,14 @@ object KyuubiConf {
   val FRONTEND_SPARK_CONNECT_BIND_HOST: ConfigEntry[Option[String]] =
     buildConf("kyuubi.frontend.spark.connect.bind.host")
       .doc("Hostname or IP on which to run the Spark Connect gRPC frontend service.")
-      .version("1.11.0")
+      .version("1.10.1")
       .serverOnly
       .fallbackConf(FRONTEND_BIND_HOST)
 
   val FRONTEND_SPARK_CONNECT_BIND_PORT: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.spark.connect.bind.port")
       .doc("Port on which to run the Spark Connect gRPC frontend service.")
-      .version("1.11.0")
+      .version("1.10.1")
       .serverOnly
       .intConf
       .checkValue(_ > 0, "Port must be positive")
@@ -1222,10 +1222,21 @@ object KyuubiConf {
   val FRONTEND_SPARK_CONNECT_SSL_ENABLED: ConfigEntry[Boolean] =
     buildConf("kyuubi.frontend.spark.connect.ssl.enabled")
       .doc("Set this to true to enable TLS/SSL encryption on the Spark Connect gRPC frontend.")
-      .version("1.11.0")
+      .version("1.10.1")
       .serverOnly
       .booleanConf
       .createWithDefault(false)
+
+  val FRONTEND_SPARK_CONNECT_TOKEN_TTL: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.spark.connect.token.ttl")
+      .doc("Lifetime of Spark Connect session token issued via GetToken RPC. " +
+        "Clients must call RenewToken before expiry to keep the session alive. " +
+        "Only effective when kyuubi.authentication includes KERBEROS and " +
+        "kyuubi.spnego.keytab / kyuubi.spnego.principal are configured.")
+      .version("1.10.1")
+      .serverOnly
+      .timeConf
+      .createWithDefaultString("PT24H")
 
   val FRONTEND_TRINO_MAX_WORKER_THREADS: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.trino.max.worker.threads")
