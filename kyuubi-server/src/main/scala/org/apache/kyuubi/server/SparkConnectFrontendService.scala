@@ -18,6 +18,7 @@
 package org.apache.kyuubi.server
 
 import java.io.FileInputStream
+import java.net.InetSocketAddress
 import java.security.KeyStore
 import javax.net.ssl.KeyManagerFactory
 
@@ -167,8 +168,19 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         request: ReleaseSessionRequest,
         responseObserver: StreamObserver[ReleaseSessionResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
-      session.stub.releaseSession(request, responseObserver)
+      val sessionId = request.getSessionId
+      val session = connectSessionManager.getOrOpen(sessionId, user, "", "")
+      session.stub.releaseSession(request, new StreamObserver[ReleaseSessionResponse] {
+        override def onNext(value: ReleaseSessionResponse): Unit = responseObserver.onNext(value)
+        override def onError(t: Throwable): Unit = {
+          connectSessionManager.release(sessionId)
+          responseObserver.onError(t)
+        }
+        override def onCompleted(): Unit = {
+          connectSessionManager.release(sessionId)
+          responseObserver.onCompleted()
+        }
+      })
     }
 
     override def fetchErrorDetails(
@@ -202,7 +214,9 @@ class SparkConnectFrontendService(override val serverable: Serverable)
   override def start(): Unit = synchronized {
     val port = conf.get(FRONTEND_SPARK_CONNECT_BIND_PORT)
     val boundService = ServerInterceptors.intercept(serviceImpl, authInterceptor)
-    val builder = NettyServerBuilder.forPort(port).addService(boundService)
+    val builder = NettyServerBuilder
+      .forAddress(new InetSocketAddress(host, port))
+      .addService(boundService)
 
     // auth service is not behind authInterceptor
     // it does its own SPNEGO check internally

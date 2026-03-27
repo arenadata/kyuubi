@@ -53,8 +53,7 @@ class SparkConnectAuthServiceImpl(
     }
     try {
       val username = validator.validate(spnegoToken)
-      val token = store.create(username)
-      val expiresAtMs = System.currentTimeMillis() + store.ttlMs
+      val (token, expiresAtMs) = store.create(username)
       info(s"Issued Connect token for user $username")
       observer.onNext(GetTokenResponse.newBuilder()
         .setToken(token)

@@ -24,6 +24,7 @@ import io.grpc.{Context, Contexts, Metadata, ServerCall, ServerCallHandler, Serv
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, SERVER_SPNEGO_KEYTAB, SERVER_SPNEGO_PRINCIPAL}
+import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.USER_KEY
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.NEGOTIATE
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 
@@ -32,16 +33,13 @@ class SparkConnectAuthInterceptor(
     tokenStore: Option[SparkConnectTokenStore] = None)
   extends ServerInterceptor with Logging {
 
-  val AUTH_HEADER: Metadata.Key[String] =
+  private val AUTH_HEADER: Metadata.Key[String] =
     Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER)
-
-  val USER_KEY: Context.Key[String] = SparkConnectAuthInterceptor.USER_KEY
 
   private val authTypes =
     conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
 
   private val saslDisabled = AuthUtils.saslDisabled(authTypes)
-  // private val saslDisabled = authTypes.contains(AuthTypes.NOSASL)
   private val effectivePlainAuthType = AuthUtils.effectivePlainAuthType(authTypes)
 
   private val authProvider = effectivePlainAuthType match {
@@ -123,7 +121,7 @@ class SparkConnectAuthInterceptor(
         }
       case Some(_) =>
         call.close(
-          Status.UNAUTHENTICATED.withDescription("Unsupported Authorization scheme, use Bearer"),
+          Status.UNAUTHENTICATED.withDescription("Unsupported Authorization scheme"),
           new Metadata())
         new ServerCall.Listener[Req] {}
       case None if saslDisabled =>

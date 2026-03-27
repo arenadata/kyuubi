@@ -45,13 +45,14 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
 
   /**
    * Creates new token for the given username and stores it with a TTL.
-   * @return the new UUID token string
+   * @return (token, expiresAtMs)
    */
-  def create(username: String): String = {
+  def create(username: String): (String, Long) = {
     val token = UUID.randomUUID().toString
-    tokens.put(token, Entry(username, System.currentTimeMillis() + ttlMs))
+    val expiresAt = System.currentTimeMillis() + ttlMs
+    tokens.put(token, Entry(username, expiresAt))
     debug(s"Created Connect token for user $username")
-    token
+    (token, expiresAt)
   }
 
   /**
