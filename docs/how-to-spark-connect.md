@@ -1,5 +1,5 @@
 Kyuubi Spark Connect
-==============
+====================
 
 ### Connect to Kyuubi using gRPC
 
@@ -14,9 +14,11 @@ kyuubi.frontend.spark.connect.ssl.enabled=true
 #### "NOSASL" authentication type
 
 set in `/etc/kyuubi/conf/kyuubi-defaults.conf`
+
 ```
 kyuubi.authentication=NOSASL
 ```
+
 run command:
 
 ```
@@ -164,3 +166,4 @@ spark.stop()
 print("Finished!")
 
 ```
+

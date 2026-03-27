@@ -29,7 +29,7 @@ import org.apache.kyuubi.server.http.util.HttpAuthUtils.NEGOTIATE
 /**
  * gRPC service implementation for issuing, renewing and revoking Spark Connect session tokens.
  *
- * This service is NOT registered behind SparkConnectAuthInterceptor — it performs its own
+ * This service is NOT registered behind SparkConnectAuthInterceptor. it performs its own
  * SPNEGO validation via SparkConnectRawHeaderContext (Authorization: Negotiate <token>)
  * to get token (getToken). RenewToken and RevokeToken methods accept valid existing token.
  */

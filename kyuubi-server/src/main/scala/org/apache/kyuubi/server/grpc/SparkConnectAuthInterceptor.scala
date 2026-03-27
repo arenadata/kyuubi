@@ -51,8 +51,8 @@ class SparkConnectAuthInterceptor(
 
   private val kerberosValidator: Option[SparkConnectKerberosValidator] = {
     if (AuthUtils.kerberosEnabled(authTypes) &&
-        conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
-        conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+      conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
+      conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
       Some(new SparkConnectKerberosValidator(conf))
     } else {
       None

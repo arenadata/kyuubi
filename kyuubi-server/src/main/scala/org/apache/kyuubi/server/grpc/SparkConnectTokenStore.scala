@@ -41,7 +41,9 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
 
   scheduler.scheduleAtFixedRate(
     () => removeExpired(),
-    10, 10, TimeUnit.MINUTES)
+    10,
+    10,
+    TimeUnit.MINUTES)
 
   /**
    * Creates new token for the given username and stores it with a TTL.

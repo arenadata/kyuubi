@@ -28,24 +28,8 @@ import io.grpc.stub.StreamObserver
 import io.netty.handler.ssl.SslContextBuilder
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.{
-  FRONTEND_SPARK_CONNECT_BIND_HOST,
-  FRONTEND_SPARK_CONNECT_BIND_PORT,
-  FRONTEND_SPARK_CONNECT_SSL_ENABLED,
-  FRONTEND_SPARK_CONNECT_TOKEN_TTL,
-  FRONTEND_SSL_KEYSTORE_ALGORITHM,
-  FRONTEND_SSL_KEYSTORE_PASSWORD,
-  FRONTEND_SSL_KEYSTORE_PATH,
-  FRONTEND_SSL_KEYSTORE_TYPE,
-  SERVER_SPNEGO_KEYTAB,
-  SERVER_SPNEGO_PRINCIPAL}
-import org.apache.kyuubi.server.grpc.{
-  SparkConnectAuthInterceptor,
-  SparkConnectAuthServiceImpl,
-  SparkConnectKerberosValidator,
-  SparkConnectRawHeaderContext,
-  SparkConnectSessionManager,
-  SparkConnectTokenStore}
+import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.server.grpc.{SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 import org.apache.kyuubi.shaded.spark.connect.proto._
@@ -170,17 +154,19 @@ class SparkConnectFrontendService(override val serverable: Serverable)
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val sessionId = request.getSessionId
       val session = connectSessionManager.getOrOpen(sessionId, user, "", "")
-      session.stub.releaseSession(request, new StreamObserver[ReleaseSessionResponse] {
-        override def onNext(value: ReleaseSessionResponse): Unit = responseObserver.onNext(value)
-        override def onError(t: Throwable): Unit = {
-          connectSessionManager.release(sessionId)
-          responseObserver.onError(t)
-        }
-        override def onCompleted(): Unit = {
-          connectSessionManager.release(sessionId)
-          responseObserver.onCompleted()
-        }
-      })
+      session.stub.releaseSession(
+        request,
+        new StreamObserver[ReleaseSessionResponse] {
+          override def onNext(value: ReleaseSessionResponse): Unit = responseObserver.onNext(value)
+          override def onError(t: Throwable): Unit = {
+            connectSessionManager.release(sessionId)
+            responseObserver.onError(t)
+          }
+          override def onCompleted(): Unit = {
+            connectSessionManager.release(sessionId)
+            responseObserver.onCompleted()
+          }
+        })
     }
 
     override def fetchErrorDetails(
@@ -198,8 +184,8 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     val authTypes = conf.get(KyuubiConf.AUTHENTICATION_METHOD)
       .map[AuthTypes.AuthType](AuthTypes.withName)
     if (AuthUtils.kerberosEnabled(authTypes) &&
-        conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
-        conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+      conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
+      conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
       val store = new SparkConnectTokenStore(conf.get(FRONTEND_SPARK_CONNECT_TOKEN_TTL))
       tokenStore = Some(store)
       authService = Some(new SparkConnectAuthServiceImpl(
@@ -248,7 +234,7 @@ class SparkConnectFrontendService(override val serverable: Serverable)
       try {
         keyStore.load(fis, keyStorePassword.get.toCharArray)
       } finally {
-          fis.close()
+        fis.close()
       }
       val keyManagerFactory = KeyManagerFactory.getInstance(keyStoreAlgorithm)
       keyManagerFactory.init(keyStore, keyStorePassword.get.toCharArray)
