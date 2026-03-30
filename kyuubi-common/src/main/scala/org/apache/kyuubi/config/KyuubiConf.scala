@@ -1230,7 +1230,6 @@ object KyuubiConf {
   val FRONTEND_SPARK_CONNECT_TOKEN_TTL: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.spark.connect.token.ttl")
       .doc("Lifetime of Spark Connect session token issued via GetToken RPC. " +
-        "Clients must call RenewToken before expiry to keep the session alive. " +
         "Only effective when kyuubi.authentication includes KERBEROS and " +
         "kyuubi.spnego.keytab / kyuubi.spnego.principal are configured.")
       .version("1.10.1")
