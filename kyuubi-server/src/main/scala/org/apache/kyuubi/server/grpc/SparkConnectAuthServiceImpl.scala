@@ -21,20 +21,20 @@ import io.grpc.Status
 import io.grpc.stub.StreamObserver
 
 import org.apache.kyuubi.Logging
-import org.apache.kyuubi.server.grpc.SparkConnectAuthServiceImpl.NegotiateHeader
 import org.apache.kyuubi.server.grpc.proto._
 import org.apache.kyuubi.server.grpc.proto.SparkConnectAuthServiceGrpc
-import org.apache.kyuubi.server.http.util.HttpAuthUtils.NEGOTIATE
 
 /**
  * gRPC service implementation for issuing, renewing and revoking Spark Connect session tokens.
  *
- * This service is NOT registered behind SparkConnectAuthInterceptor. it performs its own
- * SPNEGO validation via SparkConnectRawHeaderContext (Authorization: Negotiate <token>)
- * to get token (getToken). RenewToken and RevokeToken methods accept valid existing token.
+ * This service is NOT registered behind SparkConnectAuthInterceptor. It performs its own
+ * authentication via SparkConnectRawHeaderContext, delegating to provided handlers:
+ *   - KerberosCredentialHandler: Authorization: Negotiate <spnego-token>
+ *   - PlainCredentialHandler:    Authorization: Bearer <base64(user:password)>
+ * RenewToken and RevokeToken accept a valid existing token.
  */
 class SparkConnectAuthServiceImpl(
-    validator: SparkConnectKerberosValidator,
+    handlers: Seq[SparkConnectCredentialHandler],
     store: SparkConnectTokenStore)
   extends SparkConnectAuthServiceGrpc.SparkConnectAuthServiceImplBase
   with Logging {
@@ -42,29 +42,39 @@ class SparkConnectAuthServiceImpl(
   override def getToken(
       request: GetTokenRequest,
       observer: StreamObserver[GetTokenResponse]): Unit = {
-    val spnegoToken = Option(SparkConnectRawHeaderContext.AUTH_HEADER_KEY.get()) match {
-      case Some(NegotiateHeader(token)) => token
-      case _ =>
+    val authHeader = Option(SparkConnectRawHeaderContext.AUTH_HEADER_KEY.get()).getOrElse {
+      observer.onError(Status.UNAUTHENTICATED
+        .withDescription("Missing Authorization header")
+        .asRuntimeException())
+      return
+    }
+
+    val usernameOpt: Option[String] = handlers.iterator.flatMap { handler =>
+      try handler.authenticate(authHeader)
+      catch {
+        case e: Exception =>
+          warn(s"GetToken authentication failed: ${e.getMessage}")
+          observer.onError(Status.UNAUTHENTICATED
+            .withDescription("Authentication failed: " + e.getMessage)
+            .asRuntimeException())
+          return
+      }
+    }.find(_ => true)
+
+    usernameOpt match {
+      case Some(username) =>
+        val (token, expiresAtMs) = store.create(username)
+        info(s"Issued Connect token for user $username")
+        observer.onNext(GetTokenResponse.newBuilder()
+          .setToken(token)
+          .setExpiresAtMs(expiresAtMs)
+          .build())
+        observer.onCompleted()
+      case None =>
         observer.onError(Status.UNAUTHENTICATED
           .withDescription(
-            "GetToken requires Kerberos authentication: Authorization: Negotiate <spnego-token>")
-          .asRuntimeException())
-        return
-    }
-    try {
-      val username = validator.validate(spnegoToken)
-      val (token, expiresAtMs) = store.create(username)
-      info(s"Issued Connect token for user $username")
-      observer.onNext(GetTokenResponse.newBuilder()
-        .setToken(token)
-        .setExpiresAtMs(expiresAtMs)
-        .build())
-      observer.onCompleted()
-    } catch {
-      case e: Exception =>
-        warn(s"GetToken SPNEGO validation failed: ${e.getMessage}")
-        observer.onError(Status.UNAUTHENTICATED
-          .withDescription("Kerberos authentication failed: " + e.getMessage)
+            "Unsupported Authorization scheme. Use: " +
+              "Negotiate <spnego-token> or Basic <base64(user:password)>")
           .asRuntimeException())
     }
   }
@@ -89,13 +99,5 @@ class SparkConnectAuthServiceImpl(
     store.revoke(request.getToken)
     observer.onNext(RevokeTokenResponse.newBuilder().build())
     observer.onCompleted()
-  }
-}
-
-object SparkConnectAuthServiceImpl {
-  private object NegotiateHeader {
-    def unapply(header: String): Option[String] =
-      if (header.startsWith(s"$NEGOTIATE ")) Some(header.stripPrefix(s"$NEGOTIATE "))
-      else None
   }
 }

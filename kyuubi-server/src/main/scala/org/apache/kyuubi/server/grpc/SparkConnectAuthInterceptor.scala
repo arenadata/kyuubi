@@ -17,15 +17,14 @@
 
 package org.apache.kyuubi.server.grpc
 
-import java.util.Base64
-
 import io.grpc.{Context, Contexts, Metadata, ServerCall, ServerCallHandler, ServerInterceptor, Status}
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
 import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.USER_KEY
-import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
+import org.apache.kyuubi.server.grpc.SparkConnectCredentialHandler.BEARER_PREFIX
+import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 
 class SparkConnectAuthInterceptor(
     conf: KyuubiConf,
@@ -39,21 +38,14 @@ class SparkConnectAuthInterceptor(
     conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
 
   private val saslDisabled = AuthUtils.saslDisabled(authTypes)
-  private val effectivePlainAuthType = AuthUtils.effectivePlainAuthType(authTypes)
-
-  private val authProvider = effectivePlainAuthType match {
-    case Some(authType) =>
-      val method = AuthMethods.withName(authType.toString)
-      Some(AuthenticationProviderFactory.getAuthenticationProvider(method, conf, isServer = true))
-    case None => None
-  }
 
   override def interceptCall[Req, Resp](
       call: ServerCall[Req, Resp],
       headers: Metadata,
       next: ServerCallHandler[Req, Resp]): ServerCall.Listener[Req] = {
     Option(headers.get(AUTH_HEADER)) match {
-      case Some(KyuubiTokenHeader(token)) =>
+      case Some(header) if header.startsWith(BEARER_PREFIX) =>
+        val token = header.stripPrefix(BEARER_PREFIX)
         tokenStore match {
           case None =>
             call.close(
@@ -73,27 +65,13 @@ class SparkConnectAuthInterceptor(
                 new ServerCall.Listener[Req] {}
             }
         }
-      case Some(BearerHeader(token)) =>
-        val (user, pass) = decodeCredentials(token)
-        try {
-          authProvider.foreach(_.authenticate(user, pass))
-          val ctx = Context.current().withValue(USER_KEY, user)
-          Contexts.interceptCall(ctx, call, headers, next)
-        } catch {
-          case e: Exception =>
-            warn(s"Bearer authentication failed for user $user: ${e.getMessage}")
-            call.close(
-              Status.UNAUTHENTICATED.withDescription("Authentication failed: " + e.getMessage),
-              new Metadata())
-            new ServerCall.Listener[Req] {}
-        }
       case Some(_) =>
         call.close(
-          Status.UNAUTHENTICATED.withDescription("Unsupported Authorization scheme"),
+          Status.UNAUTHENTICATED.withDescription(
+            "Unsupported Authorization scheme. Use: Bearer <token>"),
           new Metadata())
         new ServerCall.Listener[Req] {}
       case None if saslDisabled =>
-        // NOSASL mode: extract username from x-user-name header or fall back to OS user
         val xUserNameKey = Metadata.Key.of("x-user-name", Metadata.ASCII_STRING_MARSHALLER)
         val user = Option(headers.get(xUserNameKey))
           .getOrElse(System.getProperty("user.name", "anonymous"))
@@ -105,25 +83,6 @@ class SparkConnectAuthInterceptor(
           new Metadata())
         new ServerCall.Listener[Req] {}
     }
-  }
-
-  private object KyuubiTokenHeader {
-    def unapply(header: String): Option[String] =
-      if (header.startsWith("KyuubiToken ")) Some(header.stripPrefix("KyuubiToken "))
-      else None
-  }
-
-  private object BearerHeader {
-    def unapply(header: String): Option[String] =
-      if (header.startsWith("Bearer ")) Some(header.stripPrefix("Bearer "))
-      else None
-  }
-
-  private def decodeCredentials(base64token: String): (String, String) = {
-    val decoded = new String(Base64.getDecoder.decode(base64token))
-    val idx = decoded.indexOf(':')
-    if (idx < 0) (decoded, "")
-    else (decoded.substring(0, idx), decoded.substring(idx + 1))
   }
 }
 

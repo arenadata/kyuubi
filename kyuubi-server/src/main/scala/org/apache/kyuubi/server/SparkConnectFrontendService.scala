@@ -29,9 +29,9 @@ import io.netty.handler.ssl.SslContextBuilder
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.server.grpc.{SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
+import org.apache.kyuubi.server.grpc.{KerberosCredentialHandler, PlainCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
-import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
+import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 import org.apache.kyuubi.shaded.spark.connect.proto._
 import org.apache.kyuubi.util.JavaUtils
 
@@ -183,14 +183,29 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     connectSessionManager = new SparkConnectSessionManager(serverable.backendService)
     val authTypes = conf.get(KyuubiConf.AUTHENTICATION_METHOD)
       .map[AuthTypes.AuthType](AuthTypes.withName)
-    if (AuthUtils.kerberosEnabled(authTypes) &&
-      conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
-      conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+
+    val kerberosHandler: Option[SparkConnectCredentialHandler] = {
+      if (AuthUtils.kerberosEnabled(authTypes) &&
+        conf.get(SERVER_SPNEGO_KEYTAB).nonEmpty &&
+        conf.get(SERVER_SPNEGO_PRINCIPAL).nonEmpty) {
+        Some(new KerberosCredentialHandler(new SparkConnectKerberosValidator(conf)))
+      } else {
+        None
+      }
+    }
+
+    val ldapHandler: Option[SparkConnectCredentialHandler] =
+      AuthUtils.effectivePlainAuthType(authTypes).map { authType =>
+        val method = AuthMethods.withName(authType.toString)
+        new PlainCredentialHandler(
+          AuthenticationProviderFactory.getAuthenticationProvider(method, conf, isServer = true))
+      }
+
+    val handlers: Seq[SparkConnectCredentialHandler] = Seq(kerberosHandler, ldapHandler).flatten
+    if (handlers.nonEmpty) {
       val store = new SparkConnectTokenStore(conf.get(FRONTEND_SPARK_CONNECT_TOKEN_TTL))
       tokenStore = Some(store)
-      authService = Some(new SparkConnectAuthServiceImpl(
-        new SparkConnectKerberosValidator(conf),
-        store))
+      authService = Some(new SparkConnectAuthServiceImpl(handlers, store))
       info("Spark Connect token auth service initialized")
     }
     authInterceptor = new SparkConnectAuthInterceptor(conf, tokenStore)
