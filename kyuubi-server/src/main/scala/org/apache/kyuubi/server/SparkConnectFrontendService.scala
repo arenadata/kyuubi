@@ -152,6 +152,7 @@ class SparkConnectFrontendService(override val serverable: Serverable)
         request: ReleaseSessionRequest,
         responseObserver: StreamObserver[ReleaseSessionResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
+      val token = Option(SparkConnectAuthInterceptor.TOKEN_KEY.get())
       val sessionId = request.getSessionId
       val session = connectSessionManager.getOrOpen(sessionId, user, "", "")
       session.stub.releaseSession(
@@ -160,10 +161,12 @@ class SparkConnectFrontendService(override val serverable: Serverable)
           override def onNext(value: ReleaseSessionResponse): Unit = responseObserver.onNext(value)
           override def onError(t: Throwable): Unit = {
             connectSessionManager.release(sessionId)
+            token.foreach(t => tokenStore.foreach(_.revoke(t)))
             responseObserver.onError(t)
           }
           override def onCompleted(): Unit = {
             connectSessionManager.release(sessionId)
+            token.foreach(t => tokenStore.foreach(_.revoke(t)))
             responseObserver.onCompleted()
           }
         })

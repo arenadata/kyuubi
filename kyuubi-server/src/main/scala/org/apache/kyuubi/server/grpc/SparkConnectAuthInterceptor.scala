@@ -22,7 +22,7 @@ import io.grpc.{Context, Contexts, Metadata, ServerCall, ServerCallHandler, Serv
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
-import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.USER_KEY
+import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.{TOKEN_KEY, USER_KEY}
 import org.apache.kyuubi.server.grpc.SparkConnectCredentialHandler.BEARER_PREFIX
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 
@@ -56,7 +56,9 @@ class SparkConnectAuthInterceptor(
             store.getUser(token) match {
               case Some(user) =>
                 store.renew(token)
-                val ctx = Context.current().withValue(USER_KEY, user)
+                val ctx = Context.current()
+                  .withValue(USER_KEY, user)
+                  .withValue(TOKEN_KEY, token)
                 Contexts.interceptCall(ctx, call, headers, next)
               case None =>
                 call.close(
@@ -88,4 +90,5 @@ class SparkConnectAuthInterceptor(
 
 object SparkConnectAuthInterceptor {
   val USER_KEY: Context.Key[String] = Context.key("kyuubi.connect.user")
+  val TOKEN_KEY: Context.Key[String] = Context.key("kyuubi.connect.token")
 }

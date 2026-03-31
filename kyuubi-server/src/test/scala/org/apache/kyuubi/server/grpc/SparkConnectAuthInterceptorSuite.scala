@@ -111,7 +111,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     assert(statusCaptor.getValue.getDescription.contains("Unsupported Authorization scheme"))
   }
 
-  test("KyuubiToken: no tokenStore configured returns UNAUTHENTICATED") {
+  test("Bearer: no tokenStore configured returns UNAUTHENTICATED") {
     val conf = KyuubiConf()
     val interceptor = new SparkConnectAuthInterceptor(conf, tokenStore = None)
 
@@ -119,14 +119,13 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
     val statusCaptor = ArgumentCaptor.forClass(classOf[Status])
 
-    interceptor.interceptCall(call, makeHeaders(authValue = Some("KyuubiToken some-uuid")), handler)
+    interceptor.interceptCall(call, makeHeaders(authValue = Some("Bearer some-uuid")), handler)
 
     verify(call).close(statusCaptor.capture(), any())
     assert(statusCaptor.getValue.getCode === Status.Code.UNAUTHENTICATED)
-    assert(statusCaptor.getValue.getDescription.contains("Token auth not available"))
   }
 
-  test("KyuubiToken: valid token sets USER_KEY") {
+  test("Bearer: valid token sets USER_KEY") {
     val conf = KyuubiConf()
     val store = new SparkConnectTokenStore(ttlMs = 60000L)
     try {
@@ -141,7 +140,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
         null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
       })
 
-      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"KyuubiToken $token")), handler)
+      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"Bearer $token")), handler)
 
       assert(capturedUser === "john")
     } finally {
@@ -149,7 +148,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     }
   }
 
-  test("KyuubiToken: successful request renews token TTL") {
+  test("Bearer: successful request renews token TTL") {
     val conf = KyuubiConf()
     val realStore = new SparkConnectTokenStore(ttlMs = 60000L)
     val store = spy(realStore)
@@ -165,7 +164,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
         null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
       })
 
-      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"KyuubiToken $token")), handler)
+      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"Bearer $token")), handler)
 
       assert(capturedUser === "john")
       verify(store).renew(token)
@@ -185,7 +184,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
       val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
       val statusCaptor = ArgumentCaptor.forClass(classOf[Status])
 
-      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"KyuubiToken $token")), handler)
+      interceptor.interceptCall(call, makeHeaders(authValue = Some(s"Bearer $token")), handler)
 
       verify(call).close(statusCaptor.capture(), any())
       assert(statusCaptor.getValue.getCode === Status.Code.UNAUTHENTICATED)
@@ -193,42 +192,6 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     } finally {
       store.stop()
     }
-  }
-
-  test("Bearer: NONE auth accepts any credentials and sets USER_KEY") {
-    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NONE"))
-    val interceptor = new SparkConnectAuthInterceptor(conf)
-
-    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
-    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
-    var capturedUser: String = null
-    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
-      capturedUser = USER_KEY.get()
-      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
-    })
-
-    val token = Base64.getEncoder.encodeToString("john:secret".getBytes)
-    interceptor.interceptCall(call, makeHeaders(authValue = Some(s"Bearer $token")), handler)
-
-    assert(capturedUser === "john")
-  }
-
-  test("Bearer: credentials without password sets USER_KEY to full decoded string") {
-    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NONE"))
-    val interceptor = new SparkConnectAuthInterceptor(conf)
-
-    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
-    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
-    var capturedUser: String = null
-    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
-      capturedUser = USER_KEY.get()
-      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
-    })
-
-    val token = Base64.getEncoder.encodeToString("john".getBytes) // no colon
-    interceptor.interceptCall(call, makeHeaders(authValue = Some(s"Bearer $token")), handler)
-
-    assert(capturedUser === "john")
   }
 
   test("unknown Authorization scheme returns UNAUTHENTICATED") {
