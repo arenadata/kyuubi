@@ -82,7 +82,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("missing Authorization header with non-NOSASL auth returns UNAUTHENTICATED") {
-    val conf = KyuubiConf() // default NONE, saslDisabled = false
+    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("LDAP"))
     val interceptor = new SparkConnectAuthInterceptor(conf)
 
     val call = mock[ServerCall[Array[Byte], Array[Byte]]]
@@ -192,6 +192,40 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     } finally {
       store.stop()
     }
+  }
+
+  test("NONE: no Authorization header sets USER_KEY from x-user-name") {
+    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NONE"))
+    val interceptor = new SparkConnectAuthInterceptor(conf)
+
+    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
+    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
+    var capturedUser: String = null
+    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
+      capturedUser = USER_KEY.get()
+      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
+    })
+
+    interceptor.interceptCall(call, makeHeaders(xUser = Some("john")), handler)
+
+    assert(capturedUser === "john")
+  }
+
+  test("NONE: missing x-user-name falls back to system user") {
+    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NONE"))
+    val interceptor = new SparkConnectAuthInterceptor(conf)
+
+    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
+    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
+    var capturedUser: String = null
+    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
+      capturedUser = USER_KEY.get()
+      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
+    })
+
+    interceptor.interceptCall(call, makeHeaders(), handler)
+
+    assert(capturedUser === System.getProperty("user.name", "anonymous"))
   }
 
   test("unknown Authorization scheme returns UNAUTHENTICATED") {

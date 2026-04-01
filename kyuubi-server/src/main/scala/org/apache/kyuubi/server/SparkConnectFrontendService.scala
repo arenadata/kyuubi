@@ -29,7 +29,7 @@ import io.netty.handler.ssl.SslContextBuilder
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.server.grpc.{KerberosCredentialHandler, PlainCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
+import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 import org.apache.kyuubi.shaded.spark.connect.proto._
@@ -200,7 +200,7 @@ class SparkConnectFrontendService(override val serverable: Serverable)
     val ldapHandler: Option[SparkConnectCredentialHandler] =
       AuthUtils.effectivePlainAuthType(authTypes).map { authType =>
         val method = AuthMethods.withName(authType.toString)
-        new PlainCredentialHandler(
+        new BasicCredentialHandler(
           AuthenticationProviderFactory.getAuthenticationProvider(method, conf, isServer = true))
       }
 

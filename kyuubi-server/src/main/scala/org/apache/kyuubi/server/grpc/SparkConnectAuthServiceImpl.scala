@@ -30,7 +30,7 @@ import org.apache.kyuubi.server.grpc.proto.SparkConnectAuthServiceGrpc
  * This service is NOT registered behind SparkConnectAuthInterceptor. It performs its own
  * authentication via SparkConnectRawHeaderContext, delegating to provided handlers:
  *   - KerberosCredentialHandler: Authorization: Negotiate <spnego-token>
- *   - PlainCredentialHandler:    Authorization: Bearer <base64(user:password)>
+ *   - BasicCredentialHandler:    Authorization: Basic <base64(user:password)>
  * RenewToken and RevokeToken accept a valid existing token.
  */
 class SparkConnectAuthServiceImpl(

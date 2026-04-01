@@ -25,6 +25,7 @@ import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
 import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.{TOKEN_KEY, USER_KEY}
 import org.apache.kyuubi.server.grpc.SparkConnectCredentialHandler.BEARER_PREFIX
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
+import org.apache.kyuubi.service.authentication.AuthTypes.NONE
 
 class SparkConnectAuthInterceptor(
     conf: KyuubiConf,
@@ -38,6 +39,11 @@ class SparkConnectAuthInterceptor(
     conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
 
   private val saslDisabled = AuthUtils.saslDisabled(authTypes)
+
+  // NONE auth has no meaning in gRPC (no SASL transport), treat it the same as NOSASL:
+  // accept any request without an Authorization header, trust x-user-name or OS user.
+  private val noAuthRequired =
+    saslDisabled || AuthUtils.effectivePlainAuthType(authTypes).contains(NONE)
 
   override def interceptCall[Req, Resp](
       call: ServerCall[Req, Resp],
@@ -73,7 +79,7 @@ class SparkConnectAuthInterceptor(
             "Unsupported Authorization scheme. Use: Bearer <token>"),
           new Metadata())
         new ServerCall.Listener[Req] {}
-      case None if saslDisabled =>
+      case None if noAuthRequired =>
         val xUserNameKey = Metadata.Key.of("x-user-name", Metadata.ASCII_STRING_MARSHALLER)
         val user = Option(headers.get(xUserNameKey))
           .getOrElse(System.getProperty("user.name", "anonymous"))

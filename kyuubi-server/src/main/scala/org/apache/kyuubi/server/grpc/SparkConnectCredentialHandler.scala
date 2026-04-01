@@ -54,7 +54,7 @@ class KerberosCredentialHandler(validator: SparkConnectKerberosValidator)
   }
 }
 
-class PlainCredentialHandler(provider: PasswdAuthenticationProvider)
+class BasicCredentialHandler(provider: PasswdAuthenticationProvider)
   extends SparkConnectCredentialHandler {
 
   override def authenticate(authHeader: String): Option[String] =
