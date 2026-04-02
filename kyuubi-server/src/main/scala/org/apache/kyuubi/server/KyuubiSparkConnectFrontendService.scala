@@ -35,8 +35,8 @@ import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, 
 import org.apache.kyuubi.shaded.spark.connect.proto._
 import org.apache.kyuubi.util.JavaUtils
 
-class SparkConnectFrontendService(override val serverable: Serverable)
-  extends AbstractFrontendService("SparkConnectFrontendService") {
+class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
+  extends AbstractFrontendService("KyuubiSparkConnectFrontendService") {
 
   private var grpcServer: Server = _
   private var connectSessionManager: SparkConnectSessionManager = _

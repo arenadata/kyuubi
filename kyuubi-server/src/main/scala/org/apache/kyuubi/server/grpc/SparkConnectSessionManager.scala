@@ -32,6 +32,13 @@ import org.apache.kyuubi.shaded.spark.connect.proto.SparkConnectServiceGrpc
 
 class SparkConnectSessionManager(be: BackendService) extends Logging {
 
+  protected def buildChannel(connectUrl: String): ManagedChannel =
+    ManagedChannelBuilder
+      .forTarget(connectUrl)
+      .usePlaintext()
+      .asInstanceOf[ManagedChannelBuilder[_]]
+      .build()
+
   case class ConnectSession(
       kyuubiHandle: SessionHandle,
       channel: ManagedChannel,
@@ -60,7 +67,7 @@ class SparkConnectSessionManager(be: BackendService) extends Logging {
         val connectUrl = kyuubiSession.engineConnectUrl.getOrElse(
           throw new KyuubiException(
             s"Engine for Connect session $sessionId did not register a Connect URL"))
-        val channel = ManagedChannelBuilder.forTarget(connectUrl).usePlaintext().build()
+        val channel = buildChannel(connectUrl)
         ConnectSession(handle, channel, SparkConnectServiceGrpc.newStub(channel))
       })
   }

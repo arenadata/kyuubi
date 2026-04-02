@@ -331,10 +331,7 @@ object SparkSQLEngine extends Logging {
     }
 
     if (_kyuubiConf.isSparkConnectEnabled) {
-      val socket = new java.net.ServerSocket(0)
-      val connectPort =
-        try socket.getLocalPort
-        finally socket.close()
+      val connectPort = Utils.findFreePort()
       _sparkConf.set("spark.connect.grpc.binding.port", connectPort.toString)
     }
   }
