@@ -62,7 +62,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ExecutePlanRequest,
         responseObserver: StreamObserver[ExecutePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.executePlan(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -72,7 +72,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: AnalyzePlanRequest,
         responseObserver: StreamObserver[AnalyzePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.analyzePlan(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -82,7 +82,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ConfigRequest,
         responseObserver: StreamObserver[ConfigResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.config(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -96,7 +96,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
       new StreamObserver[AddArtifactsRequest] {
         override def onNext(req: AddArtifactsRequest): Unit = {
           if (upstreamObserver == null) {
-            val session = connectSessionManager.getOrOpen(req.getSessionId, user, "", "")
+            val session = connectSessionManager.getOrOpen(req.getSessionId, user)
             upstreamObserver = session.stub.addArtifacts(responseObserver)
           }
           upstreamObserver.onNext(req.toBuilder.setUserContext(userContext(user)).build())
@@ -112,7 +112,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ArtifactStatusesRequest,
         responseObserver: StreamObserver[ArtifactStatusesResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.artifactStatus(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -122,7 +122,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: InterruptRequest,
         responseObserver: StreamObserver[InterruptResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.interrupt(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -132,7 +132,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ReattachExecuteRequest,
         responseObserver: StreamObserver[ExecutePlanResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.reattachExecute(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -142,7 +142,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ReleaseExecuteRequest,
         responseObserver: StreamObserver[ReleaseExecuteResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.releaseExecute(
         request.toBuilder.setUserContext(userContext(user)).build(),
         responseObserver)
@@ -154,7 +154,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
       val token = Option(SparkConnectAuthInterceptor.TOKEN_KEY.get())
       val sessionId = request.getSessionId
-      val session = connectSessionManager.getOrOpen(sessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(sessionId, user)
       session.stub.releaseSession(
         request,
         new StreamObserver[ReleaseSessionResponse] {
@@ -176,7 +176,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: FetchErrorDetailsRequest,
         responseObserver: StreamObserver[FetchErrorDetailsResponse]): Unit = {
       val user = SparkConnectAuthInterceptor.USER_KEY.get()
-      val session = connectSessionManager.getOrOpen(request.getSessionId, user, "", "")
+      val session = connectSessionManager.getOrOpen(request.getSessionId, user)
       session.stub.fetchErrorDetails(request, responseObserver)
     }
   }

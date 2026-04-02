@@ -20,6 +20,7 @@ package org.apache.kyuubi.server.grpc
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
@@ -30,7 +31,7 @@ import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 import org.apache.kyuubi.shaded.spark.connect.proto.SparkConnectServiceGrpc
 
-class SparkConnectSessionManager(be: BackendService) extends Logging {
+class SparkConnectSessionManager(backendService: BackendService) extends Logging {
 
   protected def buildChannel(connectUrl: String): ManagedChannel =
     ManagedChannelBuilder
@@ -48,28 +49,38 @@ class SparkConnectSessionManager(be: BackendService) extends Logging {
 
   def getOrOpen(
       sessionId: String,
-      username: String,
-      password: String,
-      ipAddr: String): ConnectSession = {
-    sessions.computeIfAbsent(
-      sessionId,
-      _ => {
-        val handle = be.openSession(
-          TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
-          username,
-          password,
-          ipAddr,
-          Map.empty)
-        val kyuubiSession = be.sessionManager
-          .getSession(handle)
-          .asInstanceOf[KyuubiSessionImpl]
+      username: String): ConnectSession = {
+    Option(sessions.get(sessionId)).getOrElse {
+      val handle = backendService.openSession(
+        TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
+        username,
+        "",
+        "",
+        Map.empty)
+      try {
+        val kyuubiSession = backendService.sessionManager.getSession(handle) match {
+          case s: KyuubiSessionImpl => s
+          case other => throw new KyuubiException(
+              s"Unexpected session type for Connect session $sessionId: ${other.getClass.getName}")
+        }
         kyuubiSession.waitForEngineLaunched()
         val connectUrl = kyuubiSession.engineConnectUrl.getOrElse(
           throw new KyuubiException(
             s"Engine for Connect session $sessionId did not register a Connect URL"))
         val channel = buildChannel(connectUrl)
-        ConnectSession(handle, channel, SparkConnectServiceGrpc.newStub(channel))
-      })
+        val session = ConnectSession(handle, channel, SparkConnectServiceGrpc.newStub(channel))
+        val existing = sessions.putIfAbsent(sessionId, session)
+        if (existing != null) {
+          channel.shutdownNow()
+          backendService.closeSession(handle)
+          existing
+        } else session
+      } catch {
+        case NonFatal(e) =>
+          backendService.closeSession(handle)
+          throw e
+      }
+    }
   }
 
   def release(sessionId: String): Unit = {
@@ -77,12 +88,12 @@ class SparkConnectSessionManager(be: BackendService) extends Logging {
       try {
         s.channel.shutdownNow()
       } catch {
-        case e: Throwable => warn(s"Error shutting down channel for session $sessionId: $e")
+        case NonFatal(e) => warn(s"Error shutting down channel for session $sessionId: $e")
       }
       try {
-        be.closeSession(s.kyuubiHandle)
+        backendService.closeSession(s.kyuubiHandle)
       } catch {
-        case e: Throwable =>
+        case NonFatal(e) =>
           warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
       }
     }
