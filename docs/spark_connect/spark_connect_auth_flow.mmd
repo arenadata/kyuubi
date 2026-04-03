@@ -11,7 +11,7 @@ flowchart TB
 
     Engine(["Spark Engine<br>gRPC"])
 
-    Client -- "(1) Negotiate … or Basic …" --> TokenService
+    Client -- "(1) Negotiate (SPNEGO) or Basic (LDAP)" --> TokenService
     TokenService --> CredHandlers
     CredHandlers -- "username" --> TokenStore
     TokenService -. "(1) token + expiresAt" .-> Client
