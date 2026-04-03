@@ -406,6 +406,12 @@
         </dependency>
 
         <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-inprocess</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
@@ -514,4 +520,18 @@
             </extension>
         </extensions>
     </build>
+
+    <profiles>
+        <profile>
+            <id>spark-3.5</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.spark</groupId>
+                    <artifactId>spark-connect-client-jvm_${scala.binary.version}</artifactId>
+                    <version>${spark.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

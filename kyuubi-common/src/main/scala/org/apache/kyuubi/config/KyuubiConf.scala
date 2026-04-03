@@ -1216,7 +1216,7 @@ object KyuubiConf {
       .version("1.10.1")
       .serverOnly
       .intConf
-      .checkValue(_ > 0, "Port must be positive")
+      .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
       .createWithDefault(10199)
 
   val FRONTEND_SPARK_CONNECT_SSL_ENABLED: ConfigEntry[Boolean] =
