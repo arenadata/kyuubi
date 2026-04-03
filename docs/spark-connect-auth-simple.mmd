@@ -1,0 +1,40 @@
+flowchart TB
+    Client(["gRPC Client"])
+
+    subgraph KyuubiServer["Kyuubi Server"]
+        TokenService["SparkConnectAuthServiceImpl<br>(GetToken / RenewToken / RevokeToken)"]
+        CredHandlers["Credential Handlers<br>SPNEGO / LDAP"]
+        TokenStore[("SparkConnectTokenStore<br>UUID -> username, TTL")]
+        Interceptor["SparkConnectAuthInterceptor"]
+        Proxy["KyuubiSparkConnectFrontendService<br>rewrites UserContext.userId"]
+    end
+
+    Engine(["Spark Engine<br>gRPC"])
+
+    Client -- "(1) Negotiate … or Basic …" --> TokenService
+    TokenService --> CredHandlers
+    CredHandlers -- "username" --> TokenStore
+    TokenService -. "(1) token + expiresAt" .-> Client
+
+    Client ~~~ TokenService
+    Client ~~~ Interceptor
+
+    Client -- "(2) Bearer token" --> Interceptor
+    Client -- "(2) x-user-name (NOSASL/NONE)" --> Interceptor
+    Interceptor -- "token lookup" --> TokenStore
+    Interceptor -- "user in Context" --> Proxy
+    Proxy -- "UserContext.userId = user" --> Engine
+
+    Client:::client
+    TokenService:::frontend
+    CredHandlers:::core
+    TokenStore:::store
+    Interceptor:::frontend
+    Proxy:::frontend
+    Engine:::engine
+
+    classDef client    fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef frontend  fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef core      fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    classDef engine    fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef store     fill:#fef9c3,stroke:#ca8a04,color:#713f12
