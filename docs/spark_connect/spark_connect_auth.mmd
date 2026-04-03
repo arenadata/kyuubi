@@ -20,7 +20,7 @@ flowchart TB
     Client ~~~ Interceptor
 
     Client -- "(2) Bearer token" --> Interceptor
-    Client -- "(2) x-user-name (NOSASL/NONE)" --> Interceptor
+    Client -- "(1) x-user-name (NOSASL/NONE)" --> Interceptor
     Interceptor -- "token lookup" --> TokenStore
     Interceptor -- "user in Context" --> Proxy
     Proxy -- "UserContext.userId = user" --> Engine
