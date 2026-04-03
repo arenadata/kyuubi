@@ -1,5 +1,4 @@
-Kyuubi Spark Connect
-====================
+# Kyuubi Spark Connect
 
 ## Connect to Kyuubi using gRPC
 
