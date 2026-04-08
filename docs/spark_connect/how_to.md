@@ -13,6 +13,7 @@ kyuubi.frontend.spark.connect.ssl.enabled=true
 ### Common requirements for python client
 
 define `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` env variable (it points to path with ssl certificates):
+
 ```
 export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 ```
@@ -20,9 +21,11 @@ export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 **For KERBEROS and LDAP authentication types:**
 
 Generate spark connect classes (TODO: think how to automate):
+
 ```
 python3 -m grpc_tools.protoc --python_out=. --grpc_python_out=.  --proto_path=.  spark_connect_auth.proto
 ```
+
 then define `PYTHONPATH` if you run python code non-interactively:
 
 ```
@@ -74,20 +77,25 @@ kyuubi.spnego.principal=HTTP/vdmitriev-adh-orion-hadoop-3.ru-central1.internal@R
 ##### Requirements
 
 Install the following packages (for ubuntu):
+
 ```
 gcc, python3.10-dev, libkrb5-dev
 ```
+
 and install python library:
+
 ```
 gssapi
 ```
 
 obtain Kerberos ticket-granting ticket:
+
 ```
 kinit vdmitriev
 ```
 
 you can run interactive pyspark shell command, define `KYUUBI_AUTH=kerberos` env variable:
+
 ```
 KYUUBI_AUTH=kerberos pyspark3 --remote "sc://vdmitriev-adh-orion-hadoop-3.ru-central1.internal:10199/;use_ssl=true"
 ...
@@ -122,6 +130,7 @@ spark.stop()
 ```
 
 run this code:
+
 ```
 $ python3 spark_connect_client_kerberos.py
 +--------------+
@@ -138,12 +147,13 @@ set in `/etc/kyuubi/conf/kyuubi-defaults.conf`
 ```
 kyuubi.authentication=LDAP
 ```
-see more about ldap parameters: https://kyuubi.readthedocs.io/en/master/security/ldap.html
 
+see more about ldap parameters: https://kyuubi.readthedocs.io/en/master/security/ldap.html
 
 ##### Interactive mode (pyspark)
 
 you can run interactive pyspark shell command, define `KYUUBI_AUTH=ldap`, `KYUUBI_USERNAME` and `KYUUBI_PASSWORD` env variables:
+
 ```
 export KYUUBI_PASSWORD=vdmitriev2pass
 
@@ -154,6 +164,7 @@ KYUUBI_AUTH=ldap KYUUBI_USERNAME=vdmitriev2 pyspark3 --remote "sc://vdmitriev-ad
 ##### Python code
 
 pass `auth="ldap"`, `username` and `password` parameters to `KyuubiChannelBuilder` class in python code:
+
 ```
 builder = KyuubiChannelBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="ldap", 
     username="vdmitriev2", password="vdmitriev2pass")
@@ -163,14 +174,17 @@ spark.sql("SELECT current_user()").show()
 ```
 
 ## Build kyuubi
+
 ```
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ./build/dist --tgz --spark-provided --flink-provided --hive-provided --web-ui -Pjdbc-shaded -Pjava-8  -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.6 -Drat.skip=true
 ```
 
 run spark-connect tests:
+
 ```
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export SPARK_HOME=/home/vdmitriev/git/spark-3.5.4-bin-hadoop3-scala2.13
 build/mvn test -pl kyuubi-server -Pjdbc-shaded -Pjava-8  -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.6  -Dsuites="org.apache.kyuubi.server.grpc.*,*SparkConnect*"
 ```
+
