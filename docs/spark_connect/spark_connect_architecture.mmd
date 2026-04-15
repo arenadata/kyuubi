@@ -1,0 +1,22 @@
+graph LR
+    Client1["User 1 (python)"]
+    Client2["User 2 (go)"]
+    Client3["User 3 (java)"]
+
+    SparkConnect["Spark Connect Server (standalone)"]
+    Cluster["YARN Application"]
+
+    Client1 -->|"gRPC"| SparkConnect
+    Client2 -->|"gRPC"| SparkConnect
+    Client3 -->|"gRPC"| SparkConnect
+    SparkConnect -->|"submits jobs"| Cluster
+
+    Client1:::client
+    Client2:::client
+    Client3:::client
+    SparkConnect:::frontend
+    Cluster:::engine
+
+    classDef client    fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef frontend  fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef engine    fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e

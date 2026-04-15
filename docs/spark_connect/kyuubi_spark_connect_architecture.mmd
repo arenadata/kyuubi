@@ -1,0 +1,39 @@
+graph LR
+    Client1["User 1 (python)"]
+    Client2["User 2 (go)"]
+    Client3["User 3 (java)"]
+
+    subgraph Kyuubi["Kyuubi Server"]
+        Frontend["Spark Connect Frontend<br>(gRPC)"]
+    end
+
+    subgraph App3["YARN Application 3 (User 3)"]
+        SC3["Spark Connect Server"]
+    end
+
+    subgraph App2["YARN Application 2 (User 2)"]
+        SC2["Spark Connect Server"]
+    end
+
+    subgraph App1["YARN Application 1 (User 1)"]
+        SC1["Spark Connect Server"]
+    end
+
+    Client1 -->|"gRPC (Kerberos)"| Frontend
+    Client2 -->|"gRPC (LDAP)"| Frontend
+    Client3 -->|"gRPC (Kerberos)"| Frontend
+    Frontend -->|"gRPC proxy"| SC1
+    Frontend -->|"gRPC proxy"| SC2
+    Frontend -->|"gRPC proxy"| SC3
+
+    Client1:::client
+    Client2:::client
+    Client3:::client
+    Frontend:::frontend
+    SC1:::engine
+    SC2:::engine
+    SC3:::engine
+
+    classDef client    fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef frontend  fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef engine    fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e

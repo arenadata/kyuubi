@@ -113,7 +113,7 @@ SparkSession available as 'spark'.
 or pass `auth="kerberos"` parameter to `KyuubiChannelBuilder` class in python code:
 
 ```
-from pyspark.kyuubi.kyuubi_spark_connect import KyuubiChannelBuilder
+from kyuubi.spark_connect import KyuubiChannelBuilder
 from pyspark.sql.connect.session import SparkSession
 
 HOST = "vdmitriev-adh-orion-hadoop-3.ru-central1.internal"
