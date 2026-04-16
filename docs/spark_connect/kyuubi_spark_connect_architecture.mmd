@@ -8,15 +8,15 @@ graph LR
     end
 
     subgraph App3["YARN Application 3 (User 3)"]
-        SC3["Spark Connect Server"]
+        SC3["Spark Connect Service"]
     end
 
     subgraph App2["YARN Application 2 (User 2)"]
-        SC2["Spark Connect Server"]
+        SC2["Spark Connect Service"]
     end
 
     subgraph App1["YARN Application 1 (User 1)"]
-        SC1["Spark Connect Server"]
+        SC1["Spark Connect Service"]
     end
 
     Client1 -->|"gRPC (Kerberos)"| Frontend
