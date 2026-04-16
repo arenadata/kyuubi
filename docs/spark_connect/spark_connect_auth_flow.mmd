@@ -2,7 +2,7 @@ flowchart TB
     Client(["gRPC Client"])
 
     subgraph KyuubiServer["Kyuubi Server"]
-        TokenService["SparkConnectAuthServiceImpl<br>(GetToken / RenewToken / RevokeToken)"]
+        TokenService["SparkConnectAuthServiceImpl<br>(GetToken)"]
         CredHandlers["Credential Handlers<br>SPNEGO / LDAP"]
         TokenStore[("SparkConnectTokenStore<br>UUID -> username, TTL")]
         Interceptor["SparkConnectAuthInterceptor"]
