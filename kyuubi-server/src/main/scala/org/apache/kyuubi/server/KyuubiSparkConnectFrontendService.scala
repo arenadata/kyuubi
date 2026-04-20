@@ -31,6 +31,7 @@ import io.netty.handler.ssl.SslContextBuilder
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
@@ -173,26 +174,15 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         request: ReleaseSessionRequest,
         responseObserver: StreamObserver[ReleaseSessionResponse]): Unit =
       withErrorHandling(responseObserver) {
-        val user = SparkConnectAuthInterceptor.USER_KEY.get()
         val token = Option(SparkConnectAuthInterceptor.TOKEN_KEY.get())
         val sessionId = request.getSessionId
-        val session = connectSessionManager.getOrOpen(sessionId, user)
-        session.stub.releaseSession(
-          request,
-          new StreamObserver[ReleaseSessionResponse] {
-            override def onNext(value: ReleaseSessionResponse): Unit =
-              responseObserver.onNext(value)
-            override def onError(t: Throwable): Unit = {
-              connectSessionManager.release(sessionId)
-              token.foreach(t => tokenStore.foreach(_.revoke(t)))
-              responseObserver.onError(t)
-            }
-            override def onCompleted(): Unit = {
-              connectSessionManager.release(sessionId)
-              token.foreach(t => tokenStore.foreach(_.revoke(t)))
-              responseObserver.onCompleted()
-            }
-          })
+        val closeKyuubiSession =
+          ShareLevel.withName(conf.get(ENGINE_SHARE_LEVEL)) == ShareLevel.CONNECTION
+        connectSessionManager.release(sessionId, closeKyuubiSession)
+        token.foreach(t => tokenStore.foreach(_.revoke(t)))
+        responseObserver.onNext(
+          ReleaseSessionResponse.newBuilder().setSessionId(sessionId).build())
+        responseObserver.onCompleted()
       }
 
     override def fetchErrorDetails(

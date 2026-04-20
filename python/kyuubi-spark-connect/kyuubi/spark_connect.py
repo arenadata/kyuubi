@@ -1,21 +1,25 @@
 """
-Kyuubi Spark Connect authentication.
+Kyuubi Spark Connect client.
 
-KyuubiTokenClient — obtains/renews/revokes session token via gRPC.
-KyuubiChannelBuilder — PySpark ChannelBuilder that manages tokens.
+KyuubiTokenClient - obtains/renews/revokes session token via gRPC.
+KyuubiChannelBuilder - PySpark ChannelBuilder for all auth types (none/kerberos/ldap).
+    Token is revoked server-side when spark.stop() sends ReleaseSession.
 
 Usage:
     from kyuubi.spark_connect import KyuubiChannelBuilder
     from pyspark.sql.connect.session import SparkSession
 
+    # no auth:
+    builder = KyuubiChannelBuilder("sc://host:10199")
+    # Kerberos:
     builder = KyuubiChannelBuilder("sc://host:10199/;use_ssl=true", auth="kerberos")
-    # or LDAP:
+    # LDAP:
     builder = KyuubiChannelBuilder("sc://host:10199/;use_ssl=true",
                                    auth="ldap", username="john", password="secret")
 
     spark = SparkSession(connection=builder)
     spark.sql("SELECT current_user()").show()
-    spark.stop()
+    spark.stop()  # sends ReleaseSession, server revokes token automatically
 """
 
 import base64
@@ -37,7 +41,7 @@ class KyuubiTokenClient:
     @property
     def token(self) -> str:
         if self._token is None:
-            raise RuntimeError("No token — call get_token() first")
+            raise RuntimeError("No token - call get_token() first")
         return self._token
 
     @property
@@ -99,43 +103,35 @@ class KyuubiTokenClient:
 
 
 class KyuubiChannelBuilder(ChannelBuilder):
-    """PySpark ChannelBuilder that authenticates via Kyuubi token service.
+    """PySpark ChannelBuilder for all Kyuubi auth types (none/kerberos/ldap).
 
-    Gets session token on construction and sends it as Bearer on every RPC.
-    Call renew() to extend the token and revoke() to invalidate it.
+    Revokes token on channel close for kerberos/ldap auth.
 
     Usage:
-        builder = KyuubiChannelBuilder("sc://host:10199/;use_ssl=true", auth="kerberos")
+        builder = KyuubiChannelBuilder("sc://host:10199", auth="kerberos")
         spark = SparkSession(connection=builder)
-        ...
-        spark.stop()
+        spark.stop()  # sends ReleaseSession + revokes token
     """
 
-    def __init__(self, url: str, auth: str = "kerberos",
+    def __init__(self, url: str, auth: str = "none",
                  username: str = None, password: str = None):
         super().__init__(url)
-        self._kyuubi_client = KyuubiTokenClient(self.host, self.port, self.secure)
-        self._kyuubi_client.get_token(auth, username=username, password=password)
-
-    def toChannel(self) -> grpc.Channel:
-        channel = super().toChannel()
-        _original_close = channel.close
-
-        def _patched_close():
-            try:
-                self._kyuubi_client.revoke()
-            finally:
-                _original_close()
-        channel.close = _patched_close
-        return channel
+        if auth == "none":
+            self._kyuubi_client = None
+        else:
+            self._kyuubi_client = KyuubiTokenClient(self.host, self.port, self.secure)
+            self._kyuubi_client.get_token(auth, username=username, password=password)
 
     def metadata(self):
-        return list(super().metadata()) + [
-            ("authorization", f"Bearer {self._kyuubi_client.token}")
-        ]
+        base = list(super().metadata())
+        if self._kyuubi_client is not None:
+            base.append(("authorization", f"Bearer {self._kyuubi_client.token}"))
+        return base
 
     def renew(self):
-        self._kyuubi_client.renew()
+        if self._kyuubi_client is not None:
+            self._kyuubi_client.renew()
 
     def revoke(self):
-        self._kyuubi_client.revoke()
+        if self._kyuubi_client is not None:
+            self._kyuubi_client.revoke()

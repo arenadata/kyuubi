@@ -160,7 +160,7 @@ class KyuubiSparkConnectServiceImplSuite extends KyuubiFunSuite {
                   engineChannel,
                   SparkConnectServiceGrpc.newStub(engineChannel))
               }
-              override def release(sessionId: String): Unit =
+              override def release(sessionId: String, closeKyuubiSession: Boolean = true): Unit =
                 releasedSessions.add(sessionId)
               override def closeAll(): Unit = ()
             }

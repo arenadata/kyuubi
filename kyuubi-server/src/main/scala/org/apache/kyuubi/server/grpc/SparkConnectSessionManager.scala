@@ -83,23 +83,27 @@ class SparkConnectSessionManager(backendService: BackendService) extends Logging
     }
   }
 
-  def release(sessionId: String): Unit = {
+  def get(sessionId: String): Option[ConnectSession] = Option(sessions.get(sessionId))
+
+  def release(sessionId: String, closeKyuubiSession: Boolean = true): Unit = {
     Option(sessions.remove(sessionId)).foreach { s =>
       try {
         s.channel.shutdownNow()
       } catch {
         case NonFatal(e) => warn(s"Error shutting down channel for session $sessionId: $e")
       }
-      try {
-        backendService.closeSession(s.kyuubiHandle)
-      } catch {
-        case NonFatal(e) =>
-          warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
+      if (closeKyuubiSession) {
+        try {
+          backendService.closeSession(s.kyuubiHandle)
+        } catch {
+          case NonFatal(e) =>
+            warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
+        }
       }
     }
   }
 
   def closeAll(): Unit = {
-    sessions.keys().asScala.toSeq.foreach(release)
+    sessions.keys().asScala.toSeq.foreach(release(_))
   }
 }
