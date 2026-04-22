@@ -153,13 +153,15 @@ class KyuubiSparkConnectServiceImplSuite extends KyuubiFunSuite {
         new KyuubiSparkConnectFrontendService(this) {
           override protected def createSessionManager(): SparkConnectSessionManager =
             new SparkConnectSessionManager(null) {
+              private val fixedSession = ConnectSession(
+                SessionHandle(java.util.UUID.randomUUID()),
+                engineChannel,
+                SparkConnectServiceGrpc.newStub(engineChannel))
               override def getOrOpen(sessionId: String, username: String): ConnectSession = {
                 openSessionCount.incrementAndGet()
-                ConnectSession(
-                  SessionHandle(java.util.UUID.randomUUID()),
-                  engineChannel,
-                  SparkConnectServiceGrpc.newStub(engineChannel))
+                fixedSession
               }
+              override def get(sessionId: String): Option[ConnectSession] = Some(fixedSession)
               override def release(sessionId: String, closeKyuubiSession: Boolean = true): Unit =
                 releasedSessions.add(sessionId)
               override def closeAll(): Unit = ()

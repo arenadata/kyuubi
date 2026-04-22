@@ -164,10 +164,19 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
         responseObserver: StreamObserver[ReleaseExecuteResponse]): Unit =
       withErrorHandling(responseObserver) {
         val user = SparkConnectAuthInterceptor.USER_KEY.get()
-        val session = connectSessionManager.getOrOpen(request.getSessionId, user)
-        session.stub.releaseExecute(
-          request.toBuilder.setUserContext(userContext(user)).build(),
-          responseObserver)
+        connectSessionManager.get(request.getSessionId) match {
+          case Some(session) =>
+            session.stub.releaseExecute(
+              request.toBuilder.setUserContext(userContext(user)).build(),
+              responseObserver)
+          case None =>
+            // if the session doesn't exist, this will just be a noop.
+            responseObserver.onNext(ReleaseExecuteResponse.newBuilder()
+              .setSessionId(request.getSessionId)
+              .setOperationId(request.getOperationId)
+              .build())
+            responseObserver.onCompleted()
+        }
       }
 
     override def releaseSession(
