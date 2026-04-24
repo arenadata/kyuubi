@@ -2,22 +2,20 @@
 Kyuubi Spark Connect client.
 
 KyuubiTokenClient - obtains/renews/revokes session token via gRPC.
-KyuubiChannelBuilder - PySpark ChannelBuilder for all auth types (none/kerberos/ldap).
-    Token is revoked server-side when spark.stop() sends ReleaseSession.
+KyuubiSessionBuilder - builder for all Kyuubi auth types (none/kerberos/ldap).
+Token is revoked on server-side when spark.stop() sends ReleaseSession.
 
 Usage:
-    from kyuubi.spark_connect import KyuubiChannelBuilder
-    from pyspark.sql.connect.session import SparkSession
+    from kyuubi.spark_connect import KyuubiSessionBuilder
 
     # no auth:
-    builder = KyuubiChannelBuilder("sc://host:10199")
+    spark = KyuubiSessionBuilder("sc://host:10199").getOrCreate()
     # Kerberos:
-    builder = KyuubiChannelBuilder("sc://host:10199/;use_ssl=true", auth="kerberos")
+    spark = KyuubiSessionBuilder("sc://host:10199/;use_ssl=true", auth="kerberos").getOrCreate()
     # LDAP:
-    builder = KyuubiChannelBuilder("sc://host:10199/;use_ssl=true",
-                                   auth="ldap", username="john", password="secret")
+    spark = KyuubiSessionBuilder("sc://host:10199/;use_ssl=true",
+                                  auth="ldap", username="john", password="secret").getOrCreate()
 
-    spark = SparkSession(connection=builder)
     spark.sql("SELECT current_user()").show()
     spark.stop()  # sends ReleaseSession, server revokes token automatically
 """
@@ -25,6 +23,7 @@ Usage:
 import base64
 import grpc
 from pyspark.sql.connect.client import ChannelBuilder
+from pyspark.sql.connect.session import SparkSession
 
 from kyuubi.spark_connect_auth_pb2 import GetTokenRequest, RenewTokenRequest, RevokeTokenRequest
 from kyuubi.spark_connect_auth_pb2_grpc import SparkConnectAuthServiceStub
@@ -102,15 +101,14 @@ class KyuubiTokenClient:
             gssapi.SecurityContext(name=name, usage="initiate").step()).decode()
 
 
-class KyuubiChannelBuilder(ChannelBuilder):
-    """PySpark ChannelBuilder for all Kyuubi auth types (none/kerberos/ldap).
+class KyuubiSessionBuilder(ChannelBuilder):
+    """Builder for a Kyuubi-authenticated Spark Connect session.
 
-    Revokes token on channel close for kerberos/ldap auth.
+    Mirrors the JVM KyuubiSessionBuilder API: call getOrCreate() to get a SparkSession.
 
     Usage:
-        builder = KyuubiChannelBuilder("sc://host:10199", auth="kerberos")
-        spark = SparkSession(connection=builder)
-        spark.stop()  # sends ReleaseSession + revokes token
+        spark = KyuubiSessionBuilder("sc://host:10199", auth="kerberos").getOrCreate()
+        spark.stop() # sends ReleaseSession
     """
 
     def __init__(self, url: str, auth: str = "none",
@@ -121,6 +119,9 @@ class KyuubiChannelBuilder(ChannelBuilder):
         else:
             self._kyuubi_client = KyuubiTokenClient(self.host, self.port, self.secure)
             self._kyuubi_client.get_token(auth, username=username, password=password)
+
+    def getOrCreate(self) -> SparkSession:
+        return SparkSession.builder.channelBuilder(self).getOrCreate()
 
     def metadata(self):
         base = list(super().metadata())
