@@ -26,8 +26,8 @@ import scala.collection.mutable
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, FRONTEND_PROXY_HTTP_CLIENT_IP_HEADER}
-import org.apache.kyuubi.server.http.util.HttpAuthUtils.AUTHORIZATION_HEADER
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, FRONTEND_PROXY_HTTP_CLIENT_IP_HEADER, FRONTEND_REST_UI_SPNEGO_ENABLED}
+import org.apache.kyuubi.server.http.util.HttpAuthUtils.{AUTHORIZATION_HEADER, WWW_AUTHENTICATE_HEADER}
 import org.apache.kyuubi.service.authentication.{AuthTypes, InternalSecurityAccessor}
 import org.apache.kyuubi.service.authentication.AuthTypes.{CUSTOM, KERBEROS, NOSASL}
 
@@ -125,6 +125,10 @@ class AuthenticationFilter(conf: KyuubiConf) extends Filter with Logging {
       if (matchedHandler == null) {
         debug(s"No auth scheme matched for url: ${httpRequest.getRequestURL}")
         httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED)
+        if (conf.get(FRONTEND_REST_UI_SPNEGO_ENABLED)) {
+          // For using rest from ui required end-to-end auth
+          httpResponse.setHeader(WWW_AUTHENTICATE_HEADER, "Negotiate")
+        }
         httpResponse.sendError(
           HttpServletResponse.SC_UNAUTHORIZED,
           s"No auth scheme matched for $authorization")

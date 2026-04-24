@@ -649,6 +649,13 @@ object KyuubiConf {
       .booleanConf
       .createWithDefault(true)
 
+  val FRONTEND_REST_UI_SPNEGO_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.rest.ui.spnego.enabled")
+      .doc("Whether to enable Web UI SPNEGO security")
+      .version("1.10.0")
+      .booleanConf
+      .createWithDefault(false)
+
   val FRONTEND_WORKER_KEEPALIVE_TIME: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.worker.keepalive.time")
       .doc("(deprecated) Keep-alive time (in milliseconds) for an idle worker thread")
