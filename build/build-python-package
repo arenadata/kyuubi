@@ -18,7 +18,7 @@
 #
 
 # Script to regenerate Python gRPC stubs and build the kyuubi-spark-connect wheel.
-# Run this script when kyuubi-server/src/main/protobuf/spark_connect_auth.proto changes.
+# Run this script when kyuubi-spark-connect-common/src/main/protobuf/spark_connect_auth.proto changes.
 #
 # Prerequisites: pip install grpcio-tools build
 
@@ -37,10 +37,10 @@ if ! python3 -m build --version &>/dev/null; then
 fi
 
 python3 -m grpc_tools.protoc \
-  -I "$KYUUBI_HOME/kyuubi-server/src/main/protobuf" \
+  -I "$KYUUBI_HOME/kyuubi-spark-connect-common/src/main/protobuf" \
   --python_out="$KYUUBI_HOME/python/kyuubi-spark-connect" \
   --grpc_python_out="$KYUUBI_HOME/python/kyuubi-spark-connect" \
-  "$KYUUBI_HOME/kyuubi-server/src/main/protobuf/kyuubi/spark_connect_auth.proto"
+  "$KYUUBI_HOME/kyuubi-spark-connect-common/src/main/protobuf/kyuubi/spark_connect_auth.proto"
 
 echo "Generated stubs in $KYUUBI_HOME/python/kyuubi-spark-connect/kyuubi/"
 
