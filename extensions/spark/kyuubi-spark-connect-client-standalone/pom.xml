@@ -55,7 +55,6 @@
                         </goals>
                         <phase>package</phase>
                         <configuration>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
