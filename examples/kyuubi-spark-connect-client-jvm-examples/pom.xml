@@ -18,6 +18,11 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.5.0</version>
         <executions>
@@ -55,13 +60,9 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.kyuubi</groupId>
-      <artifactId>kyuubi-spark-connect-client</artifactId>
+      <artifactId>kyuubi-spark-connect-client-standalone_2.13</artifactId>
       <version>${kyuubi.version}</version>
     </dependency>
-    <dependency>
-      <groupId>org.apache.spark</groupId>
-      <artifactId>spark-connect-client-jvm_2.13</artifactId>
-      <version>${spark.version}</version>
-    </dependency>
   </dependencies>
+
 </project>
