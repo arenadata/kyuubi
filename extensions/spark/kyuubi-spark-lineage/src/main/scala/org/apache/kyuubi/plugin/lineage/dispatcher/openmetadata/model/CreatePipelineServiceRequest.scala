@@ -15,10 +15,8 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.plugin.lineage
+package org.apache.kyuubi.plugin.lineage.dispatcher.openmetadata.model
 
-object LineageDispatcherType extends Enumeration {
-  type LineageDispatcherType = Value
-
-  val SPARK_EVENT, KYUUBI_EVENT, ATLAS, OPEN_METADATA = Value
-}
+case class CreatePipelineServiceRequest(
+    name: String,
+    serviceType: String)

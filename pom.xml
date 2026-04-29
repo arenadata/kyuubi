@@ -203,6 +203,7 @@
         <snakeyaml.version>2.2</snakeyaml.version>
         <hbase.version>2.5.12-hadoop3</hbase.version>
         <hbase.deps.scope>provided</hbase.deps.scope>
+        <feign.version>13.5</feign.version>
         <!--
           DO NOT forget to change the following properties when change the minor version of Spark:
           `delta.version`, `delta.artifact`, `maven.plugin.scalatest.exclude.tags`
@@ -2038,7 +2039,6 @@
         <profile>
             <id>spark-4.0</id>
             <modules>
-                <module>extensions/spark/kyuubi-extension-spark-4-0</module>
                 <module>extensions/spark/kyuubi-spark-connector-hive</module>
             </modules>
             <properties>
