@@ -397,6 +397,13 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+          <groupId>org.apache.kyuubi</groupId>
+          <artifactId>kyuubi-util-scala_${scala.binary.version}</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
