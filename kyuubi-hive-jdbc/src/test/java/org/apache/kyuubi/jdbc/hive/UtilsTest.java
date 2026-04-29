@@ -119,6 +119,73 @@ public class UtilsTest {
                 .put("k3", "hostname:10018")
                 .build(),
             "jdbc:hive2://hostname:10018/catalog/db;k1=v1?k2=v2;k3=hostname:10018"
+          },
+          {
+            "localhost",
+            "10009",
+            null,
+            "db",
+            new ImmutableMap.Builder<String, String>().put("k2", "v2").build(),
+            "jdbc:impala:///db;k1=v1?k2=v2#k3=v3"
+          },
+          {
+            "localhost",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>().build(),
+            "jdbc:impala:///"
+          },
+          {
+            "localhost",
+            "10009",
+            null,
+            "default",
+            new ImmutableMap.Builder<String, String>().build(),
+            "jdbc:impala://"
+          },
+          {
+            "hostname",
+            "10018",
+            null,
+            "db",
+            new ImmutableMap.Builder<String, String>().put("k2", "v2").build(),
+            "jdbc:impala://hostname:10018/db;k1=v1?k2=v2#k3=v3"
+          },
+          {
+            "hostname",
+            "10018",
+            "catalog",
+            "db",
+            new ImmutableMap.Builder<String, String>().put("k2", "v2").build(),
+            "jdbc:impala://hostname:10018/catalog/db;k1=v1?k2=v2#k3=v3"
+          },
+          {
+            "hostname",
+            "10018",
+            "catalog",
+            "db",
+            new ImmutableMap.Builder<String, String>()
+                .put("k2", "v2")
+                .put("k3", "-Xmx2g -XX:+PrintGCDetails -XX:HeapDumpPath=/heap.hprof")
+                .build(),
+            "jdbc:impala://hostname:10018/catalog/db;k1=v1?"
+                + URLEncoder.encode(
+                        "k2=v2;k3=-Xmx2g -XX:+PrintGCDetails -XX:HeapDumpPath=/heap.hprof",
+                        StandardCharsets.UTF_8.toString())
+                    .replaceAll("\\+", "%20")
+                + "#k4=v4"
+          },
+          {
+            "hostname",
+            "10018",
+            "catalog",
+            "db",
+            new ImmutableMap.Builder<String, String>()
+                .put("k2", "v2")
+                .put("k3", "hostname:10018")
+                .build(),
+            "jdbc:impala://hostname:10018/catalog/db;k1=v1?k2=v2;k3=hostname:10018"
           }
         });
   }
