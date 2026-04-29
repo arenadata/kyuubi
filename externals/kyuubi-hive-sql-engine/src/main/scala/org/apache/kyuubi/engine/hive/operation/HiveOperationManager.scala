@@ -162,6 +162,6 @@ class HiveOperationManager() extends OperationManager("HiveOperationManager") {
   override def getQueryId(operation: Operation): String = {
     val hiveOperation = operation.asInstanceOf[HiveOperation]
     val internalHiveOperation = hiveOperation.internalHiveOperation
-    internalHiveOperation.getParentSession.getHiveConf.getVar(ConfVars.HIVEQUERYID)
+    internalHiveOperation.getParentSession.getHiveConf.getVar(ConfVars.HIVE_QUERY_ID)
   }
 }
