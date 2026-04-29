@@ -41,6 +41,7 @@ import org.apache.kyuubi.cli.Handle
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_GUID, KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_SECRET, KYUUBI_SESSION_ENGINE_LAUNCH_SUPPORT_RESULT}
+import org.apache.kyuubi.ha.client.{KyuubiServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.MetricsConstants.{THRIFT_HTTP_CONN_FAIL, THRIFT_HTTP_CONN_OPEN, THRIFT_HTTP_CONN_TOTAL}
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.server.http.ThriftHttpServlet
@@ -291,7 +292,13 @@ final class KyuubiTHttpFrontendService(
 
   override protected def isServer(): Boolean = true
 
-  override val discoveryService: Option[Service] = None
+  override lazy val discoveryService: Option[Service] = {
+    if (ServiceDiscovery.supportServiceDiscovery(conf)) {
+      Some(new KyuubiServiceDiscovery(this))
+    } else {
+      None
+    }
+  }
 
   private def getHttpPath(httpPath: String): String = {
     if (httpPath == null || httpPath == "") return "/*"
