@@ -32,6 +32,8 @@
 
     <properties>
         <graalvm.version>22.3.0</graalvm.version>
+        <!-- GraalVM 22.x requires JDK 11+ by design -->
+        <enforcer.skip>true</enforcer.skip>
     </properties>
 
     <dependencies>
