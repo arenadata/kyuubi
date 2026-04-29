@@ -56,6 +56,9 @@
                             <include>com.fasterxml.jackson.jaxrs:*</include>
                             <include>com.sun.jersey:*</include>
                             <include>javax.ws.rs:jsr311-api</include>
+                            <include>org.apache.solr:*</include>
+                            <include>org.apache.httpcomponents:httpmime</include>
+                            <include>org.eclipse.jetty:jetty-client</include>
                         </includes>
                     </artifactSet>
                     <filters>
