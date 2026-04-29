@@ -30,6 +30,11 @@
     <name>Kyuubi Project Engine Hive SQL</name>
     <url>https://kyuubi.apache.org/</url>
 
+    <properties>
+        <!-- xmlsectool:2.0.0 is only in build.shibboleth.net, not in Maven Central or internal Nexus -->
+        <enforcer.skip>true</enforcer.skip>
+    </properties>
+
     <dependencies>
 
         <dependency>
