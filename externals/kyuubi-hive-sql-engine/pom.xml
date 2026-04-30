@@ -168,6 +168,26 @@
             <artifactId>flexmark-all</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- DataNucleus JDO required for embedded Hive metastore in tests -->
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-api-jdo</artifactId>
+            <version>5.2.8</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-core</artifactId>
+            <version>5.2.10</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-rdbms</artifactId>
+            <version>5.2.13</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
