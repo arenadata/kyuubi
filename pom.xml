@@ -1973,6 +1973,7 @@
             <id>scala-2.12</id>
             <properties>
                 <scala.binary.version>2.12</scala.binary.version>
+                <scala.version>2.12.19</scala.version>
             </properties>
         </profile>
 
