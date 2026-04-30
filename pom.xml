@@ -127,6 +127,7 @@
         <antlr4.version>4.9.3</antlr4.version>
         <antlr.st4.version>4.3.4</antlr.st4.version>
         <apache.archive.dist>https://www.apache.org/dyn/closer.lua</apache.archive.dist>
+        <github.archive.dist>https://github.com/arenadata</github.archive.dist>
         <atlas.version>2.3.0</atlas.version>
         <byte-buddy.version>1.17.6</byte-buddy.version>
         <bouncycastle.version>1.78</bouncycastle.version>
@@ -155,7 +156,7 @@
         <fliptables.verion>1.1.1</fliptables.verion>
         <hive.version>4.3.0.1-4.3.0-0</hive.version>
         <hive.archive.name>apache-hive-${hive.version}-bin.tar.gz</hive.archive.name>
-        <hive.archive.mirror>${apache.archive.dist}/hive/hive-${hive.version}</hive.archive.mirror>
+        <hive.archive.mirror>${github.archive.dist}/hive/releases/download/v${hive.version}</hive.archive.mirror>
         <hive.archive.query>?action=download</hive.archive.query>
         <hive.archive.download.skip>false</hive.archive.download.skip>
         <httpclient.version>4.5.14</httpclient.version>
