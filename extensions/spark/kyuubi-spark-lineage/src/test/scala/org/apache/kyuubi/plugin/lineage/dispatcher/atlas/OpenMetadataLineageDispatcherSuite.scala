@@ -25,7 +25,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.kyuubi.lineage.LineageConf.DEFAULT_CATALOG
 import org.apache.spark.sql.SparkListenerExtensionTest
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
-import org.apache.spark.sql.execution.QueryExecution
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
@@ -204,7 +203,7 @@ class OpenMetadataLineageDispatcherSuite extends KyuubiFunSuite with SparkListen
       databaseServiceNames,
       TEST_PIPELINE_SERVICE_NAME)
 
-    val execution = new QueryExecution(spark, LocalRelation())
+    val execution = spark.sessionState.executePlan(LocalRelation())
     val lineage = Lineage(
       List(s"$DEFAULT_CATALOG.default.src"),
       List(s"$DEFAULT_CATALOG.default.dest"),
