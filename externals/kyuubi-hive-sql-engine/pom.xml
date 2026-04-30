@@ -169,6 +169,14 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- hadoop-hdfs-client required for Hive Warehouse.mkdirs() in tests (not in Hive's Maven POM, only in binary distribution) -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- DataNucleus JDO required for embedded Hive metastore in tests -->
         <dependency>
             <groupId>org.datanucleus</groupId>

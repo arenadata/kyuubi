@@ -22,12 +22,16 @@ on:
     branches:
       - master
       - branch-*
+      - develop/**
+      - release/**
     paths-ignore:
       - 'docs/**'
   pull_request:
     branches:
       - master
       - branch-*
+      - develop/**
+      - release/**
     paths-ignore:
       - 'docs/**'
 

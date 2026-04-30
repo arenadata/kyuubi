@@ -22,6 +22,8 @@ on:
     branches:
       - master
       - branch-*
+      - develop/**
+      - release/**
     paths:
       # when pom or dependency workflow changes
       - '**/pom.xml'
