@@ -210,7 +210,7 @@
           -->
         <spark.version>3.5.4</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
-        <spark.archive.scala.suffix></spark.archive.scala.suffix>
+        <spark.archive.scala.suffix>-scala${scala.binary.version}</spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>
         <spark.archive.mirror>${apache.archive.dist}/spark/spark-${spark.version}</spark.archive.mirror>
         <spark.archive.query>?action=download</spark.archive.query>
