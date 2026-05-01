@@ -118,8 +118,8 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <enforcer.maxJdkVersion>8</enforcer.maxJdkVersion>
-        <scala.version>2.13.17</scala.version>
-        <scala.binary.version>2.13</scala.binary.version>
+        <scala.version>2.12.19</scala.version>
+        <scala.binary.version>2.12</scala.binary.version>
         <scala-collection-compat.version>2.12.0</scala-collection-compat.version>
 
         <arrow.version>16.0.0</arrow.version>
@@ -211,7 +211,7 @@
           -->
         <spark.version>3.5.4</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
-        <spark.archive.scala.suffix>-scala${scala.binary.version}</spark.archive.scala.suffix>
+        <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>
         <spark.archive.mirror>${apache.archive.dist}/spark/spark-${spark.version}</spark.archive.mirror>
         <spark.archive.query>?action=download</spark.archive.query>
@@ -1980,6 +1980,8 @@
             <properties>
                 <scala.binary.version>2.12</scala.binary.version>
                 <scala.version>2.12.19</scala.version>
+                <!-- Apache only publishes spark-X-bin-hadoop3.tgz for Scala 2.12 (no scala suffix) -->
+                <spark.archive.scala.suffix></spark.archive.scala.suffix>
             </properties>
         </profile>
 
@@ -2046,6 +2048,7 @@
         <profile>
             <id>spark-4.0</id>
             <modules>
+                <module>extensions/spark/kyuubi-extension-spark-4-0</module>
                 <module>extensions/spark/kyuubi-spark-connector-hive</module>
             </modules>
             <properties>

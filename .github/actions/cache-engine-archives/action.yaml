@@ -24,7 +24,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: /tmp/engine-archives
-        key: engine-archives
+        key: engine-archives-spark-3.5.4
     - name: Show cached engine archives
       shell: bash
       run: ls -lh /tmp/engine-archives || echo ''
