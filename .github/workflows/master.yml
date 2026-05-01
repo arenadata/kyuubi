@@ -56,10 +56,10 @@ jobs:
           - 8
           - 17
         python:
-          - '3.9'
+          - '3.10'
         spark:
           - '3.5'
-        spark-archive: [""]
+        spark-archive: ["-Pscala-2.13"]
         exclude-tags: [""]
         comment: ["normal"]
         include:
@@ -148,7 +148,7 @@ jobs:
         scala:
           - '2.13'
         java:
-          - '8'
+          - '17'
         spark:
           - '3.5'
     steps:
@@ -251,9 +251,9 @@ jobs:
       max-parallel: 1
       matrix:
         java:
-          - 8
+          - 21
         hive-archive: [ "" ]
-        comment: [ "normal" ]
+        comment: [ "normal (java 21)" ]
         include:
           - java: 8
             hive-archive: '-Dhive.archive.mirror=https://www.apache.org/dyn/closer.lua/hive/hive-2.3.10 -Dhive.archive.name=apache-hive-2.3.10-bin.tar.gz'
@@ -488,7 +488,7 @@ jobs:
       max-parallel: 1
       matrix:
         java: [ 8, 17 ]
-        zookeeper: ["3.4", "3.5", "3.6", "3.7", "3.8", "3.9"]
+        zookeeper: ["3.6", "3.7", "3.8", "3.9"]
         comment: [ "normal" ]
     steps:
       - uses: actions/checkout@v4
