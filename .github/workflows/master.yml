@@ -148,7 +148,7 @@ jobs:
         scala:
           - '2.13'
         java:
-          - '17'
+          - '21'
         spark:
           - '3.5'
     steps:
