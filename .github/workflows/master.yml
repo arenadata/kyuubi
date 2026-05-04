@@ -53,13 +53,13 @@ jobs:
       max-parallel: 6
       matrix:
         java:
-          - 8
           - 17
+          - 21
         python:
           - '3.10'
         spark:
           - '3.5'
-        spark-archive: ["-Pscala-2.13"]
+        spark-archive: [""]
         exclude-tags: [""]
         comment: ["normal"]
         include:
