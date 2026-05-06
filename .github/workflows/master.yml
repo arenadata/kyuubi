@@ -269,7 +269,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java: [ 8 ]
+        java: [ 21 ]
         comment: [ "normal" ]
     steps:
       - uses: actions/checkout@v4
