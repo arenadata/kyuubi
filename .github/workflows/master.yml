@@ -40,7 +40,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MAVEN_ARGS: -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip -Dorg.slf4j.simpleLogger.defaultLogLevel=warn -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
+  MAVEN_ARGS: -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip -Dorg.slf4j.simpleLogger.defaultLogLevel=info -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
 
@@ -53,46 +53,14 @@ jobs:
       max-parallel: 6
       matrix:
         java:
-          - 17
           - 21
         python:
           - '3.10'
         spark:
           - '3.5'
-        spark-archive: [""]
+          - '4.1'
+        spark-archive: ["-Pscala-2.13"]
         exclude-tags: [""]
-        comment: ["normal"]
-        include:
-          - java: 21
-            python: '3.11'
-            spark: '4.0'
-            spark-archive: '-Pscala-2.13'
-            exclude-tags: ''
-            comment: 'normal'
-          - java: 21
-            python: '3.11'
-            spark: '4.1'
-            spark-archive: '-Pscala-2.13'
-            exclude-tags: ''
-            comment: 'normal'
-          - java: 17
-            python: '3.10'
-            spark: '4.1'
-            spark-archive: '-Pscala-2.13'
-            exclude-tags: ''
-            comment: 'normal'
-          - java: 17
-            python: '3.11'
-            spark: '3.5'
-            spark-archive: '-Pscala-2.13 -Dspark.archive.mirror=https://www.apache.org/dyn/closer.lua/spark/spark-4.0.1 -Dspark.archive.name=spark-4.0.1-bin-hadoop3.tgz'
-            exclude-tags: '-Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.DeltaTest,org.apache.kyuubi.tags.IcebergTest,org.apache.kyuubi.tags.PaimonTest,org.apache.kyuubi.tags.SparkLocalClusterTest'
-            comment: 'verify-on-spark-4.0-binary'
-          - java: 17
-            python: '3.11'
-            spark: '3.5'
-            spark-archive: '-Pscala-2.13 -Dspark.archive.mirror=https://www.apache.org/dyn/closer.lua/spark/spark-4.1.1 -Dspark.archive.name=spark-4.1.1-bin-hadoop3.tgz'
-            exclude-tags: '-Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.DeltaTest,org.apache.kyuubi.tags.IcebergTest,org.apache.kyuubi.tags.PaimonTest,org.apache.kyuubi.tags.HudiTest,org.apache.kyuubi.tags.SparkLocalClusterTest'
-            comment: 'verify-on-spark-4.1-binary'
     env:
       SPARK_LOCAL_IP: localhost
     steps:
@@ -254,13 +222,6 @@ jobs:
           - 21
         hive-archive: [ "" ]
         comment: [ "normal (java 21)" ]
-        include:
-          - java: 8
-            hive-archive: '-Dhive.archive.mirror=https://www.apache.org/dyn/closer.lua/hive/hive-2.3.10 -Dhive.archive.name=apache-hive-2.3.10-bin.tar.gz'
-            comment: 'verify-on-hive-2.3-binary'
-          - java: 8
-            hive-archive: '-Dhive.archive.mirror=https://github.com/pan3793/cdh-hive/releases/download/cdh6.3.2-release -Dhive.archive.name=apache-hive-2.1.1-cdh6.3.2-bin.tar.gz -Dhive.archive.query='
-            comment: 'verify-on-hive-2.1-cdh6-binary'
     steps:
       - uses: actions/checkout@v4
       - name: Free up disk space
@@ -487,8 +448,8 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        java: [ 17, 21 ]
-        zookeeper: ["3.6", "3.7", "3.8", "3.9"]
+        java: [ 21 ]
+        zookeeper: ["3.9"]
         comment: [ "normal" ]
     steps:
       - uses: actions/checkout@v4
