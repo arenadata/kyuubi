@@ -86,9 +86,9 @@ jobs:
           if [[ "${{ matrix.java }}" == "8" && "${{ matrix.spark }}" == "3.5" && "${{ matrix.spark-archive }}" == "" ]]; then
             export MAVEN_ARGS="${MAVEN_ARGS} -Pcodecov -Dmaven.javadoc.skip=false -Dmaven.scaladoc.skip=false"
           fi
-          TEST_MODULES="dev/kyuubi-codecov"
+          TEST_MODULES="dev/kyuubi-codecov,!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
-          -Pmirror-cdn -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
+          -Pflink-provided -Pmirror-cdn -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
       - name: Code coverage
         if: |
           matrix.java == 8 &&
