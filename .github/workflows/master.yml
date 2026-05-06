@@ -325,8 +325,6 @@ jobs:
       - name: Pull Spark image
         run: |
           docker pull apache/spark:3.5.4
-        with:
-          java-version: 21
       - name: Build Kyuubi Docker Image
         uses: docker/build-push-action@v6
         with:
