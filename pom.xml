@@ -115,9 +115,11 @@
 
     <properties>
         <maven.version>3.9.14</maven.version>
+
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <enforcer.maxJdkVersion>8</enforcer.maxJdkVersion>
+
         <scala.version>2.12.19</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
         <scala-collection-compat.version>2.12.0</scala-collection-compat.version>
@@ -180,7 +182,7 @@
         <!-- 6.14.0 requires Jackson 2.19.0+
              https://github.com/fabric8io/kubernetes-client/releases/tag/v6.14.0 -->
         <kubernetes-client.version>6.14.0</kubernetes-client.version>
-        <kyuubi-relocated.version>0.6.0</kyuubi-relocated.version>
+        <kyuubi-relocated.version>0.6.0.1-4.3.0-0</kyuubi-relocated.version>
         <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-34</kyuubi-relocated-zookeeper.artifacts>
         <ldapsdk.version>6.0.5</ldapsdk.version>
         <log4j.version>2.24.3</log4j.version>
@@ -1278,6 +1280,18 @@
             <name>Maven Repository</name>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
+
+        <repository>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+            <id>shibboleth</id>
+            <name>Shibboleth Releases</name>
+            <url>https://build.shibboleth.net/nexus/content/repositories/releases/</url>
+        </repository>
     </repositories>
 
     <pluginRepositories>
@@ -2147,9 +2161,9 @@
         </profile>
 
         <profile>
-            <id>zookeeper-3.6</id>
+            <id>zookeeper-3.9</id>
             <properties>
-                <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-36</kyuubi-relocated-zookeeper.artifacts>
+                <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-39</kyuubi-relocated-zookeeper.artifacts>
             </properties>
         </profile>
 

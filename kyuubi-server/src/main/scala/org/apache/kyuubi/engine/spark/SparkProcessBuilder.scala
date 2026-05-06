@@ -66,6 +66,9 @@ class SparkProcessBuilder(
     Paths.get(sparkHome, "bin", SPARK_SUBMIT_FILE).toFile.getCanonicalPath
   }
 
+  // allow spark-submit script to detect JAVA_HOME itself
+  override def env: Map[String, String] = super.env - "JAVA_HOME"
+
   override def mainClass: String = "org.apache.kyuubi.engine.spark.SparkSQLEngine"
 
   /**

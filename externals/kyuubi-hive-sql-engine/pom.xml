@@ -31,8 +31,8 @@
     <url>https://kyuubi.apache.org/</url>
 
     <properties>
-        <!-- xmlsectool:2.0.0 is only in build.shibboleth.net, not in Maven Central or internal Nexus -->
-        <enforcer.skip>true</enforcer.skip>
+        <!-- hive-service 4.3+ requires Java 21; xmlsectool:2.0.0 is only in build.shibboleth.net -->
+        <enforcer.maxJdkVersion>21</enforcer.maxJdkVersion>
     </properties>
 
     <dependencies>
