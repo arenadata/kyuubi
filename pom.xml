@@ -116,9 +116,9 @@
     <properties>
         <maven.version>3.9.14</maven.version>
 
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-        <enforcer.maxJdkVersion>8</enforcer.maxJdkVersion>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
 
         <scala.version>2.12.19</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
@@ -1964,6 +1964,7 @@
             </properties>
         </profile>
 
+        <!--
         <profile>
             <id>jdk9+</id>
             <activation>
@@ -1973,6 +1974,7 @@
                 <maven.compiler.release>8</maven.compiler.release>
             </properties>
         </profile>
+        -->
 
         <profile>
             <id>java-21</id>
