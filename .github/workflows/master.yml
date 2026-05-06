@@ -88,7 +88,7 @@ jobs:
           fi
           TEST_MODULES="dev/kyuubi-codecov"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
-          -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
+          -Pmirror-cdn -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
       - name: Code coverage
         if: |
           matrix.java == 8 &&
@@ -138,7 +138,7 @@ jobs:
           TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
           -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.SparkLocalClusterTest \
-          -Pscala-${{ matrix.scala }} -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }}
+          -Pflink-provided -Pmirror-cdn -Pscala-${{ matrix.scala }} -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }}
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -239,7 +239,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TEST_MODULES="externals/kyuubi-hive-sql-engine,integration-tests/kyuubi-hive-it"
-          ./build/mvn ${{ matrix.hive-archive }} -pl ${TEST_MODULES} -am clean install -DskipTests
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13 -pl ${TEST_MODULES} -am clean install -DskipTests
           # unpack avatica-1.8.0.jar and delete Jackson classes to workaround CALCITE-1224
           if [[ "${{ matrix.hive-archive }}" == *apache-hive-2.3.10-bin.tar.gz* ]]; then
             HIVE_2310_LIB="$PWD/externals/kyuubi-download/target/apache-hive-2.3.10-bin/lib"
@@ -253,7 +253,7 @@ jobs:
             cd ..
             rm -rf avatica-1.8.0-unpack
           fi
-          ./build/mvn ${{ matrix.hive-archive }} -pl ${TEST_MODULES} test
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13 -pl ${TEST_MODULES} test
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v4

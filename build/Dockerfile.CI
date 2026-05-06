@@ -32,8 +32,9 @@
 # Declare the BASE_IMAGE argument in the first line, for more detail
 # see: https://github.com/moby/moby/issues/38379
 ARG BASE_IMAGE=eclipse-temurin:8-jdk-focal
+ARG BUILDER_IMAGE=eclipse-temurin:17-jdk-focal
 
-FROM eclipse-temurin:8-jdk-focal AS builder
+FROM ${BUILDER_IMAGE} AS builder
 
 ARG MVN_ARG
 
