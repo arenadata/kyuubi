@@ -57,10 +57,10 @@ jobs:
         java:
           - 21
         python:
+          - '3.9'
           - '3.10'
         spark:
           - '3.5'
-          - '4.1'
         spark-archive: ["-Pscala-2.13"]
         exclude-tags: [""]
     env:
