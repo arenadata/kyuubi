@@ -221,23 +221,13 @@ case class FinalStageResourceManager(session: SparkSession)
       countFailures = false,
       force = false)
 
-    if (conf.getConf(KyuubiSQLConf.FINAL_WRITE_STAGE_EAGERLY_KILL_EXECUTORS_KILL_ALL)) {
-      // When killing ALL executors the DRA target is reduced to minExecutors but DRA's background
-      // thread may not request a replacement in time before the write stage starts waiting.
-      // Explicitly request targetExecutors so the stage is never left with zero executors.
-      logInfo(s"Killed all executors. Requesting $targetExecutors executor(s) for final stage.")
-      executorAllocationClient.requestExecutors(targetExecutors)
-    } else {
-      // If getAdjustedTargetExecutors returns None (reflection failed or no entry for the default
-      // ResourceProfile), assume 0 so that requestExecutors is still called when needed.
-      val adjustedExecutors = FinalStageResourceManager.getAdjustedTargetExecutors(sc).getOrElse(0)
-      val delta = targetExecutors - adjustedExecutors
-      if (delta > 0) {
+    FinalStageResourceManager.getAdjustedTargetExecutors(sc)
+      .filter(_ < targetExecutors).foreach { adjustedExecutors =>
+        val delta = targetExecutors - adjustedExecutors
         logInfo(s"Target executors after kill ($adjustedExecutors) is lower than required " +
           s"($targetExecutors). Requesting $delta additional executor(s).")
         executorAllocationClient.requestExecutors(delta)
       }
-    }
   }
 
   @transient private val queryStageOptimizerRules: Seq[Rule[SparkPlan]] = Seq(

@@ -45,10 +45,12 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 8
+          java-version: 21
           cache: 'maven'
       - name: Setup Maven
         uses: ./.github/actions/setup-maven
+        with:
+          java-version: 21
       - name: Check dependency list
         run: build/dependency.sh
       - name: Dependency Review

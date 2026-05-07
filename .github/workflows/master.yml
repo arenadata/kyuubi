@@ -44,7 +44,7 @@ env:
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
   JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it,!extensions/spark/kyuubi-spark-connector-tpcds,!extensions/spark/kyuubi-spark-connector-tpch"
-  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it,${JDBC_TRINO_TPC_EXCLUDE_MODULES}"
+  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it"
 
 jobs:
   default:
@@ -88,7 +88,7 @@ jobs:
           if [[ "${{ matrix.java }}" == "8" && "${{ matrix.spark }}" == "3.5" && "${{ matrix.spark-archive }}" == "" ]]; then
             export MAVEN_ARGS="${MAVEN_ARGS} -Pcodecov -Dmaven.javadoc.skip=false -Dmaven.scaladoc.skip=false"
           fi
-          ./build/mvn clean install -pl ${TEST_MODULES} -am \
+          ./build/mvn clean install -pl ${TEST_MODULES},${JDBC_TRINO_TPC_EXCLUDE_MODULES} -am \
           -Pflink-provided -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
       - name: Code coverage
         if: |
@@ -136,7 +136,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./build/mvn clean install -pl ${TEST_MODULES} -am \
+          ./build/mvn clean install -pl ${TEST_MODULES},${JDBC_TRINO_TPC_EXCLUDE_MODULES} -am \
           -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.SparkLocalClusterTest \
           -Pflink-provided -Pscala-${{ matrix.scala }} -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }}
       - name: Upload test logs
