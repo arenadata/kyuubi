@@ -239,7 +239,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TEST_MODULES="externals/kyuubi-hive-sql-engine,integration-tests/kyuubi-hive-it"
-          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13 -pl ${TEST_MODULES} -am clean install -DskipTests
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5 -pl ${TEST_MODULES} -am clean install -DskipTests
           # unpack avatica-1.8.0.jar and delete Jackson classes to workaround CALCITE-1224
           if [[ "${{ matrix.hive-archive }}" == *apache-hive-2.3.10-bin.tar.gz* ]]; then
             HIVE_2310_LIB="$PWD/externals/kyuubi-download/target/apache-hive-2.3.10-bin/lib"
@@ -253,7 +253,7 @@ jobs:
             cd ..
             rm -rf avatica-1.8.0-unpack
           fi
-          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13 -pl ${TEST_MODULES} test
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5 -pl ${TEST_MODULES} test
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -287,13 +287,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          MVN_PROFILES="-Pscala-2.13,spark-3.5"
           JDBC_TEST_MODULES="externals/kyuubi-jdbc-engine,integration-tests/kyuubi-jdbc-it"
           TRINO_TEST_MODULES="externals/kyuubi-trino-engine,integration-tests/kyuubi-trino-it"
           TPC_TEST_MODULES="kyuubi-server,extensions/spark/kyuubi-spark-connector-tpcds,extensions/spark/kyuubi-spark-connector-tpch"
-          ./build/mvn -pl ${JDBC_TEST_MODULES},${TRINO_TEST_MODULES},${TPC_TEST_MODULES} -am clean install -DskipTests
-          ./build/mvn -pl ${JDBC_TEST_MODULES} test
-          ./build/mvn -pl ${TRINO_TEST_MODULES} test
-          ./build/mvn -pl ${TPC_TEST_MODULES} test \
+          ./build/mvn ${MVN_PROFILES} -pl ${JDBC_TEST_MODULES},${TRINO_TEST_MODULES},${TPC_TEST_MODULES} -am clean install -DskipTests
+          ./build/mvn ${MVN_PROFILES} -pl ${JDBC_TEST_MODULES} test
+          ./build/mvn ${MVN_PROFILES} -pl ${TRINO_TEST_MODULES} test
+          ./build/mvn ${MVN_PROFILES} -pl ${TPC_TEST_MODULES} test \
           -Dmaven.plugin.scalatest.exclude.tags='' \
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.operation.tpcds,org.apache.kyuubi.spark.connector.tpcds.TPCDSQuerySuite,org.apache.kyuubi.spark.connector.tpch.TPCHQuerySuite
       - name: Upload test logs
@@ -332,7 +333,7 @@ jobs:
           build-args: |
             CI=${CI}
             BASE_IMAGE=apache/spark:3.5.4
-            MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala2.13,spark3.5
+            MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala2.13,spark-3.5
           secrets: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           context: .
@@ -372,7 +373,7 @@ jobs:
         run: >-
           ./build/mvn clean install
           -pl integration-tests/kyuubi-kubernetes-it -am
-          -Pkubernetes-it,scala-2.13,spark3.5
+          -Pkubernetes-it,scala-2.13,spark-3.5
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.kubernetes.test.deployment,org.apache.kyuubi.kubernetes.test.KubernetesUtilsTest
       - name: Cat kyuubi server log
         if: failure()

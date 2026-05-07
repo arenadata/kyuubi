@@ -38,8 +38,8 @@
                 <configuration>
                     <cacheDirectory>${maven.plugin.download.cache.path}</cacheDirectory>
                     <outputDirectory>${project.build.directory}</outputDirectory>
-                    <connectTimeout>30000</connectTimeout>
                     <readTimeOut>60000</readTimeOut>
+                    <showTransferProgress>true</showTransferProgress>
                     <retries>3</retries>
                     <unpack>true</unpack>
                 </configuration>
