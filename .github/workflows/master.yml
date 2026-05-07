@@ -372,7 +372,7 @@ jobs:
         run: >-
           ./build/mvn clean install
           -pl integration-tests/kyuubi-kubernetes-it -am
-          -Pkubernetes-it
+          -Pkubernetes-it,scala-2.13
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.kubernetes.test.deployment,org.apache.kyuubi.kubernetes.test.KubernetesUtilsTest
       - name: Cat kyuubi server log
         if: failure()
@@ -425,7 +425,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           ./build/mvn clean install
-          -Pflink-provided,hive-provided
+          -Pflink-provided,hive-provided,scala-2.13
           -Pkubernetes-it
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.kubernetes.test.spark
       - name: Print Driver Pod logs
