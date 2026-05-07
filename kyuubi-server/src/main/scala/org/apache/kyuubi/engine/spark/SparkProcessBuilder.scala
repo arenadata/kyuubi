@@ -127,8 +127,8 @@ class SparkProcessBuilder(
   override protected lazy val engineHomeDirFilter: FileFilter = file => {
     val patterns = SCALA_COMPILE_VERSION match {
       case "2.12" => Seq(SPARK3_HOME_REGEX_SCALA_212)
-      case "2.13" => Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK3_HOME_REGEX_ARENADATA,
-        SPARK4_HOME_REGEX_SCALA_213)
+      case "2.13" =>
+        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK3_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
     }
     file.isDirectory && patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }

@@ -53,9 +53,9 @@ jobs:
           java-version: 21
       - name: Check dependency list
         run: build/dependency.sh
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
