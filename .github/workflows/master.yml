@@ -86,7 +86,7 @@ jobs:
           if [[ "${{ matrix.java }}" == "8" && "${{ matrix.spark }}" == "3.5" && "${{ matrix.spark-archive }}" == "" ]]; then
             export MAVEN_ARGS="${MAVEN_ARGS} -Pcodecov -Dmaven.javadoc.skip=false -Dmaven.scaladoc.skip=false"
           fi
-          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it"
+          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!integration-tests/kyuubi-hive-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
           -Pflink-provided -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
       - name: Code coverage
@@ -135,7 +135,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it"
+          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!integration-tests/kyuubi-hive-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
           -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.SparkLocalClusterTest \
           -Pflink-provided -Pscala-${{ matrix.scala }} -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }}
@@ -332,7 +332,7 @@ jobs:
           build-args: |
             CI=${CI}
             BASE_IMAGE=apache/spark:3.5.4
-            MVN_ARG=--spark-provided --flink-provided --hive-provided
+            MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala2.13,spark3.5
           secrets: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           context: .
@@ -372,7 +372,7 @@ jobs:
         run: >-
           ./build/mvn clean install
           -pl integration-tests/kyuubi-kubernetes-it -am
-          -Pkubernetes-it,scala-2.13
+          -Pkubernetes-it,scala-2.13,spark3.5
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.kubernetes.test.deployment,org.apache.kyuubi.kubernetes.test.KubernetesUtilsTest
       - name: Cat kyuubi server log
         if: failure()

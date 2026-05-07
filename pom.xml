@@ -211,7 +211,7 @@
           DO NOT forget to change the following properties when change the minor version of Spark:
           `delta.version`, `delta.artifact`, `maven.plugin.scalatest.exclude.tags`
           -->
-        <spark.version>3.5.4</spark.version>
+        <spark.version>3.5.4.4-4.3.0-0</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>
@@ -2004,6 +2004,9 @@
         <!-- For development only, not generally applicable for all modules -->
         <profile>
             <id>scala-2.13</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
                 <scala.binary.version>2.13</scala.binary.version>
                 <scala.version>2.13.17</scala.version>
@@ -2048,6 +2051,9 @@
 
         <profile>
             <id>spark-3.5</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <modules>
                 <module>extensions/spark/kyuubi-extension-spark-3-5</module>
                 <module>extensions/spark/kyuubi-spark-connector-hive</module>
