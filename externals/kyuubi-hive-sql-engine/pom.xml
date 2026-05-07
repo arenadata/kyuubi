@@ -169,12 +169,12 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- hadoop-hdfs required for SnapshotException in Hive metastore code paths during tests (not in Hive's Maven POM, only in binary distribution) -->
+        <!-- hadoop-hdfs required for SnapshotException in Hive metastore code paths (not in Hive's Maven POM, only in binary distribution) -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-hdfs</artifactId>
             <version>${hadoop.version}</version>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- DataNucleus JDO required for embedded Hive metastore in tests -->

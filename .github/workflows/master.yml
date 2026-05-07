@@ -43,6 +43,8 @@ env:
   MAVEN_ARGS: -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip -Dorg.slf4j.simpleLogger.defaultLogLevel=info -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
+  JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it,!extensions/spark/kyuubi-spark-connector-tpcds,!extensions/spark/kyuubi-spark-connector-tpch"
+  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it,${JDBC_TRINO_TPC_EXCLUDE_MODULES}"
 
 jobs:
   default:
@@ -86,7 +88,6 @@ jobs:
           if [[ "${{ matrix.java }}" == "8" && "${{ matrix.spark }}" == "3.5" && "${{ matrix.spark-archive }}" == "" ]]; then
             export MAVEN_ARGS="${MAVEN_ARGS} -Pcodecov -Dmaven.javadoc.skip=false -Dmaven.scaladoc.skip=false"
           fi
-          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!integration-tests/kyuubi-hive-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
           -Pflink-provided -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }} ${{ matrix.spark-archive }} ${{ matrix.exclude-tags }}
       - name: Code coverage
@@ -135,7 +136,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TEST_MODULES="!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!integration-tests/kyuubi-hive-it"
           ./build/mvn clean install -pl ${TEST_MODULES} -am \
           -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow,org.apache.kyuubi.tags.SparkLocalClusterTest \
           -Pflink-provided -Pscala-${{ matrix.scala }} -Pjava-${{ matrix.java }} -Pspark-${{ matrix.spark }}
@@ -239,7 +239,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TEST_MODULES="externals/kyuubi-hive-sql-engine,integration-tests/kyuubi-hive-it"
-          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5 -pl ${TEST_MODULES} -am clean install -DskipTests
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5,flink-provided -pl ${TEST_MODULES} -am clean install -DskipTests
           # unpack avatica-1.8.0.jar and delete Jackson classes to workaround CALCITE-1224
           if [[ "${{ matrix.hive-archive }}" == *apache-hive-2.3.10-bin.tar.gz* ]]; then
             HIVE_2310_LIB="$PWD/externals/kyuubi-download/target/apache-hive-2.3.10-bin/lib"
@@ -253,7 +253,7 @@ jobs:
             cd ..
             rm -rf avatica-1.8.0-unpack
           fi
-          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5 -pl ${TEST_MODULES} test
+          ./build/mvn ${{ matrix.hive-archive }} -Pscala-2.13,spark-3.5,flink-provided -pl ${TEST_MODULES} test
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -287,7 +287,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          MVN_PROFILES="-Pscala-2.13,spark-3.5"
+          MVN_PROFILES="-Pscala-2.13,spark-3.5,flink-provided"
           JDBC_TEST_MODULES="externals/kyuubi-jdbc-engine,integration-tests/kyuubi-jdbc-it"
           TRINO_TEST_MODULES="externals/kyuubi-trino-engine,integration-tests/kyuubi-trino-it"
           TPC_TEST_MODULES="kyuubi-server,extensions/spark/kyuubi-spark-connector-tpcds,extensions/spark/kyuubi-spark-connector-tpch"
@@ -426,7 +426,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           ./build/mvn clean install
-          -Pflink-provided,hive-provided,scala-2.13
+          -Pflink-provided,hive-provided,scala-2.13,spark-3.5
           -Pkubernetes-it
           -Dtest=none -DwildcardSuites=org.apache.kyuubi.kubernetes.test.spark
       - name: Print Driver Pod logs

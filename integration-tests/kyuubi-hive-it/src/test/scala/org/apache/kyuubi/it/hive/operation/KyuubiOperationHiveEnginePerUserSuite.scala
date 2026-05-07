@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.it.hive.operation
 
+import scala.concurrent.duration._
+
 import org.apache.kyuubi.{HiveEngineTests, Utils, WithKyuubiServer}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -57,7 +59,12 @@ class KyuubiOperationHiveEnginePerUserSuite extends WithKyuubiServer with HiveEn
         val req = new TGetInfoReq()
         req.setSessionHandle(handle)
         req.setInfoType(TGetInfoType.CLI_DBMS_NAME)
-        assert(client.GetInfo(req).getInfoValue.getStringValue === "Apache Hive")
+        // Hive metastore initializes asynchronously; retry until the engine returns stringValue
+        eventually(timeout(30.seconds), interval(1.second)) {
+          val infoValue = client.GetInfo(req).getInfoValue
+          assert(infoValue.isSetStringValue, s"Expected stringValue but got: $infoValue")
+          assert(infoValue.getStringValue === "Apache Hive")
+        }
       }
     }
   }
