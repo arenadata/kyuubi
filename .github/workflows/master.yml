@@ -43,7 +43,7 @@ env:
   MAVEN_ARGS: -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip -Dorg.slf4j.simpleLogger.defaultLogLevel=info -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
-  JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it,!extensions/spark/kyuubi-spark-connector-tpcds,!extensions/spark/kyuubi-spark-connector-tpch"
+  JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it"
   TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it"
 
 jobs:
@@ -221,7 +221,7 @@ jobs:
         java:
           - 21
         hive-archive: [ "" ]
-        comment: [ "normal (java 21)" ]
+        comment: [ "(java 21)" ]
     steps:
       - uses: actions/checkout@v4
       - name: Free up disk space
@@ -333,7 +333,7 @@ jobs:
           build-args: |
             CI=${CI}
             BASE_IMAGE=apache/spark:3.5.4
-            MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala2.13,spark-3.5
+            MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala-2.13,spark-3.5
           secrets: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           context: .

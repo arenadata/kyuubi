@@ -55,5 +55,7 @@ jobs:
         run: build/dependency.sh
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           fail-on-severity: moderate
