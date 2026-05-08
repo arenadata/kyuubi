@@ -325,14 +325,14 @@ jobs:
           cache-binary: false
       - name: Pull Spark image
         run: |
-          docker pull werzer/spark:3.5.4-scala2.13-java17-ubuntu
+          docker pull werzer/spark:3.5.4.4-4.3.0-0-scala2.13-java17-ubuntu
       - name: Build Kyuubi Docker Image
         uses: docker/build-push-action@v6
         with:
           # passthrough CI into build container
           build-args: |
             CI=${CI}
-            BASE_IMAGE=werzer/spark:3.5.4-scala2.13-java17-ubuntu
+            BASE_IMAGE=werzer/spark:3.5.4.4-4.3.0-0-scala2.13-java17-ubuntu
             MVN_ARG=--spark-provided --flink-provided --hive-provided -Pscala-2.13,spark-3.5
           secrets: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
