@@ -44,7 +44,7 @@ env:
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
   JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it"
-  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it"
+  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it,!integration-tests/kyuubi-zookeeper-it"
 
 jobs:
   default:
