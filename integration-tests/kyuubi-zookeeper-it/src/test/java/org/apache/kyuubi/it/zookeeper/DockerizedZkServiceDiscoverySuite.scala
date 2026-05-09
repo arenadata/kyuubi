@@ -26,7 +26,7 @@ import org.apache.kyuubi.ha.client.zookeeper.ZookeeperDiscoveryClientSuite
 class DockerizedZkServiceDiscoverySuite extends ZookeeperDiscoveryClientSuite {
 
   private val zkClientPort = 2181
-  private val zkVersion = sys.env.getOrElse("KYUUBI_IT_ZOOKEEPER_VERSION", "3.4")
+  private val zkVersion = sys.env.getOrElse("KYUUBI_IT_ZOOKEEPER_VERSION", "3.9")
   private val zkImage = sys.env.getOrElse("KYUUBI_IT_ZOOKEEPER_IMAGE", s"zookeeper:$zkVersion")
 
   val container: SingleContainer[_] = GenericContainer(

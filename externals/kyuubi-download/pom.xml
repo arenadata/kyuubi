@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1</version>
+        <version>1.11.1.1-4.3.0-0</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -39,6 +39,7 @@
                     <cacheDirectory>${maven.plugin.download.cache.path}</cacheDirectory>
                     <outputDirectory>${project.build.directory}</outputDirectory>
                     <readTimeOut>60000</readTimeOut>
+                    <showTransferProgress>true</showTransferProgress>
                     <retries>3</retries>
                     <unpack>true</unpack>
                 </configuration>

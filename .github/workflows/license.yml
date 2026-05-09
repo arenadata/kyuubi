@@ -24,6 +24,8 @@ on:
     branches:
       - master
       - branch-*
+      - develop/**
+      - release/**
 
 concurrency:
   group: license-${{ github.head_ref || github.run_id }}

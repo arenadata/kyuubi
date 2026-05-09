@@ -17,6 +17,7 @@
 
 package org.apache.kyuubi.engine.trino.session
 
+import java.io.File
 import java.net.URI
 import java.time.ZoneId
 import java.util.{Locale, Optional}
@@ -136,6 +137,43 @@ class TrinoSessionImpl(
         Optional.ofNullable(truststoreType.orNull),
         true)
     }
+
+    val kerberosEnabled = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_ENABLED)
+
+    if (kerberosEnabled) {
+      val servicePrincipalPattern = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_SERVICE_PRINCIPAL_PATTERN)
+      val remoteServiceName = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_REMOTE_SERVICE_NAME)
+      val useCanonicalHostname = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_USE_CANONICAL_HOSTNAME)
+      val principal = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_PRINCIPAL)
+      val kerberosConfig = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_CONFIG)
+      val keytab = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_KEYTAB)
+      val credentialCache = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_CREDENTIAL_CACHE)
+      val delegatedKerberos = sessionConf
+        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_KERBEROS_DELEGATED_KERBEROS)
+
+      val configFile = kerberosConfig.map(new File(_))
+      val keytabFile = keytab.map(new File(_))
+      val credCacheFile = credentialCache.map(new File(_))
+
+      OkHttpUtil.setupKerberos(
+        builder,
+        servicePrincipalPattern,
+        remoteServiceName,
+        useCanonicalHostname,
+        Optional.ofNullable(principal.orNull),
+        Optional.ofNullable(configFile.orNull),
+        Optional.ofNullable(keytabFile.orNull),
+        Optional.ofNullable(credCacheFile.orNull),
+        delegatedKerberos)
+    }
+
     sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_PASSWORD).foreach { password =>
       require(
         serverScheme.equalsIgnoreCase("https"),

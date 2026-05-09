@@ -27,7 +27,7 @@
 
     <groupId>org.apache.kyuubi</groupId>
     <artifactId>kyuubi-parent</artifactId>
-    <version>1.11.1</version>
+    <version>1.11.1.1-4.3.0-0</version>
     <packaging>pom</packaging>
 
     <name>Kyuubi Project Parent</name>
@@ -115,9 +115,11 @@
 
     <properties>
         <maven.version>3.9.14</maven.version>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-        <enforcer.maxJdkVersion>8</enforcer.maxJdkVersion>
+
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
+
         <scala.version>2.12.19</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
         <scala-collection-compat.version>2.12.0</scala-collection-compat.version>
@@ -126,10 +128,11 @@
         <!-- Please don't upgrade the version to 4.10+, it depends on JDK 11 -->
         <antlr4.version>4.9.3</antlr4.version>
         <antlr.st4.version>4.3.4</antlr.st4.version>
-        <apache.archive.dist>https://www.apache.org/dyn/closer.lua</apache.archive.dist>
+        <apache.archive.dist>https://archive.apache.org/dist</apache.archive.dist>
+        <github.archive.dist>https://github.com/arenadata</github.archive.dist>
         <atlas.version>2.3.0</atlas.version>
         <byte-buddy.version>1.17.6</byte-buddy.version>
-        <bouncycastle.version>1.78</bouncycastle.version>
+        <bouncycastle.version>1.82</bouncycastle.version>
         <codahale.metrics.version>4.2.30</codahale.metrics.version>
         <commons-cli.version>1.5.0</commons-cli.version>
         <commons-codec.version>1.17.1</commons-codec.version>
@@ -148,21 +151,21 @@
         <flink.archive.download.skip>false</flink.archive.download.skip>
         <google.jsr305.version>3.0.2</google.jsr305.version>
         <grpc.version>1.76.2</grpc.version>
-        <guava.version>33.4.8-jre</guava.version>
+        <guava.version>33.5.0-jre</guava.version>
         <guava.failureaccess.version>1.0.3</guava.failureaccess.version>
-        <hadoop.version>3.3.6</hadoop.version>
+        <hadoop.version>3.4.3.1-4.3.0-0</hadoop.version>
         <hikaricp.version>4.0.3</hikaricp.version>
         <fliptables.verion>1.1.1</fliptables.verion>
-        <hive.version>3.1.3</hive.version>
+        <hive.version>4.3.0.1-4.3.0-0</hive.version>
         <hive.archive.name>apache-hive-${hive.version}-bin.tar.gz</hive.archive.name>
-        <hive.archive.mirror>${apache.archive.dist}/hive/hive-${hive.version}</hive.archive.mirror>
+        <hive.archive.mirror>${github.archive.dist}/hive/releases/download/v${hive.version}</hive.archive.mirror>
         <hive.archive.query>?action=download</hive.archive.query>
         <hive.archive.download.skip>false</hive.archive.download.skip>
         <httpclient.version>4.5.14</httpclient.version>
         <httpcore.version>4.4.16</httpcore.version>
         <hudi.version>1.0.1</hudi.version>
         <hudi.artifact>hudi-spark${spark.binary.version}-bundle_${scala.binary.version}</hudi.artifact>
-        <iceberg.version>1.10.0</iceberg.version>
+        <iceberg.version>1.10.1</iceberg.version>
         <iceberg.artifact>iceberg-spark-runtime-${spark.binary.version}_${scala.binary.version}</iceberg.artifact>
         <jackson.version>2.20.1</jackson.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
@@ -172,17 +175,17 @@
         <jakarta.activation.version>1.2.2</jakarta.activation.version>
         <jersey.version>2.47</jersey.version>
         <jetcd.version>0.7.7</jetcd.version>
-        <jetty.version>9.4.57.v20241219</jetty.version>
+        <jetty.version>9.4.58.v20250814</jetty.version>
         <jline.version>2.14.6</jline.version>
         <junit.version>4.13.2</junit.version>
         <kafka.version>3.9.2</kafka.version>
         <!-- 6.14.0 requires Jackson 2.19.0+
              https://github.com/fabric8io/kubernetes-client/releases/tag/v6.14.0 -->
         <kubernetes-client.version>6.14.0</kubernetes-client.version>
-        <kyuubi-relocated.version>0.6.0</kyuubi-relocated.version>
-        <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-34</kyuubi-relocated-zookeeper.artifacts>
+        <kyuubi-relocated.version>0.6.0.1-4.3.0-0</kyuubi-relocated.version>
+        <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-39</kyuubi-relocated-zookeeper.artifacts>
         <ldapsdk.version>6.0.5</ldapsdk.version>
-        <log4j.version>2.24.3</log4j.version>
+        <log4j.version>2.25.3</log4j.version>
         <mysql.jdbc.version>8.4.0</mysql.jdbc.version>
         <mockito.version>4.11.0</mockito.version>
         <netty.version>4.2.7.Final</netty.version>
@@ -194,7 +197,7 @@
         <postgresql.version>42.7.2</postgresql.version>
         <ojdbc.version>23.2.0.0</ojdbc.version>
         <prometheus.version>0.16.0</prometheus.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <protobuf.version>3.25.9</protobuf.version>
         <scalatest.version>3.2.16</scalatest.version>
         <scalatestplus.version>3.2.16.0</scalatestplus.version>
         <scopt.version>4.1.0</scopt.version>
@@ -203,11 +206,12 @@
         <snakeyaml.version>2.2</snakeyaml.version>
         <hbase.version>2.5.12-hadoop3</hbase.version>
         <hbase.deps.scope>provided</hbase.deps.scope>
+        <feign.version>13.5</feign.version>
         <!--
           DO NOT forget to change the following properties when change the minor version of Spark:
           `delta.version`, `delta.artifact`, `maven.plugin.scalatest.exclude.tags`
           -->
-        <spark.version>3.5.7</spark.version>
+        <spark.version>3.5.4.4-4.3.0-0</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>
@@ -1249,6 +1253,11 @@
 
     <repositories>
         <repository>
+            <id>arenadata</id>
+            <url>https://maven.pkg.github.com/arenadata/*</url>
+        </repository>
+
+        <repository>
             <releases>
                 <enabled>true</enabled>
             </releases>
@@ -1270,6 +1279,18 @@
             <id>central</id>
             <name>Maven Repository</name>
             <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
+
+        <repository>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+            <id>shibboleth</id>
+            <name>Shibboleth Releases</name>
+            <url>https://build.shibboleth.net/nexus/content/repositories/releases/</url>
         </repository>
     </repositories>
 
@@ -1943,6 +1964,7 @@
             </properties>
         </profile>
 
+        <!--
         <profile>
             <id>jdk9+</id>
             <activation>
@@ -1952,6 +1974,7 @@
                 <maven.compiler.release>8</maven.compiler.release>
             </properties>
         </profile>
+        -->
 
         <profile>
             <id>java-21</id>
@@ -1972,12 +1995,18 @@
             <id>scala-2.12</id>
             <properties>
                 <scala.binary.version>2.12</scala.binary.version>
+                <scala.version>2.12.19</scala.version>
+                <!-- Apache only publishes spark-X-bin-hadoop3.tgz for Scala 2.12 (no scala suffix) -->
+                <spark.archive.scala.suffix></spark.archive.scala.suffix>
             </properties>
         </profile>
 
         <!-- For development only, not generally applicable for all modules -->
         <profile>
             <id>scala-2.13</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <properties>
                 <scala.binary.version>2.13</scala.binary.version>
                 <scala.version>2.13.17</scala.version>
@@ -2022,14 +2051,19 @@
 
         <profile>
             <id>spark-3.5</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
             <modules>
                 <module>extensions/spark/kyuubi-extension-spark-3-5</module>
                 <module>extensions/spark/kyuubi-spark-connector-hive</module>
             </modules>
             <properties>
-                <spark.version>3.5.7</spark.version>
+                <spark.version>3.5.4.4-4.3.0-0</spark.version>
                 <spark.binary.version>3.5</spark.binary.version>
                 <delta.version>3.3.1</delta.version>
+                <spark.archive.mirror>https://github.com/arenadata/spark/releases/download/v${spark.version}</spark.archive.mirror>
+                <spark.archive.name>spark-${spark.version}-bin-${hadoop.version}.tgz</spark.archive.name>
                 <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
                 <maven.plugin.scalatest.exclude.tags>org.scalatest.tags.Slow</maven.plugin.scalatest.exclude.tags>
             </properties>
@@ -2137,9 +2171,9 @@
         </profile>
 
         <profile>
-            <id>zookeeper-3.6</id>
+            <id>zookeeper-3.9</id>
             <properties>
-                <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-36</kyuubi-relocated-zookeeper.artifacts>
+                <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-39</kyuubi-relocated-zookeeper.artifacts>
             </properties>
         </profile>
 

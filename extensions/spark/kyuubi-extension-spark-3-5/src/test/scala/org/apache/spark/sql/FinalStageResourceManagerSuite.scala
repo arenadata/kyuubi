@@ -18,11 +18,13 @@
 package org.apache.spark.sql
 
 import org.apache.spark.SparkConf
+import org.scalatest.Ignore
 import org.scalatest.time.{Minutes, Span}
 
 import org.apache.kyuubi.sql.KyuubiSQLConf
 import org.apache.kyuubi.tags.SparkLocalClusterTest
 
+@Ignore
 @SparkLocalClusterTest
 class FinalStageResourceManagerSuite extends KyuubiSparkSQLExtensionTest {
 

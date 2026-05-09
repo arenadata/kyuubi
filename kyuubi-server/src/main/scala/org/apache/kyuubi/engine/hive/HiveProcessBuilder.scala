@@ -67,8 +67,10 @@ class HiveProcessBuilder(
     if (javaOptions.isDefined) {
       buffer ++= parseOptionString(javaOptions.get)
     }
-    // -Xmx5g
-    // java options
+    // Hive 4.x requires Java 21; add --add-opens for module system access on Java 9+
+    if (!System.getProperty("java.specification.version", "1.8").startsWith("1.")) {
+      buffer ++= HiveProcessBuilder.JAVA9_ADD_OPENS_OPTIONS
+    }
     val classpathEntries = new mutable.LinkedHashSet[String]
     // hive engine runtime jar
     mainResource.foreach(classpathEntries.add)
@@ -121,6 +123,25 @@ class HiveProcessBuilder(
 object HiveProcessBuilder extends Logging {
   final val HIVE_HADOOP_CLASSPATH_KEY = "HIVE_HADOOP_CLASSPATH"
   final val HIVE_ENGINE_NAME = "hive.engine.name"
+
+  // Required for Hive 4.x running on Java 9+ (Java module system restrictions)
+  final val JAVA9_ADD_OPENS_OPTIONS: Seq[String] = Seq(
+    "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+    "--add-opens=java.base/java.io=ALL-UNNAMED",
+    "--add-opens=java.base/java.net=ALL-UNNAMED",
+    "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    "--add-opens=java.base/java.util=ALL-UNNAMED",
+    "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+    "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+    "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED",
+    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED",
+    "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+    "--add-opens=java.base/sun.security.x509=ALL-UNNAMED",
+    "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+    "-Dio.netty.tryReflectionSetAccessible=true")
 
   def apply(
       proxyUser: String,

@@ -1657,6 +1657,70 @@ object KyuubiConf {
       .checkValue(_ >= 200, "Minimum 200 milliseconds")
       .createWithDefault(1000)
 
+  val ENGINE_TRINO_CONNECTION_KERBEROS_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.enabled")
+      .doc("Enable Kerberos authentication when connecting to Trino")
+      .version("1.10.1")
+      .booleanConf
+      .createWithDefault(false)
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_SERVICE_PRINCIPAL_PATTERN: ConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.servicePrincipalPattern")
+      .doc("Pattern for constructing the Kerberos service principal," +
+        " using variables ${SERVICE} and ${HOST}")
+      .version("1.10.1")
+      .stringConf
+      .createWithDefault("${SERVICE}@${HOST}")
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_REMOTE_SERVICE_NAME: ConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.remoteServiceName")
+      .doc("Remote service name for Kerberos (typically 'HTTP')")
+      .version("1.10.1")
+      .stringConf
+      .createWithDefault("HTTP")
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_USE_CANONICAL_HOSTNAME: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.useCanonicalHostname")
+      .doc("Use the canonical hostname when acquiring the Kerberos ticket")
+      .version("1.10.1")
+      .booleanConf
+      .createWithDefault(true)
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_PRINCIPAL: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.principal")
+      .doc("Kerberos principal for authentication (format: primary/instance@REALM)")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_CONFIG: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.config")
+      .doc("Path to the Kerberos configuration file (krb5.conf)")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_KEYTAB: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.keytab")
+      .doc("Path to the keytab file containing the Kerberos principal credentials")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_CREDENTIAL_CACHE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.credentialCache")
+      .doc("Path to the Kerberos credential cache file")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
+  val ENGINE_TRINO_CONNECTION_KERBEROS_DELEGATED_KERBEROS: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.trino.connection.kerberos.delegatedKerberos")
+      .doc("Enable Kerberos credential delegation to the Trino server")
+      .version("1.10.1")
+      .booleanConf
+      .createWithDefault(false)
+
   val ENGINE_HIVE_MAIN_RESOURCE: OptionalConfigEntry[String] =
     buildConf("kyuubi.session.engine.hive.main.resource")
       .doc("The package used to create Hive engine remote job. If it is undefined," +

@@ -28,7 +28,7 @@ export LC_ALL=C
 
 # Starting with Maven 3.9.0, this variable contains arguments passed to Maven before CLI arguments.
 # See https://maven.apache.org/configure.html#maven_args-environment-variable for more details.
-export MAVEN_ARGS="-Pflink-provided,spark-provided,hive-provided -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip"
+export MAVEN_ARGS="-Pflink-provided,spark-provided,hive-provided,scala-2.13,spark-3.5 -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip"
 
 MVN="${FWDIR}/build/mvn"
 DEP_PR="${FWDIR}/dev/dependencyList.tmp"

@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1</version>
+        <version>1.11.1.1-4.3.0-0</version>
         <relativePath>../../../pom.xml</relativePath>
     </parent>
 
@@ -30,11 +30,33 @@
     <name>Kyuubi Dev Spark Authorization Extension Shaded</name>
     <url>https://kyuubi.apache.org/</url>
 
+    <properties>
+        <graalvm.version>22.3.0</graalvm.version>
+        <!-- GraalVM 22.x requires JDK 11+ by design -->
+        <enforcer.skip>true</enforcer.skip>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
             <artifactId>kyuubi-spark-authz_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <!-- To be added for JDK15 and above -->
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js</artifactId>
+            <version>${graalvm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js-scriptengine</artifactId>
+            <version>${graalvm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.truffle</groupId>
+            <artifactId>truffle-api</artifactId>
+            <version>${graalvm.version}</version>
         </dependency>
     </dependencies>
 
@@ -56,6 +78,14 @@
                             <include>com.fasterxml.jackson.jaxrs:*</include>
                             <include>com.sun.jersey:*</include>
                             <include>javax.ws.rs:jsr311-api</include>
+                            <include>org.apache.solr:*</include>
+                            <include>org.apache.httpcomponents:httpmime</include>
+                            <include>org.eclipse.jetty:jetty-client</include>
+                            <include>org.graalvm.js:js</include>
+                            <include>org.graalvm.js:js-scriptengine</include>
+                            <include>org.graalvm.truffle:truffle-api</include>
+                            <!-- graal-sdk is dependency of js-scriptengine -->
+                            <include>org.graalvm.sdk:graal-sdk</include>
                         </includes>
                     </artifactSet>
                     <filters>
@@ -92,6 +122,10 @@
                         <relocation>
                             <pattern>com.sun.jersey</pattern>
                             <shadedPattern>${kyuubi.shade.packageName}.com.sun.jersey</shadedPattern>
+                        </relocation>
+                        <relocation>
+                            <pattern>jersey.repackaged.org</pattern>
+                            <shadedPattern>${kyuubi.shade.packageName}.jersey.repackaged.org</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>com.sun.ws.rs.ext</pattern>

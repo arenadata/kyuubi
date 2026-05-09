@@ -39,7 +39,7 @@ public class Utils {
   static final Logger LOG = LoggerFactory.getLogger(Utils.class);
   /** The required prefix list for the connection URL. */
   public static final List<String> URL_PREFIX_LIST =
-      Arrays.asList("jdbc:hive2://", "jdbc:kyuubi://");
+      Arrays.asList("jdbc:hive2://", "jdbc:kyuubi://", "jdbc:impala://");
 
   /** If host is provided, without a port. */
   static final String DEFAULT_PORT = "10009";

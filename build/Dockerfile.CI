@@ -32,8 +32,9 @@
 # Declare the BASE_IMAGE argument in the first line, for more detail
 # see: https://github.com/moby/moby/issues/38379
 ARG BASE_IMAGE=eclipse-temurin:8-jdk-focal
+ARG BUILDER_IMAGE=eclipse-temurin:17-jdk-focal
 
-FROM eclipse-temurin:8-jdk-focal AS builder
+FROM ${BUILDER_IMAGE} AS builder
 
 ARG MVN_ARG
 
@@ -48,10 +49,14 @@ ENV CI=${CI}
 ADD . /workspace/kyuubi
 WORKDIR /workspace/kyuubi
 
-RUN apt-get update && \
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y bash python3 && \
     ln -snf /bin/bash /bin/sh && \
+    mkdir -p ~/.m2 && \
+    printf '<settings><servers><server><id>arenadata</id><username>x-access-token</username><password>%s</password></server></servers></settings>' \
+      "$(cat /run/secrets/GITHUB_TOKEN)" > ~/.m2/settings.xml && \
     ./build/dist ${MVN_ARG} && \
     mv /workspace/kyuubi/dist /opt/kyuubi && \
     # Removing stuff saves time because docker creates a temporary layer

@@ -66,6 +66,9 @@ class SparkProcessBuilder(
     Paths.get(sparkHome, "bin", SPARK_SUBMIT_FILE).toFile.getCanonicalPath
   }
 
+  // allow spark-submit script to detect JAVA_HOME itself
+  override def env: Map[String, String] = super.env - "JAVA_HOME"
+
   override def mainClass: String = "org.apache.kyuubi.engine.spark.SparkSQLEngine"
 
   /**
@@ -124,7 +127,8 @@ class SparkProcessBuilder(
   override protected lazy val engineHomeDirFilter: FileFilter = file => {
     val patterns = SCALA_COMPILE_VERSION match {
       case "2.12" => Seq(SPARK3_HOME_REGEX_SCALA_212)
-      case "2.13" => Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK4_HOME_REGEX_SCALA_213)
+      case "2.13" =>
+        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK3_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
     }
     file.isDirectory && patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }
@@ -462,4 +466,9 @@ object SparkProcessBuilder {
 
   final private[kyuubi] val SPARK4_HOME_REGEX_SCALA_213 =
     """^spark-4\.\d+\.\d+(-\w*)?-bin-hadoop\d(\.\d+)?+$""".r
+
+  // Matches Arenadata custom Spark distribution naming:
+  // spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0
+  final private[kyuubi] val SPARK3_HOME_REGEX_ARENADATA =
+    """^spark-3\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-[\d.]+-[\d.]+-\d+$""".r
 }

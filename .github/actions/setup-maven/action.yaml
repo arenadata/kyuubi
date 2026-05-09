@@ -17,9 +17,22 @@
 
 name: setup-maven
 description: 'Install and cache maven'
+inputs:
+  java-version:
+    description: 'Java version to set up'
+    required: true
 runs:
   using: composite
   steps:
+    - name: Setup JDK ${{ inputs.java-version }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+        cache: maven
+        server-id: arenadata
+        server-username: GITHUB_ACTOR
+        server-password: GITHUB_TOKEN
     - name: Restore cached Maven
       uses: actions/cache@v4
       with:

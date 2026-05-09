@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1</version>
+        <version>1.11.1.1-4.3.0-0</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -29,6 +29,11 @@
     <packaging>jar</packaging>
     <name>Kyuubi Project Engine Hive SQL</name>
     <url>https://kyuubi.apache.org/</url>
+
+    <properties>
+        <!-- hive-service 4.3+ requires Java 21; xmlsectool:2.0.0 is only in build.shibboleth.net -->
+        <enforcer.maxJdkVersion>21</enforcer.maxJdkVersion>
+    </properties>
 
     <dependencies>
 
@@ -161,6 +166,34 @@
         <dependency>
             <groupId>com.vladsch.flexmark</groupId>
             <artifactId>flexmark-all</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- hadoop-hdfs required for SnapshotException in Hive metastore code paths (not in Hive's Maven POM, only in binary distribution) -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- DataNucleus JDO required for embedded Hive metastore in tests -->
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-api-jdo</artifactId>
+            <version>5.2.8</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-core</artifactId>
+            <version>5.2.10</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.datanucleus</groupId>
+            <artifactId>datanucleus-rdbms</artifactId>
+            <version>5.2.13</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
