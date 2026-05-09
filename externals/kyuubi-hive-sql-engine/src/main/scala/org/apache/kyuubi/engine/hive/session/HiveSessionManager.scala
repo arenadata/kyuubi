@@ -173,12 +173,13 @@ class HiveSessionManager(engine: HiveSQLEngine) extends SessionManager("HiveSess
     }
   }
 
-  private def initializeAndStartService(service: AbstractService, config: HiveConf): Unit = {
-    if (service.getServiceState == STATE.NOTINITED) {
-      service.init(config)
-      service.start()
+  private def initializeAndStartService(service: AbstractService, config: HiveConf): Unit =
+    synchronized {
+      if (service.getServiceState == STATE.NOTINITED) {
+        service.init(config)
+        service.start()
+      }
     }
-  }
 
   override def closeSession(sessionHandle: SessionHandle): Unit = {
     super.closeSession(sessionHandle)
