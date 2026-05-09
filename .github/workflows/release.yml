@@ -70,6 +70,8 @@ jobs:
         server-password: GITHUB_TOKEN
 
     - uses: ./.github/actions/setup-maven
+      with:
+        java-version: 21
 
     - name: Build and Deploy to GitHub Packages
       run: >-
