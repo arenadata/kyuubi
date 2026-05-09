@@ -62,7 +62,7 @@ jobs:
 
     - uses: actions/setup-java@v4
       with:
-        java-version: 8
+        java-version: 21
         distribution: temurin
         cache: maven
         server-id: arenadata
@@ -72,7 +72,10 @@ jobs:
     - uses: ./.github/actions/setup-maven
 
     - name: Build and Deploy to GitHub Packages
-      run: build/mvn -B -V -ntp deploy -DskipTests
+      run: >-
+        build/mvn -B -V -ntp deploy
+        -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9 -Pweb-ui -Pspark-provided,flink-provided,hive-provided
+        -DskipTests -Drat.skip=true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -80,6 +83,7 @@ jobs:
       run: >-
         build/mvn -B -ntp
         org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+        -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9 -Pweb-ui
         -DoutputFormat=json -DoutputName=bom
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
