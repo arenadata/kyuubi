@@ -10,7 +10,7 @@
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
-    <kyuubi.version>1.10.1</kyuubi.version>
+    <kyuubi.version>1.11.1.1-4.3.0-0</kyuubi.version>
     <spark.version>3.5.4</spark.version>
   </properties>
 
