@@ -26,6 +26,7 @@ import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 
 import org.apache.kyuubi.{KyuubiException, Logging}
+import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_PROTOCOLS, FrontendProtocols}
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
@@ -56,7 +57,7 @@ class SparkConnectSessionManager(backendService: BackendService) extends Logging
         username,
         "",
         "",
-        Map.empty)
+        Map(FRONTEND_PROTOCOLS.key -> FrontendProtocols.SPARK_CONNECT.toString))
       try {
         val kyuubiSession = backendService.sessionManager.getSession(handle) match {
           case s: KyuubiSessionImpl => s

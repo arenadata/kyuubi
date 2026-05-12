@@ -175,15 +175,15 @@ spark.sql("SELECT current_user()").show()
 ## Build kyuubi
 
 ```
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-./build/dist --tgz --spark-provided --flink-provided --hive-provided --web-ui -Pjdbc-shaded -Pjava-8  -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.6 -Drat.skip=true
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+./build/dist --tgz --spark-provided --flink-provided --hive-provided --web-ui -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9 -Drat.skip=true
 ```
 
 run spark-connect tests:
 
 ```
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 export SPARK_HOME=/home/vdmitriev/git/spark-3.5.4-bin-hadoop3-scala2.13
-build/mvn test -pl kyuubi-server -Pjdbc-shaded -Pjava-8  -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.6  -Dsuites="org.apache.kyuubi.server.grpc.*,*SparkConnect*"
+build/mvn test -pl kyuubi-server -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9  -Dsuites="org.apache.kyuubi.server.grpc.*,*SparkConnect*"
 ```
 
