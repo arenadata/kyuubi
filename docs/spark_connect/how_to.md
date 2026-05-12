@@ -121,7 +121,7 @@ from kyuubi.spark_connect import KyuubiSessionBuilder
 HOST = "vdmitriev-adh-orion-hadoop-3.ru-central1.internal"
 PORT = 10199
 
-spark = KyuubiSessionBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="kerberos")
+spark = KyuubiSessionBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="kerberos").getOrCreate()
 
 spark.sql("SELECT current_user()").show()
 
@@ -167,7 +167,7 @@ pass `auth="ldap"`, `username` and `password` parameters to `KyuubiSessionBuilde
 
 ```
 spark = KyuubiSessionBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="ldap",
-    username="vdmitriev2", password="vdmitriev2pass")
+    username="vdmitriev2", password="vdmitriev2pass").getOrCreate()
 
 spark.sql("SELECT current_user()").show()
 ```
