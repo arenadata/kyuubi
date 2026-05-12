@@ -22,6 +22,6 @@
 KYUUBI_UPDATE="${KYUUBI_UPDATE:-1}" \
 build/mvn clean test \
   -pl kyuubi-server -am \
-  -Pflink-provided,spark-provided,hive-provided \
+  -Pflink-provided,spark-provided,hive-provided,scala-2.13,spark-3.5 -Pzookeeper-3.9 \
   -Dtest=none \
   -DwildcardSuites=org.apache.kyuubi.config.AllKyuubiConfiguration
