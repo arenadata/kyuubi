@@ -33,7 +33,7 @@ export PYTHONPATH="/opt/pyspark3-python/lib/python3.10/site-packages/:/usr/lib/s
 
 ```
 
-Deploy the spark code from PR (we'll use `KyuubiChannelBuilder` python class):
+Deploy the spark code from PR (we'll use `KyuubiSessionBuilder` python class):
 https://github.com/arenadata/spark/pull/27/changes
 
 ### There are several authentication types
@@ -110,18 +110,15 @@ SparkSession available as 'spark'.
 +--------------+
 ```
 
-or pass `auth="kerberos"` parameter to `KyuubiChannelBuilder` class in python code:
+or pass `auth="kerberos"` parameter to `KyuubiSessionBuilder` class in python code:
 
 ```
-from kyuubi.spark_connect import KyuubiChannelBuilder
-from pyspark.sql.connect.session import SparkSession
+from kyuubi.spark_connect import KyuubiSessionBuilder
 
 HOST = "vdmitriev-adh-orion-hadoop-3.ru-central1.internal"
 PORT = 10199
 
-builder = KyuubiChannelBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="kerberos")
-
-spark = SparkSession(connection=builder)
+spark = KyuubiSessionBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="kerberos")
 
 spark.sql("SELECT current_user()").show()
 
@@ -163,12 +160,11 @@ KYUUBI_AUTH=ldap KYUUBI_USERNAME=vdmitriev2 pyspark3 --remote "sc://vdmitriev-ad
 
 ##### Python code
 
-pass `auth="ldap"`, `username` and `password` parameters to `KyuubiChannelBuilder` class in python code:
+pass `auth="ldap"`, `username` and `password` parameters to `KyuubiSessionBuilder` class in python code:
 
 ```
-builder = KyuubiChannelBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="ldap", 
+spark = KyuubiSessionBuilder(f"sc://{HOST}:{PORT}/;use_ssl=true", auth="ldap",
     username="vdmitriev2", password="vdmitriev2pass")
-spark = SparkSession(connection=builder)
 
 spark.sql("SELECT current_user()").show()
 ```
