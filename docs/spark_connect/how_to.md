@@ -20,13 +20,16 @@ export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
 
 **For KERBEROS and LDAP authentication types:**
 
-Generate spark connect classes (TODO: think how to automate):
+Build kyuubi-spark-connect python package, run:
 
 ```
-python3 -m grpc_tools.protoc --python_out=. --grpc_python_out=.  --proto_path=.  spark_connect_auth.proto
+build/build-python-package
+...
+Successfully built kyuubi_spark_connect-1.0.0-py3-none-any.whl
 ```
+These package (wheel) should be installed to /opt/pyspark3-python/lib or other directory with python libraries.
 
-then define `PYTHONPATH` if you run python code non-interactively:
+Then define `PYTHONPATH` if you run python code non-interactively:
 
 ```
 export PYTHONPATH="/opt/pyspark3-python/lib/python3.10/site-packages/:/usr/lib/spark3/python/lib/py4j-0.10.9.7-src.zip:/usr/lib/spark3/python/"
