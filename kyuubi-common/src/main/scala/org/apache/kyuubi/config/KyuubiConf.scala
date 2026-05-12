@@ -232,6 +232,9 @@ case class KyuubiConf(loadSysDefault: Boolean = true) extends Logging {
   }
 
   def isRESTEnabled: Boolean = get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.REST.toString)
+
+  def isSparkConnectEnabled: Boolean =
+    get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.SPARK_CONNECT.toString)
 }
 
 /**
@@ -423,7 +426,7 @@ object KyuubiConf {
 
   object FrontendProtocols extends Enumeration {
     type FrontendProtocol = Value
-    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO = Value
+    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO, SPARK_CONNECT = Value
   }
 
   val FRONTEND_PROTOCOLS: ConfigEntry[Seq[String]] =
@@ -1243,6 +1246,40 @@ object KyuubiConf {
     .intConf
     .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
     .createWithDefault(10999)
+
+  val FRONTEND_SPARK_CONNECT_BIND_HOST: ConfigEntry[Option[String]] =
+    buildConf("kyuubi.frontend.spark.connect.bind.host")
+      .doc("Hostname or IP on which to run the Spark Connect gRPC frontend service.")
+      .version("1.10.1")
+      .serverOnly
+      .fallbackConf(FRONTEND_BIND_HOST)
+
+  val FRONTEND_SPARK_CONNECT_BIND_PORT: ConfigEntry[Int] =
+    buildConf("kyuubi.frontend.spark.connect.bind.port")
+      .doc("Port on which to run the Spark Connect gRPC frontend service.")
+      .version("1.10.1")
+      .serverOnly
+      .intConf
+      .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
+      .createWithDefault(10199)
+
+  val FRONTEND_SPARK_CONNECT_SSL_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.spark.connect.ssl.enabled")
+      .doc("Set this to true to enable TLS/SSL encryption on the Spark Connect gRPC frontend.")
+      .version("1.10.1")
+      .serverOnly
+      .booleanConf
+      .createWithDefault(false)
+
+  val FRONTEND_SPARK_CONNECT_TOKEN_TTL: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.spark.connect.token.ttl")
+      .doc("Lifetime of Spark Connect session token issued via GetToken RPC. " +
+        "Only effective when kyuubi.authentication includes KERBEROS and " +
+        "kyuubi.spnego.keytab / kyuubi.spnego.principal are configured.")
+      .version("1.10.1")
+      .serverOnly
+      .timeConf
+      .createWithDefaultString("PT24H")
 
   val FRONTEND_TRINO_MAX_WORKER_THREADS: ConfigEntry[Int] =
     buildConf("kyuubi.frontend.trino.max.worker.threads")

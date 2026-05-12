@@ -30,6 +30,7 @@ import org.apache.spark.{ui, SparkConf}
 import org.apache.spark.kyuubi.{SparkContextHelper, SparkSQLEngineEventListener, SparkSQLEngineListener}
 import org.apache.spark.kyuubi.SparkUtilsHelper.getLocalDir
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.connect.SparkConnectServerHelper
 
 import org.apache.kyuubi.{KyuubiException, Logging, Utils}
 import org.apache.kyuubi.Utils._
@@ -56,6 +57,9 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   private val shutdown = new AtomicBoolean(false)
   private val gracefulStopDeregistered = new AtomicBoolean(false)
 
+  @volatile private var _connectUrl: Option[String] = None
+  def connectUrl: Option[String] = _connectUrl
+
   @volatile private var lifetimeTerminatingChecker: Option[ScheduledExecutorService] = None
   @volatile private var stopEngineExec: Option[ThreadPoolExecutor] = None
   private lazy val engineSavePath =
@@ -72,6 +76,12 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
 
   override def start(): Unit = {
     super.start()
+    if (conf.isSparkConnectEnabled) {
+      val port = SparkConnectServerHelper.start(spark)
+      val host = JavaUtils.findLocalInetAddress.getHostAddress
+      _connectUrl = Some(s"$host:$port")
+      info(s"SparkConnect server started at ${_connectUrl.get}")
+    }
     // Start engine self-terminating checker after all services are ready and it can be reached by
     // all servers in engine spaces.
     backendService.sessionManager.startTerminatingChecker(() => {
@@ -98,6 +108,9 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   }
 
   override def stop(): Unit = if (shutdown.compareAndSet(false, true)) {
+    if (conf.isSparkConnectEnabled) {
+      Utils.tryLogNonFatalError(SparkConnectServerHelper.stop())
+    }
     super.stop()
     lifetimeTerminatingChecker.foreach(checker => {
       val shutdownTimeout = conf.get(ENGINE_EXEC_POOL_SHUTDOWN_TIMEOUT)
@@ -315,6 +328,11 @@ object SparkSQLEngine extends Logging {
       kyuubiConf.getAll.foreach { case (k, v) =>
         debug(s"KyuubiConf: $k = $v")
       }
+    }
+
+    if (_kyuubiConf.isSparkConnectEnabled) {
+      val connectPort = Utils.findFreePort()
+      _sparkConf.set("spark.connect.grpc.binding.port", connectPort.toString)
     }
   }
 

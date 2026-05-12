@@ -54,6 +54,7 @@ class KyuubiSyncThriftClient private (
   @volatile private var _engineId: Option[String] = _
   @volatile private var _engineUrl: Option[String] = _
   @volatile private var _engineName: Option[String] = _
+  @volatile private var _engineConnectUrl: Option[String] = None
 
   private[kyuubi] def engineConnectionClosed: Boolean = !protocol.getTransport.isOpen
 
@@ -181,6 +182,7 @@ class KyuubiSyncThriftClient private (
   def engineId: Option[String] = _engineId
   def engineName: Option[String] = _engineName
   def engineUrl: Option[String] = _engineUrl
+  def engineConnectUrl: Option[String] = _engineConnectUrl
 
   /**
    * Return the engine SessionHandle for kyuubi session so that we can get the same session id
@@ -206,6 +208,9 @@ class KyuubiSyncThriftClient private (
     _engineUrl = Option(resp.getConfiguration)
       .filter(_.containsKey(KYUUBI_ENGINE_URL))
       .map(_.get(KYUUBI_ENGINE_URL))
+    _engineConnectUrl = Option(resp.getConfiguration)
+      .filter(_.containsKey(KYUUBI_ENGINE_CONNECT_URL))
+      .map(_.get(KYUUBI_ENGINE_CONNECT_URL))
 
     engineAliveProbeClient.foreach { aliveProbeClient =>
       val sessionName = SessionHandle.apply(_remoteSessionHandle).identifier + "_aliveness_probe"

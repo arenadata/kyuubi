@@ -64,6 +64,8 @@
         <module>extensions/spark/kyuubi-spark-lineage</module>
         <module>extensions/spark/kyuubi-spark-lineage-shaded</module>
         <module>extensions/spark/kyuubi-spark-jvm-quake</module>
+        <module>extensions/spark/kyuubi-spark-connect-client</module>
+        <module>extensions/spark/kyuubi-spark-connect-client-standalone</module>
         <module>externals/kyuubi-chat-engine</module>
         <module>externals/kyuubi-download</module>
         <module>externals/kyuubi-flink-sql-engine</module>
@@ -82,6 +84,7 @@
         <module>kyuubi-hive-jdbc-shaded</module>
         <module>kyuubi-metrics</module>
         <module>kyuubi-rest-client</module>
+        <module>kyuubi-spark-connect-common</module>
         <module>kyuubi-server</module>
         <module>kyuubi-util</module>
         <module>kyuubi-util-scala</module>

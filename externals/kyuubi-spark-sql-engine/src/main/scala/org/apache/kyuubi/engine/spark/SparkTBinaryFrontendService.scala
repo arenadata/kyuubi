@@ -65,17 +65,21 @@ class SparkTBinaryFrontendService(
     info("Client protocol version: " + req.getClient_protocol)
     val resp = new TOpenSessionResp
     try {
-      val respConfiguration = Map(
-        KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId,
-        KYUUBI_ENGINE_NAME -> KyuubiSparkUtil.engineName,
-        KYUUBI_ENGINE_URL -> KyuubiSparkUtil.engineUrl).asJava
-
       if (req.getConfiguration != null) {
         val credentials = req.getConfiguration.remove(KYUUBI_ENGINE_CREDENTIALS_KEY)
         Option(credentials).filter(_.nonEmpty).foreach(renewDelegationToken(sc, _))
       }
 
       val sessionHandle = getSessionHandle(req, resp)
+      // connectUrl must be read after getSessionHandle
+      // SparkConnect starts lazily on first session
+      val respConfiguration = (Map(
+        KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId,
+        KYUUBI_ENGINE_NAME -> KyuubiSparkUtil.engineName,
+        KYUUBI_ENGINE_URL -> KyuubiSparkUtil.engineUrl) ++
+        serverable.asInstanceOf[SparkSQLEngine].connectUrl
+          .map(KYUUBI_ENGINE_CONNECT_URL -> _)).asJava
+
       resp.setSessionHandle(sessionHandle.toTSessionHandle)
       resp.setConfiguration(respConfiguration)
       resp.setStatus(OK_STATUS)

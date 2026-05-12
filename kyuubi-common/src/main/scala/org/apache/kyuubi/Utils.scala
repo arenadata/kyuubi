@@ -354,6 +354,12 @@ object Utils extends Logging {
 
   def isCommandAvailable(cmd: String): Boolean = s"which $cmd".! == 0
 
+  def findFreePort(): Int = {
+    val socket = new java.net.ServerSocket(0)
+    try socket.getLocalPort
+    finally socket.close()
+  }
+
   /**
    * Get the ClassLoader which loaded Kyuubi.
    */

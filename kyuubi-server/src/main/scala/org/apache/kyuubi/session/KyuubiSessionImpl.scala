@@ -105,6 +105,7 @@ class KyuubiSessionImpl(
 
   @volatile private var _client: KyuubiSyncThriftClient = _
   def client: KyuubiSyncThriftClient = _client
+  def engineConnectUrl: Option[String] = Option(_client).flatMap(_.engineConnectUrl)
 
   @volatile private var _engineSessionHandle: SessionHandle = _
 
@@ -252,7 +253,7 @@ class KyuubiSessionImpl(
 
   @volatile private var engineLaunched: Boolean = false
 
-  private def waitForEngineLaunched(): Unit = {
+  private[kyuubi] def waitForEngineLaunched(): Unit = {
     if (!engineLaunched) {
       Option(launchEngineOp).foreach { op =>
         val waitingStartTime = System.currentTimeMillis()
