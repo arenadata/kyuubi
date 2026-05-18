@@ -1,0 +1,33 @@
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package kyuubi.auth;
+option java_package = "org.apache.kyuubi.server.grpc.proto";
+option java_outer_classname = "SparkConnectAuthProto";
+option java_multiple_files = true;
+
+service SparkConnectAuthService {
+  rpc GetToken    (GetTokenRequest)    returns (GetTokenResponse);
+  rpc RenewToken  (RenewTokenRequest)  returns (RenewTokenResponse);
+  rpc RevokeToken (RevokeTokenRequest) returns (RevokeTokenResponse);
+}
+
+message GetTokenRequest   {}
+message GetTokenResponse  { string token = 1; int64 expires_at_ms = 2; }
+message RenewTokenRequest  { string token = 1; }
+message RenewTokenResponse { int64 expires_at_ms = 1; }
+message RevokeTokenRequest  { string token = 1; }
+message RevokeTokenResponse {}

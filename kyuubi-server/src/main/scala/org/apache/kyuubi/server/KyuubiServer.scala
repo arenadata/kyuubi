@@ -200,6 +200,9 @@ class KyuubiServer(name: String) extends Serverable(name) {
       case TRINO =>
         warn("Trino frontend protocol is experimental.")
         new KyuubiTrinoFrontendService(this)
+      case SPARK_CONNECT =>
+        warn("SPARK_CONNECT frontend protocol is experimental.")
+        new KyuubiSparkConnectFrontendService(this)
       case other =>
         throw new UnsupportedOperationException(s"Frontend protocol $other is not supported yet.")
     }
