@@ -110,6 +110,20 @@
             <scope>test</scope>
         </dependency>
 
+        <dependency>
+            <groupId>com.sun.xml.bind</groupId>
+            <artifactId>jaxb-impl</artifactId>
+            <version>${jakarta.xml-bind.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.sun.istack</groupId>
+            <artifactId>istack-commons-runtime</artifactId>
+            <version>3.0.8</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
