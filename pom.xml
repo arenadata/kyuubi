@@ -2062,7 +2062,7 @@
                 <module>extensions/spark/kyuubi-spark-connector-hive</module>
             </modules>
             <properties>
-                <spark.version>3.5.4.4-4.3.0-0</spark.version>
+                <spark.version>3.5.4.4-4.3.0-1</spark.version>
                 <spark.binary.version>3.5</spark.binary.version>
                 <delta.version>3.3.1</delta.version>
                 <spark.archive.mirror>https://github.com/arenadata/spark/releases/download/v${spark.version}</spark.archive.mirror>
