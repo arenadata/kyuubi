@@ -18,11 +18,12 @@
 package org.apache.kyuubi.plugin.spark.authz.ranger
 
 import java.util.Properties
+
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
-import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 import org.apache.ranger.audit.utils.InMemoryJAASConfiguration
 import org.apache.solr.client.solrj.impl.{CloudSolrClient, HttpClientUtil, HttpSolrClient, Krb5HttpClientBuilder}
 import org.apache.solr.client.solrj.request.DelegationTokenRequest
@@ -30,6 +31,8 @@ import org.apache.solr.hadoop.SolrDelegationTokenUtil
 import org.apache.spark.SparkConf
 import org.apache.spark.security.HadoopDelegationTokenProvider
 import org.slf4j.LoggerFactory
+
+import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 
 class SolrDelegationTokenProvider extends HadoopDelegationTokenProvider {
 

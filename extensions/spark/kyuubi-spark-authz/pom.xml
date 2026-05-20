@@ -32,7 +32,7 @@
     <url>https://kyuubi.apache.org/</url>
 
     <properties>
-        <ranger.version>2.6.0</ranger.version>
+        <ranger.version>2.6.0.4-2.2.0-0</ranger.version>
         <jersey.client.version>2.40</jersey.client.version>
         <solr.version>8.11.4.3-4.3.0-0</solr.version>
     </properties>

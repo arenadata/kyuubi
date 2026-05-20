@@ -159,7 +159,7 @@
         <hadoop.version>3.4.3.1-4.3.0-0</hadoop.version>
         <hikaricp.version>4.0.3</hikaricp.version>
         <fliptables.verion>1.1.1</fliptables.verion>
-        <hive.version>4.3.0.1-4.3.0-0</hive.version>
+        <hive.version>4.3.0.1-4.3.0-2</hive.version>
         <hive.archive.name>apache-hive-${hive.version}-bin.tar.gz</hive.archive.name>
         <hive.archive.mirror>${github.archive.dist}/hive/releases/download/v${hive.version}</hive.archive.mirror>
         <hive.archive.query>?action=download</hive.archive.query>
@@ -214,7 +214,7 @@
           DO NOT forget to change the following properties when change the minor version of Spark:
           `delta.version`, `delta.artifact`, `maven.plugin.scalatest.exclude.tags`
           -->
-        <spark.version>3.5.4.4-4.3.0-0</spark.version>
+        <spark.version>3.5.4.4-4.3.0-1</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>

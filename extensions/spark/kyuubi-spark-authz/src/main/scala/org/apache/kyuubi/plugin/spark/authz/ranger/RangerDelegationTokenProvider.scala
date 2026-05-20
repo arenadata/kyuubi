@@ -18,13 +18,15 @@
 package org.apache.kyuubi.plugin.spark.authz.ranger
 
 import scala.util.control.NonFatal
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
-import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 import org.apache.ranger.admin.client.RangerAdminRESTClient
 import org.apache.spark.SparkConf
 import org.apache.spark.security.HadoopDelegationTokenProvider
 import org.slf4j.LoggerFactory
+
+import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 
 class RangerDelegationTokenProvider extends HadoopDelegationTokenProvider {
 
