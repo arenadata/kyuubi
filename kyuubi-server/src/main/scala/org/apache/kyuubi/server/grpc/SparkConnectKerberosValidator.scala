@@ -31,6 +31,7 @@ import org.ietf.jgss.{GSSContext, GSSCredential, GSSManager, Oid}
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.{SERVER_SPNEGO_KEYTAB, SERVER_SPNEGO_PRINCIPAL}
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 /**
  * Validates SPNEGO tokens for the Spark Connect gRPC frontend.
@@ -39,7 +40,8 @@ import org.apache.kyuubi.config.KyuubiConf.{SERVER_SPNEGO_KEYTAB, SERVER_SPNEGO_
 class SparkConnectKerberosValidator(conf: KyuubiConf) extends Logging {
 
   private val keytab = conf.get(SERVER_SPNEGO_KEYTAB).get
-  private val principal = conf.get(SERVER_SPNEGO_PRINCIPAL).get
+  private val principal = KyuubiHadoopUtils.getServerPrincipal(
+    conf.get(SERVER_SPNEGO_PRINCIPAL).get)
 
   private val serverSubject: Subject = {
     val subject = new Subject()
