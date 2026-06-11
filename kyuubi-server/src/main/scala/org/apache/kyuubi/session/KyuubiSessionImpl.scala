@@ -133,6 +133,13 @@ class KyuubiSessionImpl(
   private[kyuubi] def openEngineSession(extraEngineLog: Option[OperationLog] = None): Unit =
     handleSessionException {
       withDiscoveryClient(sessionConf) { discoveryClient =>
+        // FRONTEND_PROTOCOLS is server-only and stripped by getUserDefaults().
+        // Re-inject the server value so the engine subprocess starts the correct services
+        // (e.g., SPARK_CONNECT causes the engine to start its Spark Connect server).
+        sessionConf.set(
+          FRONTEND_PROTOCOLS.key,
+          sessionManager.getConf.get(FRONTEND_PROTOCOLS).mkString(","))
+
         var openEngineSessionConf =
           optimizedConf ++ Map(KYUUBI_SESSION_HANDLE_KEY -> handle.identifier.toString)
         if (engineCredentials.nonEmpty) {

@@ -34,6 +34,7 @@ import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.server.http.authentication.AuthSchemes.AuthScheme
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.{NEGOTIATE, WWW_AUTHENTICATE_HEADER}
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 class KerberosAuthenticationHandler extends AuthenticationHandler with Logging {
 
@@ -64,7 +65,8 @@ class KerberosAuthenticationHandler extends AuthenticationHandler with Logging {
 
       info(s"Using keytab $keytab, for principal $principal")
       serverSubject.getPrivateCredentials().add(KeyTab.getInstance(keytabFile))
-      serverSubject.getPrincipals.add(new KerberosPrincipal(principal))
+      serverSubject.getPrincipals.add(new KerberosPrincipal(
+        KyuubiHadoopUtils.getServerPrincipal(principal)))
 
       // TODO: support to config kerberos.name.rules and kerberos.rule.mechanism
       // set default rules if no rules set, otherwise it will throw exception
