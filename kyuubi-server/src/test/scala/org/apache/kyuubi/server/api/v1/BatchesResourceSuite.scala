@@ -60,7 +60,9 @@ class BatchesV2ResourceSuite extends BatchesResourceSuiteBase {
 
   override def customConf: Map[String, String] = Map(
     METADATA_REQUEST_ASYNC_RETRY_ENABLED.key -> "false",
-    BATCH_SUBMITTER_ENABLED.key -> "true")
+    BATCH_SUBMITTER_ENABLED.key -> "true",
+    // shorten poll interval so JPS can detect fast-completing local SparkPi before it exits
+    BATCH_APPLICATION_CHECK_INTERVAL.key -> "200")
 
   override def afterEach(): Unit = {
     val sessionManager = fe.be.sessionManager.asInstanceOf[KyuubiSessionManager]

@@ -34,6 +34,10 @@ class HiveOperationSuite extends HiveEngineTests {
       CONF,
       s"javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=$metastore;create=true",
       CONF,
+      // Without this, DataNucleus may return a pooled JDBC connection with an active transaction
+      // left over from schema auto-creation, causing JDOUserException on the first query.
+      "datanucleus.connectionPoolingType=None",
+      CONF,
       s"${KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY}=kyuubi")
     HiveSQLEngine.main(args)
     super.beforeAll()
