@@ -21,7 +21,7 @@ package org.apache.spark.sql.kyuubi
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connect.client.SparkConnectClient
 
-import org.apache.kyuubi.spark.connect.client.KyuubiTokenClient
+import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, ZookeeperUrlResolver}
 
 /**
  * Builder for a Kyuubi-authenticated Spark Connect session.
@@ -39,6 +39,12 @@ import org.apache.kyuubi.spark.connect.client.KyuubiTokenClient
  *   val spark = new KyuubiSessionBuilder("sc://host:10199/;use_ssl=true",
  *     KyuubiAuthType.LDAP, "john", "secret").getOrCreate()
  *
+ *   // ZooKeeper HA (Kerberos):
+ *   val spark = new KyuubiSessionBuilder(
+ *     "sc://zk1:2181,zk2:2181,zk3:2181/;serviceDiscoveryMode=zooKeeper" +
+ *     ";zooKeeperNamespace=arenadata/cluster/4/kyuubi_sc;use_ssl=true",
+ *     KyuubiAuthType.KERBEROS).getOrCreate()
+ *
  *   spark.sql("SELECT current_user()").show()
  *   spark.stop()  // sends ReleaseSession, server revokes token automatically
  * }}}
@@ -53,7 +59,8 @@ class KyuubiSessionBuilder(
 
   def this(url: String, auth: KyuubiAuthType) = this(url, auth, null, null)
 
-  private val clientBuilder = SparkConnectClient.builder().connectionString(url)
+  private val clientBuilder =
+    SparkConnectClient.builder().connectionString(ZookeeperUrlResolver.resolve(url))
 
   private val tokenClient: Option[KyuubiTokenClient] = auth match {
     case KyuubiAuthType.NONE => None

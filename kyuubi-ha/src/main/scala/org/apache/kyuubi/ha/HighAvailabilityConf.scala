@@ -53,6 +53,16 @@ object HighAvailabilityConf {
       .version("1.6.0")
       .fallbackConf(HA_ZK_NAMESPACE)
 
+  val HA_SPARK_CONNECT_NAMESPACE: ConfigEntry[String] =
+    buildConf("kyuubi.ha.spark.connect.namespace")
+      .doc("The root directory for the Spark Connect frontend service to deploy its " +
+        "instance uri." +
+        "Must be different from kyuubi.ha.namespace to avoid Thrift JDBC clients discovering " +
+        "gRPC endpoints.")
+      .version("1.11.1")
+      .stringConf
+      .createWithDefault("kyuubi_sc")
+
   val HA_CLIENT_CLASS: ConfigEntry[String] =
     buildConf("kyuubi.ha.client.class")
       .doc("Class name for service discovery client.<ul>" +

@@ -20,6 +20,7 @@ package org.apache.kyuubi.server
 import java.io.FileInputStream
 import java.net.InetSocketAddress
 import java.security.KeyStore
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManagerFactory
 
 import scala.util.control.NonFatal
@@ -32,6 +33,7 @@ import io.netty.handler.ssl.SslContextBuilder
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.engine.ShareLevel
+import org.apache.kyuubi.ha.client.{ServiceDiscovery, SparkConnectServiceDiscovery}
 import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
@@ -289,6 +291,12 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
       info(s"SparkConnect frontend SSL enabled (keystore: ${keyStorePath.get})")
     }
 
+    builder
+      .keepAliveTime(30, TimeUnit.SECONDS)
+      .keepAliveTimeout(10, TimeUnit.SECONDS)
+      .permitKeepAliveWithoutCalls(true)
+      .permitKeepAliveTime(10, TimeUnit.SECONDS)
+
     grpcServer = builder.build().start()
     info(s"SparkConnect frontend service started at $host:${grpcServer.getPort}")
     super.start()
@@ -307,5 +315,11 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
 
   override def connectionUrl: String = s"$host:${grpcServer.getPort}"
 
-  override val discoveryService: Option[Service] = None
+  override lazy val discoveryService: Option[Service] = {
+    if (ServiceDiscovery.supportServiceDiscovery(conf)) {
+      Some(new SparkConnectServiceDiscovery(this))
+    } else {
+      None
+    }
+  }
 }
