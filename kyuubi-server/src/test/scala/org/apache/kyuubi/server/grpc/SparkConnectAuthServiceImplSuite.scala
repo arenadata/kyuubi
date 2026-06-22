@@ -40,7 +40,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   // getToken
 
   test("getToken: missing Authorization header returns UNAUTHENTICATED") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val service = new SparkConnectAuthServiceImpl(handlers = Seq.empty, store)
       val observer = mock[StreamObserver[GetTokenResponse]]
@@ -59,7 +59,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("getToken: handler authenticates successfully returns token and expiry") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val handler = mock[SparkConnectCredentialHandler]
       when(handler.authenticate(any())).thenReturn(Some("john"))
@@ -83,7 +83,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("getToken: handler throws returns UNAUTHENTICATED with cause message") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val handler = mock[SparkConnectCredentialHandler]
       when(handler.authenticate(any())).thenThrow(new RuntimeException("bad credentials"))
@@ -105,7 +105,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("getToken: no handler matches scheme returns UNAUTHENTICATED") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val handler = mock[SparkConnectCredentialHandler]
       when(handler.authenticate(any())).thenReturn(None)
@@ -129,7 +129,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   // renewToken
 
   test("renewToken: valid token returns new expiry") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (token, originalExpiry) = store.create("john")
       Thread.sleep(5)
@@ -148,7 +148,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("renewToken: expired or unknown token returns UNAUTHENTICATED") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val service = new SparkConnectAuthServiceImpl(handlers = Seq.empty, store)
       val observer = mock[StreamObserver[RenewTokenResponse]]
@@ -170,7 +170,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   // revokeToken
 
   test("revokeToken: valid token is revoked and response is empty") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (token, _) = store.create("john")
       val service = new SparkConnectAuthServiceImpl(handlers = Seq.empty, store)
@@ -187,7 +187,7 @@ class SparkConnectAuthServiceImplSuite extends KyuubiFunSuite with MockitoSugar 
   }
 
   test("revokeToken: unknown token succeeds (no-op)") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val service = new SparkConnectAuthServiceImpl(handlers = Seq.empty, store)
       val observer = mock[StreamObserver[RevokeTokenResponse]]

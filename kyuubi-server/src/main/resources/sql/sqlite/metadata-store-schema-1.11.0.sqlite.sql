@@ -55,3 +55,14 @@ CREATE TABLE IF NOT EXISTS k8s_engine_info(
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS k8s_engine_info_unique_identifier_index ON k8s_engine_info(identifier);
+
+-- the spark_connect_tokens table ddl
+CREATE TABLE IF NOT EXISTS spark_connect_tokens(
+    token_id   VARCHAR(36)  NOT NULL, -- the UUID token
+    username   VARCHAR(255) NOT NULL, -- the authenticated username
+    created_at BIGINT       NOT NULL, -- token creation time in ms
+    expires_at BIGINT       NOT NULL, -- token expiry time in ms
+    PRIMARY KEY (token_id)
+);
+
+CREATE INDEX IF NOT EXISTS sc_token_expires_idx ON spark_connect_tokens(expires_at);

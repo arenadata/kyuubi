@@ -23,11 +23,41 @@ import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
 import org.apache.kyuubi.Logging
 
 /**
- * In-memory store for Spark Connect session tokens.
- * Each token is random UUID mapped to authenticated username and an expiry timestamp.
+ * Store for Spark Connect session tokens.
+ * Each token is a random UUID mapped to an authenticated username and an expiry timestamp.
+ */
+trait SparkConnectTokenStore {
+
+  /**
+   * Creates a new token for the given username with a TTL.
+   * @return (token, expiresAtMs)
+   */
+  def create(username: String): (String, Long)
+
+  /**
+   * Returns username for a valid, non-expired token, or None if missing / expired.
+   */
+  def getUser(token: String): Option[String]
+
+  /**
+   * Extends the TTL of an existing token.
+   * @return new expiry time in milliseconds, or None if token was not found or expired
+   */
+  def renew(token: String): Option[Long]
+
+  /** Invalidates a token. No-op if the token does not exist. */
+  def revoke(token: String): Unit
+
+  /** Releases resources (background threads, DB connections, etc.). */
+  def stop(): Unit
+}
+
+/**
+ * In-memory implementation of [[SparkConnectTokenStore]].
+ * Suitable for single-instance deployments. Tokens are lost on server restart.
  * Background thread removes expired entries every 10 minutes.
  */
-class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
+class InMemoryTokenStore(val ttlMs: Long) extends SparkConnectTokenStore with Logging {
 
   private case class Entry(username: String, expiresAt: Long)
 
@@ -39,17 +69,9 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
     thread
   })
 
-  scheduler.scheduleAtFixedRate(
-    () => removeExpired(),
-    10,
-    10,
-    TimeUnit.MINUTES)
+  scheduler.scheduleAtFixedRate(() => removeExpired(), 10, 10, TimeUnit.MINUTES)
 
-  /**
-   * Creates new token for the given username and stores it with a TTL.
-   * @return (token, expiresAtMs)
-   */
-  def create(username: String): (String, Long) = {
+  override def create(username: String): (String, Long) = {
     val token = UUID.randomUUID().toString
     val expiresAt = System.currentTimeMillis() + ttlMs
     tokens.put(token, Entry(username, expiresAt))
@@ -57,11 +79,7 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
     (token, expiresAt)
   }
 
-  /**
-   * Returns username for valid, non-expired token.
-   * Removes token from the store if it has expired.
-   */
-  def getUser(token: String): Option[String] = {
+  override def getUser(token: String): Option[String] = {
     Option(tokens.get(token)).flatMap { entry =>
       if (entry.expiresAt > System.currentTimeMillis()) {
         Some(entry.username)
@@ -72,11 +90,7 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
     }
   }
 
-  /**
-   * Extends TTL of existing token.
-   * @return new expiry time in milliseconds, or None if token was not found or expired
-   */
-  def renew(token: String): Option[Long] = {
+  override def renew(token: String): Option[Long] = {
     Option(tokens.get(token)).flatMap { entry =>
       if (entry.expiresAt > System.currentTimeMillis()) {
         val newExpiry = System.currentTimeMillis() + ttlMs
@@ -90,19 +104,13 @@ class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
     }
   }
 
-  /**
-   * Invalidates token.
-   */
-  def revoke(token: String): Unit = {
+  override def revoke(token: String): Unit = {
     Option(tokens.remove(token)).foreach { entry =>
       debug(s"Revoked Connect token for user ${entry.username}")
     }
   }
 
-  /**
-   * Shuts down the background cleaner and clears tokens.
-   */
-  def stop(): Unit = {
+  override def stop(): Unit = {
     scheduler.shutdownNow()
     tokens.clear()
   }

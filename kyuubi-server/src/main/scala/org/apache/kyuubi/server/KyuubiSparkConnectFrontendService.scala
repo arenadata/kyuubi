@@ -34,7 +34,9 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.ha.client.{ServiceDiscovery, SparkConnectServiceDiscovery}
-import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
+import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, InMemoryTokenStore, JdbcTokenStore, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
+import org.apache.kyuubi.server.metadata.jdbc.DatabaseType
+import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf.METADATA_STORE_JDBC_DATABASE_TYPE
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 import org.apache.kyuubi.shaded.spark.connect.proto._
@@ -234,7 +236,17 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
 
     val handlers: Seq[SparkConnectCredentialHandler] = Seq(kerberosHandler, ldapHandler).flatten
     if (handlers.nonEmpty) {
-      val store = new SparkConnectTokenStore(conf.get(FRONTEND_SPARK_CONNECT_TOKEN_TTL))
+      val ttl = conf.get(FRONTEND_SPARK_CONNECT_TOKEN_TTL)
+      val store: SparkConnectTokenStore =
+        if (
+          DatabaseType.withName(conf.get(METADATA_STORE_JDBC_DATABASE_TYPE)) != DatabaseType.SQLITE
+        ) {
+          info("Spark Connect token store: JDBC (shared across HA cluster)")
+          new JdbcTokenStore(conf, ttl)
+        } else {
+          info("Spark Connect token store: in-memory (single instance only)")
+          new InMemoryTokenStore(ttl)
+        }
       tokenStore = Some(store)
       authService = Some(new SparkConnectAuthServiceImpl(handlers, store))
       info("Spark Connect token auth service initialized")

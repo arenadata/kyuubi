@@ -19,12 +19,12 @@ package org.apache.kyuubi.server.grpc
 
 import org.apache.kyuubi.KyuubiFunSuite
 
-class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
+class InMemoryTokenStoreSuite extends KyuubiFunSuite {
 
   private val TTL_MS = 60000L // 1 minute
 
   test("create returns non-empty token and expiry in the future") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val before = System.currentTimeMillis()
       val (token, expiresAt) = store.create("john")
@@ -39,7 +39,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("getUser returns username for live token") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (token, _) = store.create("john")
       assert(store.getUser(token) === Some("john"))
@@ -49,7 +49,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("getUser returns None for unknown token") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       assert(store.getUser("nonexistent-token") === None)
     } finally {
@@ -58,7 +58,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("getUser returns None and removes expired token") {
-    val store = new SparkConnectTokenStore(ttlMs = -1L) // already expired on creation
+    val store = new InMemoryTokenStore(ttlMs = -1L) // already expired on creation
     try {
       val (token, _) = store.create("john")
       assert(store.getUser(token) === None)
@@ -70,7 +70,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew extends expiry of live token") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (token, originalExpiry) = store.create("john")
       Thread.sleep(5)
@@ -83,7 +83,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew returns None for expired token") {
-    val store = new SparkConnectTokenStore(ttlMs = -1L)
+    val store = new InMemoryTokenStore(ttlMs = -1L)
     try {
       val (token, _) = store.create("john")
       assert(store.renew(token) === None)
@@ -93,7 +93,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew returns None for unknown token") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       assert(store.renew("nonexistent-token") === None)
     } finally {
@@ -102,7 +102,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("revoke makes token invalid") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (token, _) = store.create("john")
       store.revoke(token)
@@ -113,7 +113,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("revoke unknown token is a no-op") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       store.revoke("nonexistent-token") // must not throw
     } finally {
@@ -122,7 +122,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("multiple tokens for different users are independent") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     try {
       val (tokenJohn, _) = store.create("john")
       val (tokenMark, _) = store.create("mark")
@@ -139,7 +139,7 @@ class SparkConnectTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("stop clears all tokens") {
-    val store = new SparkConnectTokenStore(TTL_MS)
+    val store = new InMemoryTokenStore(TTL_MS)
     val (token, _) = store.create("john")
     store.stop()
     assert(store.getUser(token) === None)
