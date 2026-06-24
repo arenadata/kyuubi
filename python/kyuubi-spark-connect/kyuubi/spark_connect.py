@@ -24,6 +24,13 @@ Usage:
 
     spark.sql("SELECT current_user()").show()
     spark.stop()  # sends ReleaseSession, server revokes token automatically
+
+    # HA failover is transparent - if the Kyuubi server crashes between queries,
+    # FailoverChannel automatically switches to the next ZK server and refreshes
+    # the token. The same spark variable keeps working:
+    spark.sql("SELECT 1").show()  # server A
+    # server A crashes
+    spark.sql("SELECT 2").show()  # FailoverChannel silently switches to server B
 """
 
 import base64
@@ -58,7 +65,7 @@ class KyuubiTokenClient:
         if auth == "kerberos":
             metadata = [("authorization", f"Negotiate {self._spnego_token()}")]
         elif auth == "ldap":
-            if not username or password is None:
+            if not username or not password:
                 raise ValueError("username and password are required for LDAP auth")
             encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
             metadata = [("authorization", f"Basic {encoded}")]
@@ -108,6 +115,103 @@ class KyuubiTokenClient:
             gssapi.SecurityContext(name=name, usage="initiate").step()).decode()
 
 
+class FailoverChannel:
+    """
+    gRPC channel wrapper that automatically fails over to the next live Kyuubi server
+    on UNAVAILABLE errors. Held by SparkConnectClient; when the server crashes, the
+    next RPC through this channel transparently switches to the next ZK server -
+    without the caller doing anything.
+
+    The auth token is unchanged after failover because tokens are stored in the shared
+    JDBC token store and validated by any Kyuubi server in the cluster.
+
+    Transparent failover is only possible when no response data has been received yet
+    (i.e. the new request hasn't started streaming). If UNAVAILABLE arrives mid-stream
+    after data has already flowed, the error is re-raised so the caller can retry.
+    """
+
+    def __init__(self, builder: "KyuubiSessionBuilder"):
+        self._builder = builder
+        self._channel = builder._raw_channel()
+        self._current_server = f"{builder.host}:{builder.port}"
+
+    def _do_failover(self, exclude: set):
+        new_channel = self._builder._failover(self._current_server, exclude=exclude)
+        self._channel.close()
+        self._channel = new_channel
+        self._current_server = f"{self._builder.host}:{self._builder.port}"
+
+    def unary_unary(self, method, request_serializer=None, response_deserializer=None):
+        def callable_(*args, **kwargs):
+            tried = {self._current_server}
+            try:
+                return self._channel.unary_unary(
+                    method, request_serializer, response_deserializer)(*args, **kwargs)
+            except grpc.RpcError as e:
+                if e.code() == grpc.StatusCode.UNAVAILABLE:
+                    try:
+                        self._do_failover(exclude=tried)
+                    except RuntimeError:
+                        raise e
+                    return self._channel.unary_unary(
+                        method, request_serializer, response_deserializer)(*args, **kwargs)
+                raise
+        return callable_
+
+    def unary_stream(self, method, request_serializer=None, response_deserializer=None):
+        def callable_(request, **kwargs):
+            items_yielded = 0
+            tried_servers = set()
+            iterator = iter(self._channel.unary_stream(
+                method, request_serializer, response_deserializer)(request, **kwargs))
+
+            def _gen():
+                nonlocal iterator, items_yielded
+                while True:
+                    try:
+                        item = next(iterator)
+                        items_yielded += 1
+                        yield item
+                    except StopIteration:
+                        return
+                    except grpc.RpcError as e:
+                        if e.code() == grpc.StatusCode.UNAVAILABLE and items_yielded == 0:
+                            tried_servers.add(self._current_server)
+                            try:
+                                self._do_failover(exclude=tried_servers)
+                            except RuntimeError:
+                                raise e
+                            iterator = iter(self._channel.unary_stream(
+                                method, request_serializer, response_deserializer)(
+                                    request, **kwargs))
+                        else:
+                            raise
+
+            return _gen()
+        return callable_
+
+    def stream_unary(self, method, request_serializer=None, response_deserializer=None):
+        return self._channel.stream_unary(method, request_serializer, response_deserializer)
+
+    def stream_stream(self, method, request_serializer=None, response_deserializer=None):
+        return self._channel.stream_stream(method, request_serializer, response_deserializer)
+
+    def subscribe(self, callback, try_to_connect=False):
+        return self._channel.subscribe(callback, try_to_connect)
+
+    def unsubscribe(self, callback):
+        return self._channel.unsubscribe(callback)
+
+    def close(self):
+        self._channel.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
 class KyuubiSessionBuilder(ChannelBuilder):
     """Builder for a Kyuubi-authenticated Spark Connect session.
 
@@ -119,53 +223,69 @@ class KyuubiSessionBuilder(ChannelBuilder):
     """
 
     @staticmethod
-    def _resolve_url(url: str) -> str:
-        """Resolve a ZooKeeper discovery URL to a direct sc://host:port URL.
+    def _parse_zk_url(url: str):
+        """Parse a ZooKeeper discovery URL into its components.
 
-        If URL contains serviceDiscoveryMode=zooKeeper, queries ZooKeeper for
-        live Kyuubi Spark Connect servers under zooKeeperNamespace and picks one at random.
-        Non-ZK parameters (e.g. use_ssl) are preserved in the resolved URL.
-        Returns the URL unchanged if not in ZK discovery mode.
+        Returns (zk_addresses, zk_path, non_zk_params) if url uses
+        serviceDiscoveryMode=zooKeeper, or None for plain sc://host:port URLs.
         """
         if not url.startswith("sc://"):
-            return url
-
+            return None
         rest = url[len("sc://"):]
         slash_idx = rest.find("/")
         if slash_idx == -1:
-            return url
-
+            return None
         zk_addresses = rest[:slash_idx]
         params_part = rest[slash_idx + 1:].lstrip(";")
-
         params = {}
         for part in params_part.split(";"):
             if "=" in part:
                 key, value = part.split("=", 1)
                 params[key] = value
-
         if params.get("serviceDiscoveryMode") != "zooKeeper":
-            return url
-
+            return None
         namespace = params.get("zooKeeperNamespace", "kyuubi_sc")
         zk_path = "/" + namespace
+        non_zk_params = {k: v for k, v in params.items()
+                         if k not in ("serviceDiscoveryMode", "zooKeeperNamespace")}
+        return zk_addresses, zk_path, non_zk_params
+
+    @staticmethod
+    def _resolve_url(url: str, exclude: set = None) -> str:
+        """Resolve a ZooKeeper discovery URL to a direct sc://host:port URL.
+
+        If URL contains serviceDiscoveryMode=zooKeeper, queries ZooKeeper for
+        live Kyuubi Spark Connect servers under zooKeeperNamespace and picks one at random.
+        Servers in `exclude` (format: "host:port") are skipped.
+        Non-ZK parameters (e.g. use_ssl) are preserved in the resolved URL.
+        Returns the URL unchanged if not in ZK discovery mode.
+        """
+        parsed = KyuubiSessionBuilder._parse_zk_url(url)
+        if parsed is None:
+            return url
+        zk_addresses, zk_path, non_zk_params = parsed
 
         from kazoo.client import KazooClient
         zk = KazooClient(hosts=zk_addresses)
         zk.start()
         try:
             children = zk.get_children(zk_path)
-            if not children:
+            candidates = []
+            for child in children:
+                data, _ = zk.get(f"{zk_path}/{child}")
+                server = data.decode("utf-8")  # format: host:port
+                if exclude is None or server not in exclude:
+                    candidates.append(server)
+            if not candidates:
+                excluded_note = (f" (excluded: {', '.join(sorted(exclude))})"
+                                 if exclude else "")
                 raise RuntimeError(
-                    f"No Kyuubi Spark Connect servers found in ZooKeeper at {zk_path}")
-            node = random.choice(children)
-            data, _ = zk.get(f"{zk_path}/{node}")
-            connect_url = data.decode("utf-8")  # format: host:port
+                    f"No Kyuubi Spark Connect servers found in ZooKeeper at {zk_path}"
+                    + excluded_note)
+            connect_url = random.choice(candidates)
         finally:
             zk.stop()
 
-        non_zk_params = {k: v for k, v in params.items()
-                         if k not in ("serviceDiscoveryMode", "zooKeeperNamespace")}
         resolved = f"sc://{connect_url}"
         if non_zk_params:
             resolved += "/;" + ";".join(f"{k}={v}" for k, v in non_zk_params.items())
@@ -182,6 +302,10 @@ class KyuubiSessionBuilder(ChannelBuilder):
 
     def __init__(self, url: str, auth: str = "none",
                  username: str = None, password: str = None):
+        self._original_url = url
+        self._auth = auth
+        self._username = username
+        self._password = password
         super().__init__(self._resolve_url(url))
         if auth == "none":
             self._kyuubi_client = None
@@ -189,7 +313,8 @@ class KyuubiSessionBuilder(ChannelBuilder):
             self._kyuubi_client = KyuubiTokenClient(self.host, self.port, self.secure)
             self._kyuubi_client.get_token(auth, username=username, password=password)
 
-    def toChannel(self):
+    def _raw_channel(self) -> grpc.Channel:
+        """Create a plain gRPC channel to the current host:port (no failover wrapper)."""
         destination = f"{self.host}:{self.port}"
         if self.secure:
             return grpc.secure_channel(
@@ -198,12 +323,24 @@ class KyuubiSessionBuilder(ChannelBuilder):
                 options=self._CHANNEL_OPTIONS)
         return grpc.insecure_channel(destination, options=self._CHANNEL_OPTIONS)
 
+    def _failover(self, failed_server: str, exclude: set = None) -> grpc.Channel:
+        """Resolve the next live ZK server (excluding failed_server and any in exclude), return new channel.
+
+        Token is NOT revoked or refreshed - the existing token remains valid on the new
+        server because tokens are persisted in the shared JDBC token store.
+        """
+        effective_exclude = set(exclude) if exclude else set()
+        effective_exclude.add(failed_server)
+        new_url = self._resolve_url(self._original_url, exclude=effective_exclude)
+        super(KyuubiSessionBuilder, self).__init__(new_url)
+        return self._raw_channel()
+
+    def toChannel(self) -> FailoverChannel:
+        return FailoverChannel(self)
+
     def getOrCreate(self) -> SparkSession:
         session = SparkSession.builder.channelBuilder(self).getOrCreate()
-        session.client._retry_policy.update({
-            "max_retries": 3,
-            "max_backoff": 5000,
-        })
+        session.client._retry_policy.update({"max_retries": 3, "max_backoff": 5000})
         return session
 
     def metadata(self):
@@ -211,6 +348,15 @@ class KyuubiSessionBuilder(ChannelBuilder):
         if self._kyuubi_client is not None:
             base.append(("authorization", f"Bearer {self._kyuubi_client.token}"))
         return base
+
+    def reconnect(self) -> SparkSession:
+        """Explicit failover: mark current server failed, switch to next, return new SparkSession.
+
+        Normally not needed - FailoverChannel handles failover transparently between queries.
+        Use reconnect() to force a new SparkSession after a mid-stream failure.
+        """
+        self._failover(f"{self.host}:{self.port}")
+        return self.getOrCreate()
 
     def renew(self):
         if self._kyuubi_client is not None:
