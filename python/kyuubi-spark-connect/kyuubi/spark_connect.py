@@ -160,32 +160,24 @@ class FailoverChannel:
 
     def unary_stream(self, method, request_serializer=None, response_deserializer=None):
         def callable_(request, **kwargs):
-            items_yielded = 0
             tried_servers = set()
             iterator = iter(self._channel.unary_stream(
                 method, request_serializer, response_deserializer)(request, **kwargs))
 
             def _gen():
-                nonlocal iterator, items_yielded
                 while True:
                     try:
-                        item = next(iterator)
-                        items_yielded += 1
-                        yield item
+                        yield next(iterator)
                     except StopIteration:
                         return
                     except grpc.RpcError as e:
-                        if e.code() == grpc.StatusCode.UNAVAILABLE and items_yielded == 0:
+                        if e.code() == grpc.StatusCode.UNAVAILABLE:
                             tried_servers.add(self._current_server)
                             try:
                                 self._do_failover(exclude=tried_servers)
                             except RuntimeError:
-                                raise e
-                            iterator = iter(self._channel.unary_stream(
-                                method, request_serializer, response_deserializer)(
-                                    request, **kwargs))
-                        else:
-                            raise
+                                pass
+                            raise  # let ExecutePlanResponseReattachableIterator retry via ReattachExecute
 
             return _gen()
         return callable_
@@ -266,23 +258,30 @@ class KyuubiSessionBuilder(ChannelBuilder):
         zk_addresses, zk_path, non_zk_params = parsed
 
         from kazoo.client import KazooClient
+        from kazoo.exceptions import KazooException, NoNodeError
         zk = KazooClient(hosts=zk_addresses)
         zk.start()
         try:
-            children = zk.get_children(zk_path)
-            candidates = []
-            for child in children:
-                data, _ = zk.get(f"{zk_path}/{child}")
-                server = data.decode("utf-8")  # format: host:port
-                if exclude is None or server not in exclude:
-                    candidates.append(server)
-            if not candidates:
-                excluded_note = (f" (excluded: {', '.join(sorted(exclude))})"
-                                 if exclude else "")
-                raise RuntimeError(
-                    f"No Kyuubi Spark Connect servers found in ZooKeeper at {zk_path}"
-                    + excluded_note)
-            connect_url = random.choice(candidates)
+            try:
+                children = zk.get_children(zk_path)
+                candidates = []
+                for child in children:
+                    try:
+                        data, _ = zk.get(f"{zk_path}/{child}")
+                    except NoNodeError:
+                        continue  # node deleted between get_children and get
+                    server = data.decode("utf-8")  # format: host:port
+                    if exclude is None or server not in exclude:
+                        candidates.append(server)
+                if not candidates:
+                    excluded_note = (f" (excluded: {', '.join(sorted(exclude))})"
+                                     if exclude else "")
+                    raise RuntimeError(
+                        f"No Kyuubi Spark Connect servers found in ZooKeeper at {zk_path}"
+                        + excluded_note)
+                connect_url = random.choice(candidates)
+            except KazooException as e:
+                raise RuntimeError(f"ZooKeeper error during server resolution: {e}") from e
         finally:
             zk.stop()
 
