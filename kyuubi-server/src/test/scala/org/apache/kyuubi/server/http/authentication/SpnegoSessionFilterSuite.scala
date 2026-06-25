@@ -49,7 +49,8 @@ class SpnegoSessionFilterSuite extends KyuubiFunSuite with MockitoSugar {
     val session = mock[HttpSession]
 
     when(request.getSession(false)).thenReturn(session)
-    when(session.getAttribute("spnego.authenticated")).thenReturn(java.lang.Boolean.TRUE)
+    when(session.getAttribute("spnego.authenticated"))
+      .thenReturn(java.lang.Boolean.TRUE, Seq.empty[Object]: _*)
 
     // Execute
     filter.doFilter(request, response, chain)
@@ -145,7 +146,8 @@ class SpnegoSessionFilterSuite extends KyuubiFunSuite with MockitoSugar {
     val session = mock[HttpSession]
 
     when(request.getSession(false)).thenReturn(session)
-    when(session.getAttribute("spnego.authenticated")).thenReturn(null)
+    when(session.getAttribute("spnego.authenticated"))
+      .thenReturn(null, Seq.empty[Object]: _*)
     when(request.getHeader("Authorization")).thenReturn(null)
 
     // Execute

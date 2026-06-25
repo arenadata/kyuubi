@@ -42,6 +42,9 @@ abstract class AbstractFrontendService(name: String)
   }
 
   override def attributes: Map[String, String] = {
-    conf.getAll.filter(_._1 == KyuubiReservedKeys.KYUUBI_ENGINE_APP_MGR_INFO_KEY)
+    conf.getAll.filter { case (key, _) =>
+      key == KyuubiReservedKeys.KYUUBI_ENGINE_APP_MGR_INFO_KEY ||
+      key == KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY
+    }
   }
 }

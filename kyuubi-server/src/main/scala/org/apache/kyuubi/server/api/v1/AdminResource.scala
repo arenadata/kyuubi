@@ -22,6 +22,7 @@ import javax.ws.rs._
 import javax.ws.rs.core.{MediaType, Response}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 import io.swagger.v3.oas.annotations.media.{ArraySchema, Content, Schema}
@@ -33,9 +34,9 @@ import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.client.api.v1.dto._
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.engine.ApplicationManagerInfo
+import org.apache.kyuubi.engine.{ApplicationManagerInfo, EngineType}
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_NAMESPACE
-import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceNodeInfo}
+import org.apache.kyuubi.ha.client.{DiscoveryClient, DiscoveryPaths, ServiceNodeInfo}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
 import org.apache.kyuubi.operation.{KyuubiOperation, OperationHandle}
 import org.apache.kyuubi.server.KyuubiServer
@@ -45,6 +46,46 @@ import org.apache.kyuubi.session.{KyuubiSession, KyuubiSessionManager, SessionHa
 @Tag(name = "Admin")
 @Produces(Array(MediaType.APPLICATION_JSON))
 private[v1] class AdminResource extends ApiRequestContext with Logging {
+
+  // Group key for engines launched without an engine profile.
+  final private val NO_PROFILE = "<none>"
+
+  // Identifies a group of engines that share the same profile name and engine type.
+  private case class ProfileKey(profileName: String, engineType: String)
+
+  // An active engine instance together with its discovery node metadata.
+  private case class EngineInstance(engine: Engine, node: ServiceNodeInfo)
+
+  /**
+   * Accumulates active engine instances keyed by [[ProfileKey]] while the discovery tree is
+   * scanned, then renders them as the engine-profile listing returned by [[listEngineProfiles]].
+   */
+  private class ProfileGroups {
+    private val groups = mutable.LinkedHashMap.empty[ProfileKey, ListBuffer[EngineInstance]]
+
+    // Record an active engine instance under its (profile name, engine type) group.
+    def addInstance(key: ProfileKey, instance: EngineInstance): Unit =
+      groups.getOrElseUpdate(key, ListBuffer.empty) += instance
+
+    // Register a profile that currently has no active engine so it still appears in the listing.
+    def addEmptyProfile(key: ProfileKey): Unit =
+      groups.getOrElseUpdate(key, ListBuffer.empty)
+
+    // Render the groups as the API response, ordered by engine type then profile name.
+    def toSeq: Seq[EngineProfileGroup] =
+      groups.toSeq
+        .sortBy { case (key, _) => (key.engineType, key.profileName) }
+        .map { case (key, instances) =>
+          val version = instances.flatMap(_.node.version).headOption.getOrElse("")
+          new EngineProfileGroup(
+            key.profileName,
+            key.engineType,
+            version,
+            instances.size,
+            if (instances.nonEmpty) "RUNNING" else "IDLE",
+            instances.map(_.engine).asJava)
+        }
+  }
 
   @ApiResponse(
     responseCode = "200",
@@ -374,6 +415,128 @@ private[v1] class AdminResource extends ApiRequestContext with Logging {
 
   @ApiResponse(
     responseCode = "200",
+    content = Array(new Content(mediaType = MediaType.APPLICATION_JSON)),
+    description = "list active kyuubi engines grouped by engine profile and engine type")
+  @GET
+  @Path("engine/profile")
+  def listEngineProfiles(
+      @QueryParam("sharelevel") shareLevel: String,
+      @QueryParam("proxyUser") kyuubiProxyUser: String,
+      @QueryParam("hive.server2.proxy.user") hs2ProxyUser: String): Seq[EngineProfileGroup] = {
+    val activeProxyUser = Option(kyuubiProxyUser).getOrElse(hs2ProxyUser)
+    val isAdmin = fe.isAdministrator(fe.getRealUser())
+    // An administrator that does not target a specific user sees engines across all users;
+    // everyone else (and any request that names a proxy user) is scoped to a single user.
+    val allUsers = isAdmin && Option(activeProxyUser).forall(_.isEmpty)
+    val userName = if (isAdmin) {
+      Option(activeProxyUser).getOrElse(fe.getRealUser())
+    } else {
+      fe.getSessionUser(activeProxyUser)
+    }
+
+    val groups = collectActiveEngines(allUsers, userName, shareLevel)
+    includeIdleProfiles(groups)
+    groups.toSeq
+  }
+
+  /**
+   * Add defined-but-idle profiles (0 active instances) so the UI can still list and refresh them.
+   */
+  private def includeIdleProfiles(groups: ProfileGroups): Unit = {
+    val registry = fe.be.sessionManager.asInstanceOf[KyuubiSessionManager].engineProfileRegistry
+    registry.names.foreach { name =>
+      val engineType = registry.get(name)
+        .flatMap(_.conf.get(ENGINE_TYPE.key))
+        .getOrElse(fe.getConf.get(ENGINE_TYPE))
+      groups.addEmptyProfile(ProfileKey(name, engineType))
+    }
+  }
+
+  /**
+   * Enumerate active engine instances across all engine types and group them by
+   * (profile name, engine type). When `allUsers` is set, every user/group under each engine-type
+   * root is scanned; otherwise only `userName`'s space. Engines launched without a profile are
+   * grouped under [[NO_PROFILE]], preserving backward compatibility when no profiles are defined.
+   */
+  private def collectActiveEngines(
+      allUsers: Boolean,
+      userName: String,
+      shareLevel: String): ProfileGroups = {
+    val groups = new ProfileGroups
+    withDiscoveryClient(fe.getConf) { discoveryClient =>
+      EngineType.values.toSeq.map(_.toString).sorted.foreach { engineType =>
+        engineSpacesToScan(discoveryClient, engineType, shareLevel, allUsers, userName)
+          .foreach { case (engine, engineSpace) =>
+            collectEnginesUnder(discoveryClient, engine, engineType, engineSpace, groups)
+          }
+      }
+    }
+    groups
+  }
+
+  /**
+   * (engine descriptor, discovery path) pairs whose subdomains should be enumerated for the given
+   * engine type: a single user's space, or every user/group child under the engine-type root when
+   * listing all users.
+   */
+  private def engineSpacesToScan(
+      discoveryClient: DiscoveryClient,
+      engineType: String,
+      shareLevel: String,
+      allUsers: Boolean,
+      userName: String): Seq[(Engine, String)] = {
+    if (!allUsers) {
+      val engine = normalizeEngineInfo(userName, engineType, shareLevel, null, "")
+      return Seq((engine, calculateEngineSpace(engine)))
+    }
+
+    val typeRoot = engineTypeRootSpace(engineType, shareLevel)
+    if (discoveryClient.pathNonExists(typeRoot)) {
+      Nil
+    } else {
+      discoveryClient.getChildren(typeRoot).map { userOrGroup =>
+        (
+          normalizeEngineInfo(userOrGroup, engineType, shareLevel, null, ""),
+          s"$typeRoot/$userOrGroup")
+      }
+    }
+  }
+
+  /**
+   * Enumerate the active engine instances registered under `engineSpace` and record each one in
+   * `groups`, keyed by its profile name (or [[NO_PROFILE]] when launched without a profile).
+   */
+  private def collectEnginesUnder(
+      discoveryClient: DiscoveryClient,
+      engine: Engine,
+      engineType: String,
+      engineSpace: String,
+      groups: ProfileGroups): Unit = {
+    if (discoveryClient.pathNonExists(engineSpace)) {
+      return
+    }
+    discoveryClient.getChildren(engineSpace).foreach { child =>
+      discoveryClient.getServiceNodesInfo(s"$engineSpace/$child").foreach { node =>
+        val profileName = node.attributes
+          .getOrElse(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY, NO_PROFILE)
+        val engineInstance = new Engine(
+          engine.getVersion,
+          engine.getUser,
+          engineType,
+          engine.getSharelevel,
+          node.namespace.split("/").last,
+          node.instance,
+          node.namespace,
+          node.attributes.asJava)
+        groups.addInstance(
+          ProfileKey(profileName, engineType),
+          EngineInstance(engineInstance, node))
+      }
+    }
+  }
+
+  @ApiResponse(
+    responseCode = "200",
     content = Array(
       new Content(
         mediaType = MediaType.APPLICATION_JSON,
@@ -440,6 +603,18 @@ private[v1] class AdminResource extends ApiRequestContext with Logging {
     val engineSpace =
       s"${engine.getNamespace}_${engine.getVersion}_${engine.getSharelevel}_${engine.getEngineType}"
     DiscoveryPaths.makePath(engineSpace, userOrGroup, engine.getSubdomain)
+  }
+
+  /**
+   * The engine-type root discovery path (parent of the per-user/group nodes), used to enumerate
+   * engines across all users. Mirrors the `<namespace>_<version>_<shareLevel>_<engineType>` prefix
+   * that [[calculateEngineSpace]] builds, without the user/group and subdomain segments.
+   */
+  private def engineTypeRootSpace(engineType: String, shareLevel: String): String = {
+    val engine = normalizeEngineInfo(null, engineType, shareLevel, null, "")
+    val root = s"${engine.getNamespace}_${engine.getVersion}_" +
+      s"${engine.getSharelevel}_${engine.getEngineType}"
+    DiscoveryPaths.makePath(null, root)
   }
 
   @ApiResponse(
