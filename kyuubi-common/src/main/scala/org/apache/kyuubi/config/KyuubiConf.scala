@@ -2397,6 +2397,49 @@ object KyuubiConf {
     .checkValues(EngineType)
     .createWithDefault(EngineType.SPARK_SQL.toString)
 
+  val ENGINE_PROFILE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.profile")
+      .doc("The named engine profile to use for this session. Engine profiles are declared by" +
+        " the administrator under `kyuubi.engine.profile.<name>.*` in `kyuubi-defaults.conf`," +
+        " each bundling an engine type, environment variables, Kyuubi session variables and" +
+        " engine-native config. The profile is resolved at session open time with precedence:" +
+        " this explicit session parameter, then the user/group default profile, then the" +
+        " per-engine-type default profile. If a resolved profile name is not defined, opening" +
+        " the session either fails or logs warning depending on the value of the" +
+        " `kyuubi.engine.profiles.unknown.strategy` configuration option." +
+        " When no profile resolves, behavior is unchanged.")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
+  // `kyuubi.engine.<TYPE>.profile.default` is parameterized by engine type, so one optional
+  // entry is registered per known EngineType, keyed by the upper-case engine type name.
+  val ENGINE_DEFAULT_PROFILE: Map[String, OptionalConfigEntry[String]] =
+    EngineType.values.toSeq.map { engineType =>
+      engineType.toString ->
+        buildConf(s"kyuubi.engine.$engineType.profile.default")
+          .doc(s"The default engine profile to use for the $engineType engine type when a" +
+            s" session does not explicitly request a profile and no user/group default profile" +
+            s" applies. The referenced profile must be declared under" +
+            s" `kyuubi.engine.profile.<name>.*`.")
+          .version("1.10.1")
+          .stringConf
+          .createOptional
+    }.toMap
+
+  val ENGINE_PROFILES_UNKNOWN_STRATEGY: ConfigEntry[String] =
+    buildConf("kyuubi.engine.profiles.unknown.strategy")
+      .doc("The strategy when a session resolves to an engine profile that is not defined under" +
+        " `kyuubi.engine.profile.<name>.*`. <ul>" +
+        "<li>FAIL - fail opening the session with an error.</li>" +
+        "<li>LOG - log a warning and continue without applying any profile.</li>" +
+        "</ul>")
+      .version("1.10.1")
+      .stringConf
+      .transformToUpperCase
+      .checkValues(Set("FAIL", "LOG"))
+      .createWithDefault("FAIL")
+
   val ENGINE_POOL_IGNORE_SUBDOMAIN: ConfigEntry[Boolean] =
     buildConf("kyuubi.engine.pool.ignoreSubdomain")
       .doc(s"Whether to ignore ${ENGINE_SHARE_LEVEL_SUBDOMAIN.key}" +

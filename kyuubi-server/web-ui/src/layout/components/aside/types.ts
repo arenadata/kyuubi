@@ -38,6 +38,10 @@ export const MENUS = [
         router: '/management/engine'
       },
       {
+        label: 'Engine Profile',
+        router: '/management/engine-profile'
+      },
+      {
         label: 'Server',
         router: '/management/server'
       }

@@ -16,11 +16,19 @@
  */
 
 import request from '@/utils/request'
-import { IEngineSearch } from './types'
+import { IEngineSearch, IEngineProfileSearch } from './types'
 
 export function getAllEngines(params: IEngineSearch) {
   return request({
     url: 'api/v1/admin/engine',
+    method: 'get',
+    params
+  })
+}
+
+export function getEnginesByProfile(params: IEngineProfileSearch) {
+  return request({
+    url: 'api/v1/admin/engine/profile',
     method: 'get',
     params
   })

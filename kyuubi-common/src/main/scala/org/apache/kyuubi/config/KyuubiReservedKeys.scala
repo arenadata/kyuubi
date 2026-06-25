@@ -37,6 +37,10 @@ object KyuubiReservedKeys {
   final val KYUUBI_ENGINE_SUBMIT_TIME_KEY = "kyuubi.engine.submit.time"
   final val KYUUBI_ENGINE_CREDENTIALS_KEY = "kyuubi.engine.credentials"
   final val KYUUBI_ENGINE_APP_MGR_INFO_KEY = "kyuubi.engine.appMgrInfo"
+  // The resolved engine profile name for a session. Uses the `profileName` (no dot before the
+  // name) spelling so it never collides with the `kyuubi.engine.profile.<name>.*` definition
+  // namespace. Surfaced as a service discovery attribute for Web UI grouping.
+  final val KYUUBI_ENGINE_PROFILE_NAME_KEY = "kyuubi.engine.profileName"
   final val KYUUBI_SESSION_HANDLE_KEY = "kyuubi.session.handle"
   final val KYUUBI_SESSION_ALIVE_PROBE = "kyuubi.session.alive.probe"
   final val KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_GUID =

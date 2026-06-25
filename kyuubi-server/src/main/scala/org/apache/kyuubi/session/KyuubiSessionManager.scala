@@ -31,7 +31,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_BATCH_PRIORITY, KYUUBI_SESSION_REAL_USER_KEY}
 import org.apache.kyuubi.credentials.HadoopCredentialsManager
-import org.apache.kyuubi.engine.KyuubiApplicationManager
+import org.apache.kyuubi.engine.{EngineProfileRegistry, KyuubiApplicationManager}
 import org.apache.kyuubi.metrics.MetricsConstants._
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.operation.{KyuubiOperationManager, OperationState}
@@ -53,6 +53,11 @@ class KyuubiSessionManager private (name: String) extends SessionManager(name) {
   val operationManager = new KyuubiOperationManager()
   val credentialsManager = new HadoopCredentialsManager()
   val applicationManager = new KyuubiApplicationManager()
+
+  // Engine profiles are static after startup, so materialize them once (validating each profile,
+  // failing fast if any is malformed) and reuse the registry across all sessions and REST calls.
+  lazy val engineProfileRegistry: EngineProfileRegistry =
+    EngineProfileRegistry(conf)
 
   // Currently, the metadata manager is used by the REST frontend which provides batch job APIs,
   // so we initialize it only when Kyuubi starts with the REST frontend.
