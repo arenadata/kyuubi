@@ -17,9 +17,18 @@
 
 package org.apache.kyuubi.examples;
 
+import java.util.Arrays;
+import java.util.List;
+
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.kyuubi.KyuubiAuthType;
 import org.apache.spark.sql.kyuubi.KyuubiSessionBuilder;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 
 /**
  * Kyuubi Spark Connect demo.
@@ -36,7 +45,7 @@ import org.apache.spark.sql.kyuubi.KyuubiSessionBuilder;
  */
 public class SparkConnectClientDemo {
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws InterruptedException {
     String url = System.getenv("KYUUBI_URL");
     if (url == null || url.isEmpty()) {
       throw new IllegalArgumentException("KYUUBI_URL environment variable is required");
@@ -55,7 +64,35 @@ public class SparkConnectClientDemo {
     SparkSession spark = new KyuubiSessionBuilder(url, authType, username, password).getOrCreate();
     try {
       spark.sql("SELECT current_user()").show();
-      // spark.read().orc("/user/test/example_result").show();
+
+      StructType schema = DataTypes.createStructType(new StructField[]{
+          DataTypes.createStructField("id", DataTypes.IntegerType, false),
+          DataTypes.createStructField("name", DataTypes.StringType, false),
+          DataTypes.createStructField("age", DataTypes.IntegerType, false),
+          DataTypes.createStructField("country", DataTypes.StringType, false)
+      });
+      List<Row> rows = Arrays.asList(
+          RowFactory.create(1, "Ivan", 20, "Russia"),
+          RowFactory.create(2, "Yao", 23, "China"),
+          RowFactory.create(3, "Ann", 28, "Russia"),
+          RowFactory.create(4, "John", 20, "USA")
+      );
+      Dataset<Row> df = spark.createDataFrame(rows, schema);
+      df.printSchema();
+      df.show();
+
+      System.out.println("Sleeping 10 seconds");
+      Thread.sleep(10_000);
+
+      spark.sql("SELECT * FROM vdmitriev.table1_orc").show();
+
+      for (int i = 0; i < 100; i++) {
+        Dataset<Row> df2 = spark.read().orc("/user/vdmitriev/example_result");
+        df2.describe("id").show();
+        df2.show();
+        System.out.println("i = " + i + ", sleeping 0.1s");
+        Thread.sleep(100);
+      }
     } finally {
       spark.stop();
     }

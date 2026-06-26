@@ -40,7 +40,7 @@ object ZookeeperUrlResolver {
 
   private val random = new Random()
 
-  def resolve(url: String): String = {
+  def resolve(url: String, excludeServers: Set[String] = Set.empty): String = {
     if (!url.startsWith("sc://")) return url
 
     val rest = url.stripPrefix("sc://")
@@ -60,7 +60,7 @@ object ZookeeperUrlResolver {
 
     val namespace = params.getOrElse("zooKeeperNamespace", "kyuubi_sc")
     val zkPath = "/" + namespace
-    val connectUrl = resolveFromZooKeeper(zkAddresses, zkPath)
+    val connectUrl = resolveFromZooKeeper(zkAddresses, zkPath, excludeServers)
 
     val nonZkParams = params.filterKeys(k =>
       k != "serviceDiscoveryMode" && k != "zooKeeperNamespace")
@@ -69,20 +69,24 @@ object ZookeeperUrlResolver {
     else resolved + "/;" + nonZkParams.map { case (k, v) => s"$k=$v" }.mkString(";")
   }
 
-  private def resolveFromZooKeeper(zkAddresses: String, zkPath: String): String = {
+  private def resolveFromZooKeeper(
+      zkAddresses: String,
+      zkPath: String,
+      excludeServers: Set[String]): String = {
     val client = CuratorFrameworkFactory.newClient(
       zkAddresses,
       new ExponentialBackoffRetry(1000, 3))
     client.start()
     try {
-      val children = client.getChildren.forPath(zkPath).asScala
-      if (children.isEmpty) {
+      val candidates = client.getChildren.forPath(zkPath).asScala
+        .map(node => new String(client.getData.forPath(s"$zkPath/$node"), StandardCharsets.UTF_8))
+        .filterNot(excludeServers.contains)
+      if (candidates.isEmpty) {
         throw new RuntimeException(
-          s"No Kyuubi Spark Connect servers found in ZooKeeper at $zkPath")
+          s"No Kyuubi Spark Connect servers found in ZooKeeper at $zkPath" +
+            (if (excludeServers.nonEmpty) s" (excluded: ${excludeServers.mkString(", ")})" else ""))
       }
-      val node = children(random.nextInt(children.size))
-      val data = client.getData.forPath(s"$zkPath/$node")
-      new String(data, StandardCharsets.UTF_8)
+      candidates(random.nextInt(candidates.size))
     } finally {
       client.close()
     }
