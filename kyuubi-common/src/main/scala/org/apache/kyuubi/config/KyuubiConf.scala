@@ -3136,7 +3136,8 @@ object KyuubiConf {
       .toSet()
       .createWithDefault(Set(
         "kyuubi.backend.server.event.kafka.",
-        "kyuubi.metadata.store.jdbc.datasource."))
+        "kyuubi.metadata.store.jdbc.datasource.",
+        "kyuubi.engine.profile."))
 
   val ENGINE_SPARK_SHOW_PROGRESS: ConfigEntry[Boolean] =
     buildConf("kyuubi.session.engine.spark.showProgress")

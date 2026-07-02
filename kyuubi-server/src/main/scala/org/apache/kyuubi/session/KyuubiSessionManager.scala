@@ -55,8 +55,8 @@ class KyuubiSessionManager private (name: String) extends SessionManager(name) {
 
   // Engine profiles are static after startup, so materialize them once (validating each profile,
   // failing fast if any is malformed) and reuse the registry across all sessions and REST calls.
-  lazy val engineProfileRegistry: EngineProfileRegistry =
-    EngineProfileRegistry(conf)
+  // Assigned in initialize(), once conf is available.
+  var engineProfileRegistry: EngineProfileRegistry = _
 
   // Currently, the metadata manager is used by the REST frontend which provides batch job APIs,
   // so we initialize it only when Kyuubi starts with the REST frontend.
@@ -80,6 +80,7 @@ class KyuubiSessionManager private (name: String) extends SessionManager(name) {
 
   override def initialize(conf: KyuubiConf): Unit = {
     this.conf = conf
+    engineProfileRegistry = EngineProfileRegistry(conf)
     if (conf.isRESTEnabled || conf.isSparkConnectEnabled) {
       metadataManager = Some(new MetadataManager())
     }

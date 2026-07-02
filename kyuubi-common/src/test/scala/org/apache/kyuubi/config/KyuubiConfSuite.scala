@@ -237,4 +237,30 @@ class KyuubiConfSuite extends KyuubiFunSuite {
     assert(kyuubiConf.getUserDefaults("kyuubi").getAll.size == 0)
     assert(kyuubiConf.getUserDefaults("user").getAll.size == 0)
   }
+
+  test("engine profile declarations are server-only and not passed to the engine") {
+    val kyuubiConf = KyuubiConf(false)
+    kyuubiConf.set("kyuubi.engine.profile.pg.type", "JDBC")
+    kyuubiConf.set("kyuubi.engine.profile.pg.env.SECRET_TOKEN", "env-secret")
+    kyuubiConf.set("kyuubi.engine.profile.pg.session.engine.trino.connection.url", "http://host")
+    kyuubiConf.set(
+      "kyuubi.engine.profile.pg.conf.kyuubi.engine.jdbc.connection.password",
+      "conf-secret")
+
+    // a plain server default that is not a profile declaration must still pass through
+    kyuubiConf.set("spark.some.tuning", "1g")
+
+    val userConf = kyuubiConf.getUserDefaults("user")
+
+    assert(userConf.getOption("spark.some.tuning").contains("1g"))
+    assert(!userConf.getAll.keys.exists(_.startsWith("kyuubi.engine.profile.")))
+    assert(!userConf.getAll.values.exists(_.contains("env-secret")))
+    assert(!userConf.getAll.values.exists(_.contains("conf-secret")))
+
+    // check that the profile-name attribute (published for discovery) still flows through
+    assert(kyuubiConf.getOption(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY).isEmpty)
+    kyuubiConf.set(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY, "pg")
+    assert(kyuubiConf.getUserDefaults("kyuubi")
+      .getOption(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY).contains("pg"))
+  }
 }
