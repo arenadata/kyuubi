@@ -20,8 +20,9 @@ package org.apache.spark.sql.kyuubi
 
 import java.util.concurrent.atomic.AtomicReference
 
-import org.apache.kyuubi.KyuubiFunSuite
 import org.sparkproject.io.grpc.{ClientCall, Metadata, Status}
+
+import org.apache.kyuubi.KyuubiFunSuite
 
 class FailoverClientCallListenerSuite extends KyuubiFunSuite {
 
