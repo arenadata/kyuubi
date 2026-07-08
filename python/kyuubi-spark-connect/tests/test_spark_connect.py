@@ -271,6 +271,59 @@ class TestFailoverChannel(unittest.TestCase):
         # channel switched - next RPC on fc will use channel2
         assert fc._channel is channel2
 
+    def test_do_failover_closes_old_channel(self):
+        old_channel = MagicMock()
+        new_channel = MagicMock()
+        builder = _make_builder("host1", 10199, old_channel)
+        builder._failover.return_value = new_channel
+
+        fc = FailoverChannel(builder)
+        fc._do_failover(exclude=set())
+
+        old_channel.close.assert_called_once()
+        assert fc._channel is new_channel
+
+    def test_do_failover_updates_current_server(self):
+        channel1 = MagicMock()
+        channel2 = MagicMock()
+        builder = _make_builder("host1", 10199, channel1)
+
+        def _side_effect(failed_server, exclude=None):
+            builder.host = "host2"
+            builder.port = 10200
+            return channel2
+
+        builder._failover.side_effect = _side_effect
+
+        fc = FailoverChannel(builder)
+        assert fc._current_server == "host1:10199"
+
+        fc._do_failover(exclude=set())
+
+        assert fc._current_server == "host2:10200"
+        assert fc._channel is channel2
+
+    def test_unary_stream_reraises_when_all_exhausted(self):
+        """When _do_failover raises RuntimeError (no servers left), UNAVAILABLE is still re-raised."""
+        error = _UnavailableError()
+
+        def failing_stream(*args, **kwargs):
+            raise error
+            yield
+
+        channel = MagicMock()
+        channel.unary_stream.return_value.return_value = failing_stream()
+        builder = _make_builder("host1", 10199, channel)
+        builder._failover.side_effect = RuntimeError("no servers left")
+
+        fc = FailoverChannel(builder)
+        gen = fc.unary_stream("/method")("request")
+
+        with self.assertRaises(_UnavailableError):
+            next(gen)
+
+        builder._failover.assert_called_once()
+
     def test_unary_stream_accumulates_tried_servers(self):
         """tried_servers grows across multiple UNAVAILABLE errors in the same stream."""
         error = _UnavailableError()
@@ -297,6 +350,26 @@ class TestFailoverChannel(unittest.TestCase):
         builder._failover.assert_called_once()
         _, kwargs = builder._failover.call_args
         assert "host1:10199" in kwargs.get("exclude", set())
+
+
+# ---------------------------------------------------------------------------
+# KyuubiSessionBuilder
+# ---------------------------------------------------------------------------
+
+class TestKyuubiSessionBuilder(unittest.TestCase):
+
+    def test_metadata_includes_bearer_token(self):
+        builder = KyuubiSessionBuilder("sc://host:10199")  # auth="none"
+        mock_client = MagicMock()
+        mock_client.token = "test-token-abc"
+        builder._kyuubi_client = mock_client
+
+        meta = dict(builder.metadata())
+        assert meta.get("authorization") == "Bearer test-token-abc"
+
+    def test_metadata_without_auth_has_no_bearer(self):
+        builder = KyuubiSessionBuilder("sc://host:10199")  # auth="none"
+        assert not any(k == "authorization" for k, _ in builder.metadata())
 
 
 # ---------------------------------------------------------------------------

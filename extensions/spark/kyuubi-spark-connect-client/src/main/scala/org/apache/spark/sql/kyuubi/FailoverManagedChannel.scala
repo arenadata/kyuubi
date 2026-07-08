@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.apache.spark.sql.connect.client.SparkConnectClient
 import org.sparkproject.io.grpc._
 
-import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, ZookeeperUrlResolver}
+import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, NoServersAvailableException, ZookeeperUrlResolver}
 
 /**
  * A [[ManagedChannel]] wrapper that transparently fails over to the next live Kyuubi server
@@ -45,22 +45,21 @@ private[kyuubi] class FailoverManagedChannel(
     originalUrl: String,
     tokenClient: Option[KyuubiTokenClient]) extends ManagedChannel {
 
-  @volatile private var innerChannel: ManagedChannel = _
-  @volatile private var currentServer: String = _
+  @volatile private[kyuubi] var innerChannel: ManagedChannel = _
+  @volatile private[kyuubi] var currentServer: String = _
 
   // Set from gRPC transport thread in onClose; read+cleared on application thread in newCall.
-  private val pendingFailedServer = new AtomicReference[String](null)
+  private[kyuubi] val pendingFailedServer = new AtomicReference[String](null)
 
   def init(resolvedUrl: String): Unit = {
     innerChannel = buildChannel(resolvedUrl)
     currentServer = serverFrom(resolvedUrl)
   }
 
-  private def buildChannel(resolvedUrl: String): ManagedChannel = {
+  protected[kyuubi] def buildChannel(resolvedUrl: String): ManagedChannel = {
     val b = SparkConnectClient.builder().connectionString(resolvedUrl)
     tokenClient.foreach(tc => b.option("authorization", s"Bearer ${tc.currentToken}"))
     SparkConnectBridge.createChannel(b.configuration)
-    // b.configuration.createChannel()
   }
 
   private def serverFrom(resolvedUrl: String): String = {
@@ -68,17 +67,20 @@ private[kyuubi] class FailoverManagedChannel(
     s"${builder.host}:${builder.port}"
   }
 
-  private def doFailover(failedServer: String): Unit = synchronized {
+  protected[kyuubi] def resolveUrl(url: String, exclude: Set[String]): String =
+    ZookeeperUrlResolver.resolve(url, exclude)
+
+  private[kyuubi] def doFailover(failedServer: String): Unit = synchronized {
     val exclude = Set(failedServer)
     try {
-      val newUrl = ZookeeperUrlResolver.resolve(originalUrl, exclude)
+      val newUrl = resolveUrl(originalUrl, exclude)
       val newChannel = buildChannel(newUrl)
       val old = innerChannel
       innerChannel = newChannel
       currentServer = serverFrom(newUrl)
       old.shutdownNow()
     } catch {
-      case _: RuntimeException => // all servers exhausted; keep current (dead) channel
+      case _: NoServersAvailableException => // all servers exhausted; keep current (dead) channel
     }
   }
 

@@ -25,6 +25,8 @@ import scala.collection.JavaConverters._
 import org.apache.kyuubi.shaded.curator.framework.CuratorFrameworkFactory
 import org.apache.kyuubi.shaded.curator.retry.ExponentialBackoffRetry
 
+class NoServersAvailableException(message: String) extends RuntimeException(message)
+
 /**
  * Resolves ZooKeeper-based Spark Connect URL to a direct sc://host:port URL.
  *
@@ -82,7 +84,7 @@ object ZookeeperUrlResolver {
         .map(node => new String(client.getData.forPath(s"$zkPath/$node"), StandardCharsets.UTF_8))
         .filterNot(excludeServers.contains)
       if (candidates.isEmpty) {
-        throw new RuntimeException(
+        throw new NoServersAvailableException(
           s"No Kyuubi Spark Connect servers found in ZooKeeper at $zkPath" +
             (if (excludeServers.nonEmpty) s" (excluded: ${excludeServers.mkString(", ")})" else ""))
       }

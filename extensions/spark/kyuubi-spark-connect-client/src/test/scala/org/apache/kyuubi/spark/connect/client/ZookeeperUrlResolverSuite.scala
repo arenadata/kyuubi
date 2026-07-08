@@ -97,18 +97,18 @@ class ZookeeperUrlResolverSuite extends KyuubiFunSuite {
     assert(resolved == "sc://hostB:10199")
   }
 
-  test("throws RuntimeException when all candidates are excluded") {
+  test("throws NoServersAvailableException when all candidates are excluded") {
     val namespace = "kyuubi_sc_allexcluded"
     registerServer(s"/$namespace", "host3:10199", "n1")
-    intercept[RuntimeException] {
+    intercept[NoServersAvailableException] {
       ZookeeperUrlResolver.resolve(zkUrl(namespace), excludeServers = Set("host3:10199"))
     }
   }
 
-  test("throws RuntimeException when namespace has no registered servers") {
+  test("throws NoServersAvailableException when namespace has no registered servers") {
     val namespace = "kyuubi_sc_empty"
     createEmptyNamespace(s"/$namespace")
-    intercept[RuntimeException] {
+    intercept[NoServersAvailableException] {
       ZookeeperUrlResolver.resolve(zkUrl(namespace))
     }
   }
