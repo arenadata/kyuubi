@@ -17,11 +17,6 @@
 
 package org.apache.kyuubi.server.grpc
 
-import java.util.UUID
-import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
-
-import org.apache.kyuubi.Logging
-
 /**
  * Store for Spark Connect session tokens.
  * Each token is a random UUID mapped to an authenticated username and an expiry timestamp.
@@ -50,76 +45,4 @@ trait SparkConnectTokenStore {
 
   /** Releases resources (background threads, DB connections, etc.). */
   def stop(): Unit
-}
-
-/**
- * In-memory implementation of [[SparkConnectTokenStore]].
- * Suitable for single-instance deployments. Tokens are lost on server restart.
- * Background thread removes expired entries every 10 minutes.
- */
-class InMemoryTokenStore(val ttlMs: Long) extends SparkConnectTokenStore with Logging {
-
-  private case class Entry(username: String, expiresAt: Long)
-
-  private val tokens = new ConcurrentHashMap[String, Entry]()
-
-  private val scheduler = Executors.newSingleThreadScheduledExecutor(r => {
-    val thread = new Thread(r, "connect-token-cleaner")
-    thread.setDaemon(true)
-    thread
-  })
-
-  scheduler.scheduleAtFixedRate(() => removeExpired(), 10, 10, TimeUnit.MINUTES)
-
-  override def create(username: String): (String, Long) = {
-    val token = UUID.randomUUID().toString
-    val expiresAt = System.currentTimeMillis() + ttlMs
-    tokens.put(token, Entry(username, expiresAt))
-    debug(s"Created Connect token for user $username")
-    (token, expiresAt)
-  }
-
-  override def getUser(token: String): Option[String] = {
-    Option(tokens.get(token)).flatMap { entry =>
-      if (entry.expiresAt > System.currentTimeMillis()) {
-        Some(entry.username)
-      } else {
-        tokens.remove(token)
-        None
-      }
-    }
-  }
-
-  override def renew(token: String): Option[Long] = {
-    Option(tokens.get(token)).flatMap { entry =>
-      if (entry.expiresAt > System.currentTimeMillis()) {
-        val newExpiry = System.currentTimeMillis() + ttlMs
-        tokens.put(token, entry.copy(expiresAt = newExpiry))
-        debug(s"Renewed Connect token for user ${entry.username}")
-        Some(newExpiry)
-      } else {
-        tokens.remove(token)
-        None
-      }
-    }
-  }
-
-  override def revoke(token: String): Unit = {
-    Option(tokens.remove(token)).foreach { entry =>
-      debug(s"Revoked Connect token for user ${entry.username}")
-    }
-  }
-
-  override def stop(): Unit = {
-    scheduler.shutdownNow()
-    tokens.clear()
-  }
-
-  private def removeExpired(): Unit = {
-    val now = System.currentTimeMillis()
-    val before = tokens.size()
-    tokens.entrySet().removeIf(_.getValue.expiresAt <= now)
-    val removedCnt = before - tokens.size()
-    if (removedCnt > 0) info(s"Removed $removedCnt expired Connect tokens")
-  }
 }

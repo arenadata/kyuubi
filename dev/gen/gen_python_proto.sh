@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Regenerates Python gRPC stubs from kyuubi/spark_connect_auth.proto.
+# Run when the .proto file changes, then commit the updated stubs.
+#
+# Prerequisites: pip install grpcio-tools
+#
+# Output files:
+#   python/kyuubi-spark-connect/kyuubi/spark_connect_auth_pb2.py
+#   python/kyuubi-spark-connect/kyuubi/spark_connect_auth_pb2_grpc.py
+
+set -e
+
+KYUUBI_HOME="$(cd "$(dirname "$0")/../.."; pwd)"
+
+if ! python3 -m grpc_tools.protoc --version &>/dev/null; then
+  echo "Error: grpcio-tools is not installed. Run: pip install grpcio-tools"
+  exit 1
+fi
+
+python3 -m grpc_tools.protoc \
+  -I "$KYUUBI_HOME/kyuubi-spark-connect-common/src/main/protobuf" \
+  --python_out="$KYUUBI_HOME/python/kyuubi-spark-connect" \
+  --grpc_python_out="$KYUUBI_HOME/python/kyuubi-spark-connect" \
+  "$KYUUBI_HOME/kyuubi-spark-connect-common/src/main/protobuf/kyuubi/spark_connect_auth.proto"
+
+echo "Generated stubs in $KYUUBI_HOME/python/kyuubi-spark-connect/kyuubi/"

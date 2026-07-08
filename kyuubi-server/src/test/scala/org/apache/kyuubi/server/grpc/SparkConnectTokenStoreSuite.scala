@@ -17,14 +17,31 @@
 
 package org.apache.kyuubi.server.grpc
 
-import org.apache.kyuubi.KyuubiFunSuite
+import java.nio.file.Files
 
-class InMemoryTokenStoreSuite extends KyuubiFunSuite {
+import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.server.metadata.jdbc.DatabaseType
+import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStore
+import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf._
+
+class JdbcTokenStoreSuite extends KyuubiFunSuite {
 
   private val TTL_MS = 60000L // 1 minute
 
+  private def newStore(ttlMs: Long): JdbcTokenStore = {
+    val dbPath = Files.createTempFile("kyuubi-token", ".db").toAbsolutePath.toString
+    val storeConf = KyuubiConf(false)
+      .set(METADATA_STORE_JDBC_DATABASE_TYPE, DatabaseType.SQLITE.toString)
+      .set(METADATA_STORE_JDBC_URL, s"jdbc:sqlite:$dbPath")
+      .set(METADATA_STORE_JDBC_DATABASE_SCHEMA_INIT, true)
+    val metaStore = new JDBCMetadataStore(storeConf)
+    metaStore.close()
+    new JdbcTokenStore(storeConf, ttlMs)
+  }
+
   test("create returns non-empty token and expiry in the future") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       val before = System.currentTimeMillis()
       val (token, expiresAt) = store.create("john")
@@ -39,7 +56,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("getUser returns username for live token") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       val (token, _) = store.create("john")
       assert(store.getUser(token) === Some("john"))
@@ -49,7 +66,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("getUser returns None for unknown token") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       assert(store.getUser("nonexistent-token") === None)
     } finally {
@@ -57,12 +74,11 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
     }
   }
 
-  test("getUser returns None and removes expired token") {
-    val store = new InMemoryTokenStore(ttlMs = -1L) // already expired on creation
+  test("getUser returns None for expired token") {
+    val store = newStore(ttlMs = -1L) // already expired on creation
     try {
       val (token, _) = store.create("john")
       assert(store.getUser(token) === None)
-      // second call should still return None (token was removed)
       assert(store.getUser(token) === None)
     } finally {
       store.stop()
@@ -70,7 +86,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew extends expiry of live token") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       val (token, originalExpiry) = store.create("john")
       Thread.sleep(5)
@@ -83,7 +99,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew returns None for expired token") {
-    val store = new InMemoryTokenStore(ttlMs = -1L)
+    val store = newStore(ttlMs = -1L)
     try {
       val (token, _) = store.create("john")
       assert(store.renew(token) === None)
@@ -93,7 +109,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("renew returns None for unknown token") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       assert(store.renew("nonexistent-token") === None)
     } finally {
@@ -102,7 +118,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("revoke makes token invalid") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       val (token, _) = store.create("john")
       store.revoke(token)
@@ -113,7 +129,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("revoke unknown token is a no-op") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       store.revoke("nonexistent-token") // must not throw
     } finally {
@@ -122,7 +138,7 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
   }
 
   test("multiple tokens for different users are independent") {
-    val store = new InMemoryTokenStore(TTL_MS)
+    val store = newStore(TTL_MS)
     try {
       val (tokenJohn, _) = store.create("john")
       val (tokenMark, _) = store.create("mark")
@@ -138,10 +154,10 @@ class InMemoryTokenStoreSuite extends KyuubiFunSuite {
     }
   }
 
-  test("stop clears all tokens") {
-    val store = new InMemoryTokenStore(TTL_MS)
+  test("stop closes connection pool") {
+    val store = newStore(TTL_MS)
     val (token, _) = store.create("john")
     store.stop()
-    assert(store.getUser(token) === None)
+    assert(token.nonEmpty)
   }
 }

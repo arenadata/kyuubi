@@ -17,6 +17,7 @@
 
 package org.apache.kyuubi.server.grpc
 
+import java.nio.file.Files
 import java.util.Base64
 
 import io.grpc.{Metadata, ServerCall, ServerCallHandler, Status}
@@ -29,10 +30,24 @@ import org.scalatestplus.mockito.MockitoSugar
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
+import org.apache.kyuubi.server.metadata.jdbc.DatabaseType
+import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStore
+import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf._
 
 class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar {
 
   private val USER_KEY = SparkConnectAuthInterceptor.USER_KEY
+
+  private def newStore(ttlMs: Long): JdbcTokenStore = {
+    val dbPath = Files.createTempFile("kyuubi-token", ".db").toAbsolutePath.toString
+    val storeConf = KyuubiConf(false)
+      .set(METADATA_STORE_JDBC_DATABASE_TYPE, DatabaseType.SQLITE.toString)
+      .set(METADATA_STORE_JDBC_URL, s"jdbc:sqlite:$dbPath")
+      .set(METADATA_STORE_JDBC_DATABASE_SCHEMA_INIT, true)
+    val metaStore = new JDBCMetadataStore(storeConf)
+    metaStore.close()
+    new JdbcTokenStore(storeConf, ttlMs)
+  }
 
   private def makeHeaders(
       authValue: Option[String] = None,
@@ -127,7 +142,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
 
   test("Bearer: valid token sets USER_KEY") {
     val conf = KyuubiConf()
-    val store = new InMemoryTokenStore(ttlMs = 60000L)
+    val store = newStore(ttlMs = 60000L)
     try {
       val (token, _) = store.create("john")
       val interceptor = new SparkConnectAuthInterceptor(conf, tokenStore = Some(store))
@@ -150,7 +165,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
 
   test("Bearer: successful request renews token TTL") {
     val conf = KyuubiConf()
-    val realStore = new InMemoryTokenStore(ttlMs = 60000L)
+    val realStore = newStore(ttlMs = 60000L)
     val store = spy(realStore)
     try {
       val (token, _) = store.create("john")
@@ -175,7 +190,7 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
 
   test("KyuubiToken: expired or unknown token returns UNAUTHENTICATED") {
     val conf = KyuubiConf()
-    val store = new InMemoryTokenStore(ttlMs = -1L) // already expired on creation
+    val store = newStore(ttlMs = -1L) // already expired on creation
     try {
       val (token, _) = store.create("john")
       val interceptor = new SparkConnectAuthInterceptor(conf, tokenStore = Some(store))
