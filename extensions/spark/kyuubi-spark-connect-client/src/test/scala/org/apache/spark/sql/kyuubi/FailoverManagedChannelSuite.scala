@@ -29,17 +29,22 @@ class FailoverManagedChannelSuite extends KyuubiFunSuite {
 
   private class MockChannel extends ManagedChannel {
     @volatile var shutDownCalled = false
+    @volatile var capturedListener: ClientCall.Listener[_] = null
 
     override def newCall[Req, Resp](
         method: MethodDescriptor[Req, Resp],
-        callOptions: CallOptions): ClientCall[Req, Resp] =
+        callOptions: CallOptions): ClientCall[Req, Resp] = {
+      val outer = this
       new ClientCall[Req, Resp] {
-        override def start(listener: ClientCall.Listener[Resp], headers: Metadata): Unit = {}
+        override def start(listener: ClientCall.Listener[Resp], headers: Metadata): Unit = {
+          outer.capturedListener = listener
+        }
         override def request(numMessages: Int): Unit = {}
         override def cancel(message: String, cause: Throwable): Unit = {}
         override def halfClose(): Unit = {}
         override def sendMessage(message: Req): Unit = {}
       }
+    }
 
     override def authority(): String = "mock"
     override def shutdown(): ManagedChannel = { shutDownCalled = true; this }
@@ -134,6 +139,50 @@ class FailoverManagedChannelSuite extends KyuubiFunSuite {
     assert(fc.pendingFailedServer.get() == null)
     assert(fc.innerChannel eq ch1)
     assert(!ch1.shutDownCalled)
+  }
+
+  test("doFailover passes failed server in exclude set to resolveUrl") {
+    val ch1 = new MockChannel
+    val ch2 = new MockChannel
+    var capturedExclude = Set.empty[String]
+    val channels = Iterator(ch1, ch2)
+    val fc = new FailoverManagedChannel("sc://zk:2181/;serviceDiscoveryMode=zooKeeper", None) {
+      override protected[kyuubi] def buildChannel(url: String): ManagedChannel = channels.next()
+      override protected[kyuubi] def resolveUrl(url: String, exclude: Set[String]): String = {
+        capturedExclude = exclude
+        "sc://host2:10199"
+      }
+    }
+    fc.init("sc://host1:10199")
+    fc.doFailover("host1:10199")
+
+    assert(capturedExclude == Set("host1:10199"))
+  }
+
+  test("end-to-end: UNAVAILABLE triggers failover on next newCall") {
+    val ch1 = new MockChannel
+    val ch2 = new MockChannel
+    val channels = Iterator(ch1, ch2)
+    val fc = new FailoverManagedChannel("sc://zk:2181/;serviceDiscoveryMode=zooKeeper", None) {
+      override protected[kyuubi] def buildChannel(url: String): ManagedChannel = channels.next()
+      override protected[kyuubi] def resolveUrl(url: String, exclude: Set[String]): String =
+        "sc://host2:10199"
+    }
+    fc.init("sc://host1:10199")
+
+    // Step 1: newCall wraps ch1's ClientCall inside FailoverClientCall
+    val call = fc.newCall(testMethod(), CallOptions.DEFAULT)
+    // Step 2: start() wraps user listener with FailoverClientCallListener
+    call.start(new ClientCall.Listener[Array[Byte]] {}, new Metadata())
+    // Step 3: simulate UNAVAILABLE from transport thread via the captured listener
+    ch1.capturedListener.asInstanceOf[ClientCall.Listener[Array[Byte]]]
+      .onClose(Status.UNAVAILABLE, new Metadata())
+    assert(fc.pendingFailedServer.get() == "host1:10199")
+
+    // Step 4: next newCall detects pendingFailedServer and triggers doFailover
+    fc.newCall(testMethod(), CallOptions.DEFAULT)
+    assert(fc.pendingFailedServer.get() == null)
+    assert(fc.innerChannel eq ch2)
   }
 
   test("second concurrent UNAVAILABLE does not overwrite first failed server") {

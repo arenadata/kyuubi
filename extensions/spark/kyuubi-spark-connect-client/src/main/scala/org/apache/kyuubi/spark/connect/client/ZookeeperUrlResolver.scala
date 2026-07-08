@@ -24,6 +24,7 @@ import scala.collection.JavaConverters._
 
 import org.apache.kyuubi.shaded.curator.framework.CuratorFrameworkFactory
 import org.apache.kyuubi.shaded.curator.retry.ExponentialBackoffRetry
+import org.apache.kyuubi.shaded.zookeeper.KeeperException
 
 class NoServersAvailableException(message: String) extends RuntimeException(message)
 
@@ -80,7 +81,14 @@ object ZookeeperUrlResolver {
       new ExponentialBackoffRetry(1000, 3))
     client.start()
     try {
-      val candidates = client.getChildren.forPath(zkPath).asScala
+      val children = try {
+        client.getChildren.forPath(zkPath).asScala
+      } catch {
+        case e: KeeperException =>
+          throw new NoServersAvailableException(
+            s"ZooKeeper path $zkPath does not exist or is inaccessible: ${e.getMessage}")
+      }
+      val candidates = children
         .map(node => new String(client.getData.forPath(s"$zkPath/$node"), StandardCharsets.UTF_8))
         .filterNot(excludeServers.contains)
       if (candidates.isEmpty) {

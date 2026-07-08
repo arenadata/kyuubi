@@ -353,6 +353,48 @@ class TestFailoverChannel(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# KyuubiSessionBuilder._failover
+# ---------------------------------------------------------------------------
+
+class TestKyuubiSessionBuilderFailover(unittest.TestCase):
+
+    def test_failover_adds_failed_server_to_exclude(self):
+        builder = KyuubiSessionBuilder("sc://host1:10199")
+        captured = {}
+
+        def fake_resolve(url, exclude=None):
+            captured['exclude'] = set(exclude) if exclude else set()
+            return "sc://host2:10199"
+
+        with patch.object(KyuubiSessionBuilder, '_resolve_url', side_effect=fake_resolve):
+            with patch.object(builder, '_raw_channel', return_value=MagicMock()):
+                builder._failover("host1:10199", exclude={"prev:10199"})
+
+        assert "host1:10199" in captured['exclude']
+        assert "prev:10199" in captured['exclude']
+
+    def test_failover_returns_new_channel(self):
+        builder = KyuubiSessionBuilder("sc://host1:10199")
+        new_channel = MagicMock()
+
+        with patch.object(KyuubiSessionBuilder, '_resolve_url', return_value="sc://host2:10199"):
+            with patch.object(builder, '_raw_channel', return_value=new_channel):
+                result = builder._failover("host1:10199")
+
+        assert result is new_channel
+
+    def test_failover_updates_host_and_port(self):
+        builder = KyuubiSessionBuilder("sc://host1:10199")
+
+        with patch.object(KyuubiSessionBuilder, '_resolve_url', return_value="sc://host2:10200"):
+            with patch.object(builder, '_raw_channel', return_value=MagicMock()):
+                builder._failover("host1:10199")
+
+        assert builder.host == "host2"
+        assert builder.port == 10200
+
+
+# ---------------------------------------------------------------------------
 # KyuubiSessionBuilder
 # ---------------------------------------------------------------------------
 

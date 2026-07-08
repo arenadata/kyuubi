@@ -105,6 +105,14 @@ class ZookeeperUrlResolverSuite extends KyuubiFunSuite {
     }
   }
 
+  test("throws NoServersAvailableException when ZK namespace path does not exist") {
+    val namespace = "kyuubi_sc_nonexistent_path"
+    // Path is never created - Curator would throw KeeperException.NoNodeException
+    intercept[NoServersAvailableException] {
+      ZookeeperUrlResolver.resolve(zkUrl(namespace))
+    }
+  }
+
   test("throws NoServersAvailableException when namespace has no registered servers") {
     val namespace = "kyuubi_sc_empty"
     createEmptyNamespace(s"/$namespace")

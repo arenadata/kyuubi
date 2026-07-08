@@ -18,10 +18,13 @@
 package org.apache.kyuubi.operation
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.kyuubi.KyuubiSessionBuilder
 
 import org.apache.kyuubi.WithSparkConnectServer
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.ha.HighAvailabilityConf
+import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ADDRESSES
 
 class KyuubiSparkConnectOperationSuite extends WithSparkConnectServer {
 
@@ -58,5 +61,38 @@ class KyuubiSparkConnectOperationSuite extends WithSparkConnectServer {
     val result = spark.sql("SELECT v1, v2 FROM view1").collect()
     assert(result(0).getInt(0) === 5)
     assert(result(0).getAs[Integer]("v2") === 10)
+  }
+
+  // HA: KyuubiSessionBuilder resolves ZK URL to connect to running server
+
+  test("KyuubiSessionBuilder with ZK URL executes SQL via FailoverManagedChannel") {
+    val zkAddresses = conf.get(HA_ADDRESSES)
+    val namespace = conf.get(HighAvailabilityConf.HA_SPARK_CONNECT_NAMESPACE)
+    val zkUrl = s"sc://$zkAddresses/;serviceDiscoveryMode=zooKeeper" +
+      s";zooKeeperNamespace=$namespace"
+
+    val sparkViaZk = new KyuubiSessionBuilder(zkUrl).getOrCreate()
+    try {
+      val result = sparkViaZk.sql("SELECT 42 AS answer").collect()
+      assert(result.length === 1)
+      assert(result(0).getInt(0) === 42)
+    } finally {
+      sparkViaZk.stop()
+    }
+  }
+
+  test("KyuubiSessionBuilder ZK URL resolves to running Kyuubi server") {
+    val zkAddresses = conf.get(HA_ADDRESSES)
+    val namespace = conf.get(HighAvailabilityConf.HA_SPARK_CONNECT_NAMESPACE)
+    val zkUrl = s"sc://$zkAddresses/;serviceDiscoveryMode=zooKeeper" +
+      s";zooKeeperNamespace=$namespace"
+
+    val sparkViaZk = new KyuubiSessionBuilder(zkUrl).getOrCreate()
+    try {
+      val result = sparkViaZk.sql("SELECT current_user()").collect()
+      assert(result.length === 1)
+    } finally {
+      sparkViaZk.stop()
+    }
   }
 }
