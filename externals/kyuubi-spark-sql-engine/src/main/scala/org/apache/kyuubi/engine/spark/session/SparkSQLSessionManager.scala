@@ -202,9 +202,26 @@ class SparkSQLSessionManager private (name: String, spark: SparkSession)
         }
       }
     }
-    if (shareLevel == ShareLevel.CONNECTION) {
-      info("Spark engine stopped due to session stopped and shared level is CONNECTION.")
+    if (shareLevel == ShareLevel.CONNECTION && getActiveUserSessionCount == 0) {
+      info("Spark engine stopped due to all sessions stopped and shared level is CONNECTION.")
       stopEngine()
+    }
+  }
+
+  override def handleDisconnect(sessionHandle: SessionHandle): Unit = {
+    if (shareLevel == ShareLevel.CONNECTION) {
+      val delay = conf.get(ENGINE_CHECK_INTERVAL)
+      ThreadUtils.runInNewThread("connection-engine-disconnect-checker") {
+        Thread.sleep(delay)
+        if (getActiveUserSessionCount > 0) {
+          try {
+            closeSession(sessionHandle)
+          } catch {
+            case e: Throwable =>
+              error(s"Error closing disconnected session $sessionHandle after grace period", e)
+          }
+        }
+      }
     }
   }
 

@@ -29,6 +29,7 @@ import org.apache.kyuubi.config.KyuubiConf.EngineOpenOnFailure._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_CREDENTIALS_KEY, KYUUBI_SESSION_HANDLE_KEY, KYUUBI_SESSION_SIGN_PUBLICKEY, KYUUBI_SESSION_USER_SIGN}
 import org.apache.kyuubi.engine.{EngineRef, KyuubiApplicationManager}
 import org.apache.kyuubi.events.{EventBus, KyuubiSessionEvent}
+import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider._
 import org.apache.kyuubi.ha.client.ServiceNodeInfo
 import org.apache.kyuubi.operation.{Operation, OperationHandle}
@@ -80,7 +81,7 @@ class KyuubiSessionImpl(
     user,
     doAsEnabled,
     sessionManager.groupProvider,
-    handle.identifier.toString,
+    sessionConf.get(HA_ENGINE_REF_ID).getOrElse(handle.identifier.toString),
     sessionManager.applicationManager,
     sessionManager.engineStartupProcessSemaphore)
   private[kyuubi] val launchEngineOp = sessionManager.operationManager

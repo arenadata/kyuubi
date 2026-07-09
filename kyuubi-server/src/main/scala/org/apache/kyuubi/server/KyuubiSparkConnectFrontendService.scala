@@ -207,7 +207,9 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
   }
 
   protected def createSessionManager(): SparkConnectSessionManager =
-    new SparkConnectSessionManager(serverable.backendService)
+    new SparkConnectSessionManager(
+      serverable.backendService,
+      ShareLevel.withName(conf.get(ENGINE_SHARE_LEVEL)))
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
