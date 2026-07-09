@@ -324,6 +324,35 @@ class TestFailoverChannel(unittest.TestCase):
 
         builder._failover.assert_called_once()
 
+    def test_unary_stream_reraises_non_unavailable_error_immediately(self):
+        """Non-UNAVAILABLE errors (e.g. INTERNAL for bad SQL / table not found) must
+        propagate immediately. Before the fix, `raise` was inside the `if UNAVAILABLE`
+        block so other errors fell through to `while True` and looped forever (freeze)."""
+        class InternalError(grpc.RpcError):
+            def code(self):
+                return grpc.StatusCode.INTERNAL
+
+            def details(self):
+                return "PARSE_SYNTAX_ERROR: syntax error at or near 'sdfds'"
+
+        error = InternalError()
+
+        def failing_stream(*args, **kwargs):
+            raise error
+            yield
+
+        channel = MagicMock()
+        channel.unary_stream.return_value.return_value = failing_stream()
+        builder = _make_builder("host1", 10199, channel)
+
+        fc = FailoverChannel(builder)
+        gen = fc.unary_stream("/method")("request")
+
+        with self.assertRaises(InternalError):
+            next(gen)
+
+        builder._failover.assert_not_called()
+
     def test_unary_stream_accumulates_tried_servers(self):
         """tried_servers grows across multiple UNAVAILABLE errors in the same stream."""
         error = _UnavailableError()

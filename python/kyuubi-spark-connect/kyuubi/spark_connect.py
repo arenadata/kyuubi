@@ -177,7 +177,7 @@ class FailoverChannel:
                                 self._do_failover(exclude=tried_servers)
                             except RuntimeError:
                                 pass
-                            raise  # let ExecutePlanResponseReattachableIterator retry via ReattachExecute
+                        raise  # let ExecutePlanResponseReattachableIterator retry via ReattachExecute
 
             return _gen()
         return callable_

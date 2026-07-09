@@ -84,14 +84,14 @@ public class SparkConnectClientDemo {
       System.out.println("Sleeping 10 seconds");
       Thread.sleep(10_000);
 
-      spark.sql("SELECT * FROM vdmitriev.table1_orc").show();
+      df.createOrReplaceTempView("people");
 
       for (int i = 0; i < 100; i++) {
-        Dataset<Row> df2 = spark.read().orc("/user/vdmitriev/example_result");
-        df2.describe("id").show();
-        df2.show();
-        System.out.println("i = " + i + ", sleeping 0.1s");
-        Thread.sleep(100);
+        String sqlQuery = "SELECT * FROM people";
+        System.out.println(sqlQuery);
+        spark.sql(sqlQuery).show();
+        System.out.println("i = " + i + ", sleeping 1s");
+        Thread.sleep(1000);
       }
     } finally {
       spark.stop();
