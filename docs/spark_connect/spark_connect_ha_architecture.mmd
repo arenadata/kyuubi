@@ -1,3 +1,9 @@
+---
+config:
+  flowchart:
+    rankSpacing: 80
+---
+
 graph TB
     subgraph Clients
         PY["Python Client\n(FailoverChannel)"]
@@ -5,8 +11,8 @@ graph TB
     end
 
     subgraph ZK["ZooKeeper"]
-        ZK_SC["kyuubi_sc\nKyuubi SC servers"]
-        ZK_ENG["kyuubi\nSpark Engines"]
+        ZK_SC["/kyuubi_sc\nKyuubi Spark Connect servers"]
+        ZK_ENG["/kyuubi\nSpark Engines"]
     end
 
     subgraph HA["Kyuubi Servers (HA)"]
@@ -38,6 +44,7 @@ graph TB
     KA --> E1
     KB --> E1
     KA --> E2
+    KB --> E2
 
     E1 -. "register" .-> ZK_ENG
     E2 -. "register" .-> ZK_ENG
