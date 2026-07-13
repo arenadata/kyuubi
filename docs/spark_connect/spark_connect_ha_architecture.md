@@ -1,4 +1,4 @@
-# Spark Connect HA Architecture
+### Spark Connect HA Architecture
 
 ```mermaid
 ---
