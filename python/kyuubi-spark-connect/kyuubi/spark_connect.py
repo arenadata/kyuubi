@@ -82,6 +82,15 @@ class KyuubiTokenClient:
         finally:
             channel.close()
 
+    def retarget(self, host: str, port: int):
+        """Point renew/revoke RPCs at a new server after failover.
+
+        Only the RPC destination changes; the token stays valid cluster-wide via
+        the shared JDBC token store.
+        """
+        self._host = host
+        self._port = port
+
     def renew(self):
         channel = self._channel()
         try:
@@ -332,6 +341,9 @@ class KyuubiSessionBuilder(ChannelBuilder):
         effective_exclude.add(failed_server)
         new_url = self._resolve_url(self._original_url, exclude=effective_exclude)
         super(KyuubiSessionBuilder, self).__init__(new_url)
+        if self._kyuubi_client is not None:
+            # Renewal must follow the current live server, not the token's original issuer.
+            self._kyuubi_client.retarget(self.host, self.port)
         return self._raw_channel()
 
     def toChannel(self) -> FailoverChannel:

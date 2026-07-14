@@ -30,7 +30,12 @@ import org.ietf.jgss.{GSSContext, GSSManager, GSSName, Oid}
 
 import org.apache.kyuubi.server.grpc.proto.{GetTokenRequest, RenewTokenRequest, RevokeTokenRequest, SparkConnectAuthServiceGrpc}
 
-class KyuubiTokenClient(host: String, port: Int, ssl: Boolean = true) {
+class KyuubiTokenClient(initHost: String, initPort: Int, ssl: Boolean = true) {
+
+  // host/port can be retargeted by FailoverManagedChannel (failover thread) while renewToken()
+  // may run on another thread, so these need the same visibility guarantee as the channel's fields.
+  @volatile private var host: String = initHost
+  @volatile private var port: Int = initPort
 
   private var token: String = _
   private var expiresAtMs: Long = _
@@ -92,6 +97,19 @@ class KyuubiTokenClient(host: String, port: Int, ssl: Boolean = true) {
   def currentToken: String = token
 
   def tokenExpiresAtMs: Long = expiresAtMs
+
+  /**
+   * Redirect subsequent token RPCs to a new server. Called by FailoverManagedChannel after it
+   * fails over to a live server, so that renew/revoke calls keep reaching a reachable server.
+   * Public because FailoverManagedChannel lives in a different package tree
+   * (org.apache.spark.sql.kyuubi) that no cross-package private modifier can span from here.
+   */
+  def retarget(newHost: String, newPort: Int): Unit = {
+    host = newHost
+    port = newPort
+  }
+
+  def hostPort: (String, Int) = (host, port)
 
   private def buildChannel(): ManagedChannel = {
     val builder = NettyChannelBuilder.forAddress(host, port)

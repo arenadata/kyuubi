@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import org.sparkproject.io.grpc._
 
 import org.apache.kyuubi.KyuubiFunSuite
-import org.apache.kyuubi.spark.connect.client.NoServersAvailableException
+import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, NoServersAvailableException}
 
 class FailoverManagedChannelSuite extends KyuubiFunSuite {
 
@@ -106,6 +106,26 @@ class FailoverManagedChannelSuite extends KyuubiFunSuite {
     assert(fc.currentServer == "host1:10199")
     fc.doFailover("host1:10199")
     assert(fc.currentServer == "host2:10199")
+  }
+
+  test("doFailover retargets token client to new server") {
+    val ch1 = new MockChannel
+    val ch2 = new MockChannel
+    val channels = Iterator(ch1, ch2)
+    val tokenClient = new KyuubiTokenClient("host1", 10199, ssl = false)
+    val fc = new FailoverManagedChannel(
+      "sc://zk:2181/;serviceDiscoveryMode=zooKeeper",
+      Some(tokenClient)) {
+      override protected[kyuubi] def buildChannel(url: String): ManagedChannel = channels.next()
+      override protected[kyuubi] def resolveUrl(url: String, exclude: Set[String]): String =
+        "sc://host2:10299"
+    }
+    fc.init("sc://host1:10199")
+
+    assert(tokenClient.hostPort == ("host1", 10199))
+    fc.doFailover("host1:10199")
+    assert(fc.currentServer == "host2:10299")
+    assert(tokenClient.hostPort == ("host2", 10299))
   }
 
   test("doFailover keeps dead channel when no servers available") {

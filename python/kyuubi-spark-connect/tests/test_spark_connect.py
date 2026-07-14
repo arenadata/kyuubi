@@ -56,7 +56,7 @@ sys.modules.setdefault("kazoo", MagicMock())
 sys.modules.setdefault("kazoo.client", MagicMock())
 sys.modules.setdefault("kazoo.exceptions", _mock_kazoo_exceptions)
 
-from kyuubi.spark_connect import KyuubiSessionBuilder, FailoverChannel  # noqa: E402
+from kyuubi.spark_connect import KyuubiSessionBuilder, FailoverChannel, KyuubiTokenClient  # noqa: E402
 
 
 class _UnavailableError(grpc.RpcError):
@@ -421,6 +421,22 @@ class TestKyuubiSessionBuilderFailover(unittest.TestCase):
 
         assert builder.host == "host2"
         assert builder.port == 10200
+
+    def test_failover_retargets_token_client(self):
+        """After failover, the token client must renew/revoke against the NEW live
+        server, not the token's original issuer (dead server)."""
+        with patch.object(KyuubiTokenClient, 'get_token', return_value="tok"):
+            builder = KyuubiSessionBuilder("sc://host1:10199", auth="kerberos")
+
+        assert builder._kyuubi_client._host == "host1"
+        assert builder._kyuubi_client._port == 10199
+
+        with patch.object(KyuubiSessionBuilder, '_resolve_url', return_value="sc://host2:10200"):
+            with patch.object(builder, '_raw_channel', return_value=MagicMock()):
+                builder._failover("host1:10199")
+
+        assert builder._kyuubi_client._host == "host2"
+        assert builder._kyuubi_client._port == 10200
 
 
 # ---------------------------------------------------------------------------

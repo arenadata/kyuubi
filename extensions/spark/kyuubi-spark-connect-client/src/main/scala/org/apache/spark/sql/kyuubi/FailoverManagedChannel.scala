@@ -34,12 +34,14 @@ import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, NoServersAvail
  *      transport thread).
  *   2. The next [[newCall]] (issued by [[ExecutePlanResponseReattachableIterator]] for
  *      ReattachExecute) detects the pending failover, resolves the next server from ZooKeeper,
- *      and switches inner channel - all on application thread.
+ *      switches inner channel, and retargets the token client - all on application thread.
  *   3. [[ExecutePlanResponseReattachableIterator]] retries via ReattachExecute on the new
  *      channel, resuming the operation from last received response.
  *
  * Auth token is not refreshed after failover because tokens are stored in shared JDBC
- * token store and validated by any Kyuubi server in the cluster.
+ * token store and validated by any Kyuubi server in the cluster. The token client's RPC
+ * destination is still retargeted to the new server (see step 2), since renew/revoke calls
+ * would otherwise keep dialing the dead server indefinitely.
  */
 private[kyuubi] class FailoverManagedChannel(
     originalUrl: String,
@@ -53,7 +55,8 @@ private[kyuubi] class FailoverManagedChannel(
 
   def init(resolvedUrl: String): Unit = {
     innerChannel = buildChannel(resolvedUrl)
-    currentServer = serverFrom(resolvedUrl)
+    val (host, port) = hostPort(resolvedUrl)
+    currentServer = s"$host:$port"
   }
 
   protected[kyuubi] def buildChannel(resolvedUrl: String): ManagedChannel = {
@@ -62,9 +65,9 @@ private[kyuubi] class FailoverManagedChannel(
     SparkConnectBridge.createChannel(b.configuration)
   }
 
-  private def serverFrom(resolvedUrl: String): String = {
+  private def hostPort(resolvedUrl: String): (String, Int) = {
     val builder = SparkConnectClient.builder().connectionString(resolvedUrl)
-    s"${builder.host}:${builder.port}"
+    (builder.host, builder.port)
   }
 
   protected[kyuubi] def resolveUrl(url: String, exclude: Set[String]): String =
@@ -77,7 +80,10 @@ private[kyuubi] class FailoverManagedChannel(
       val newChannel = buildChannel(newUrl)
       val old = innerChannel
       innerChannel = newChannel
-      currentServer = serverFrom(newUrl)
+      val (host, port) = hostPort(newUrl)
+      currentServer = s"$host:$port"
+      // Retarget token client so renew/revoke RPCs reach the new live server, not the dead one.
+      tokenClient.foreach(_.retarget(host, port))
       old.shutdownNow()
     } catch {
       case _: NoServersAvailableException => // all servers exhausted; keep current (dead) channel
