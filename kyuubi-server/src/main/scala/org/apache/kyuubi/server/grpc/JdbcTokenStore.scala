@@ -44,10 +44,15 @@ import org.apache.kyuubi.util.reflect.ReflectUtils
  *
  * The `spark_connect_tokens` table must already exist (created by the schema init or migration).
  */
-class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
+class JdbcTokenStore(
+    conf: KyuubiConf,
+    val ttlMs: Long,
+    cacheFreshnessMs: Long = JdbcTokenStore.CacheFreshnessMs)
   extends SparkConnectTokenStore with Logging {
 
-  private case class Entry(username: String, expiresAt: Long)
+  // `cachedAt` records when this entry was last loaded/refreshed from the DB. It is used to
+  // decide whether a local cache hit is fresh enough to be trusted without a DB round-trip.
+  private case class Entry(username: String, expiresAt: Long, cachedAt: Long)
 
   private val cache = new ConcurrentHashMap[String, Entry]()
 
@@ -83,7 +88,7 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
       stmt.setLong(3, now)
       stmt.setLong(4, expiresAt)
     }
-    cache.put(token, Entry(username, expiresAt))
+    cache.put(token, Entry(username, expiresAt, now))
     debug(s"Created Connect token for user $username")
     (token, expiresAt)
   }
@@ -91,18 +96,19 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
   override def getUser(token: String): Option[String] = {
     val now = System.currentTimeMillis()
     Option(cache.get(token)) match {
-      case Some(entry) if entry.expiresAt > now =>
+      // Trust a cache hit only if it is both unexpired and fresh (loaded from the DB within the
+      // freshness window). A read must never have a destructive side effect based on possibly
+      // stale local state - so on a miss or a stale/expired entry we treat the DB as truth and
+      // never delete here (expired rows are swept by deleteExpired() / removed by revoke()).
+      case Some(entry) if entry.expiresAt > now && now - entry.cachedAt <= cacheFreshnessMs =>
         Some(entry.username)
-      case Some(_) =>
-        cache.remove(token)
-        deleteToken(token)
-        None
-      case None =>
+      case _ =>
         loadFromDb(token, now) match {
           case Some(entry) =>
             cache.put(token, entry)
             Some(entry.username)
           case None =>
+            cache.remove(token)
             None
         }
     }
@@ -110,9 +116,14 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
 
   override def renew(token: String): Option[Long] = {
     val now = System.currentTimeMillis()
-    val current = Option(cache.get(token)).orElse(loadFromDb(token, now))
-    current.flatMap { entry =>
-      if (entry.expiresAt > now) {
+    // Use a fresh, unexpired cache entry directly; otherwise reload from the DB and use that as
+    // the source of truth. Expiry is never confirmed via a stale cache alone, so a locally-stale
+    // entry can never cause a token that another node renewed to be dropped/deleted.
+    val current = Option(cache.get(token))
+      .filter(e => e.expiresAt > now && now - e.cachedAt <= cacheFreshnessMs)
+      .orElse(loadFromDb(token, now))
+    current match {
+      case Some(entry) if entry.expiresAt > now =>
         val newExpiry = now + ttlMs
         JdbcUtils.executeUpdate(
           "UPDATE spark_connect_tokens SET expires_at=? WHERE token_id=?"
@@ -120,14 +131,12 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
           stmt.setLong(1, newExpiry)
           stmt.setString(2, token)
         }
-        cache.put(token, entry.copy(expiresAt = newExpiry))
+        cache.put(token, entry.copy(expiresAt = newExpiry, cachedAt = now))
         debug(s"Renewed Connect token for user ${entry.username}")
         Some(newExpiry)
-      } else {
+      case _ =>
         cache.remove(token)
-        deleteToken(token)
         None
-      }
     }
   }
 
@@ -150,7 +159,7 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
       stmt.setString(1, token)
       stmt.setLong(2, now)
     } { rs =>
-      if (rs.next()) Some(Entry(rs.getString("username"), rs.getLong("expires_at")))
+      if (rs.next()) Some(Entry(rs.getString("username"), rs.getLong("expires_at"), now))
       else None
     }
   }
@@ -185,4 +194,12 @@ class JdbcTokenStore(conf: KyuubiConf, val ttlMs: Long)
         s"${METADATA_STORE_JDBC_DRIVER.key} must be set for CUSTOM database type")
     })
   }
+}
+
+object JdbcTokenStore {
+
+  // How long a locally cached entry is trusted before it must be re-validated against the shared
+  // DB. Kept short so that renewals/revocations performed on other HA nodes become visible here
+  // within this window. Not a KyuubiConf entry on purpose - a private constant is sufficient.
+  private[grpc] val CacheFreshnessMs = 30000L
 }
