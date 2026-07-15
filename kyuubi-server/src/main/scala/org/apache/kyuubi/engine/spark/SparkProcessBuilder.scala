@@ -467,8 +467,9 @@ object SparkProcessBuilder {
   final private[kyuubi] val SPARK4_HOME_REGEX_SCALA_213 =
     """^spark-4\.\d+\.\d+(-\w*)?-bin-hadoop\d(\.\d+)?+$""".r
 
-  // Matches Arenadata custom Spark distribution naming:
-  // spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0
+  // Matches Arenadata custom Spark distribution naming, either with a versioned Hadoop build
+  // (spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0) or a plain Hadoop suffix
+  // (spark-3.5.4.4-4.3.0-2-bin-hadoop3)
   final private[kyuubi] val SPARK3_HOME_REGEX_ARENADATA =
-    """^spark-3\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-[\d.]+-[\d.]+-\d+$""".r
+    """^spark-3\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-(?:[\d.]+-[\d.]+-\d+|hadoop\d+(?:\.\d+)?)$""".r
 }
