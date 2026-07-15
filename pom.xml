@@ -217,7 +217,7 @@
         <spark.version>3.5.4.4-4.3.0-2</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
-        <spark.archive.name>spark-${spark.version}-bin-hadoop3${spark.archive.scala.suffix}.tgz</spark.archive.name>
+        <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
         <spark.archive.mirror>${apache.archive.dist}/spark/spark-${spark.version}</spark.archive.mirror>
         <spark.archive.query>?action=download</spark.archive.query>
         <spark.archive.download.skip>false</spark.archive.download.skip>
@@ -2066,7 +2066,7 @@
                 <spark.binary.version>3.5</spark.binary.version>
                 <delta.version>3.3.1</delta.version>
                 <spark.archive.mirror>https://github.com/arenadata/spark/releases/download/v${spark.version}</spark.archive.mirror>
-                <spark.archive.name>spark-${spark.version}-bin-${hadoop.version}.tgz</spark.archive.name>
+                <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
                 <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
                 <maven.plugin.scalatest.exclude.tags>org.scalatest.tags.Slow</maven.plugin.scalatest.exclude.tags>
             </properties>
