@@ -17,101 +17,32 @@
 
 package org.apache.kyuubi.server.grpc
 
-import java.util.UUID
-import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
-
-import org.apache.kyuubi.Logging
-
 /**
- * In-memory store for Spark Connect session tokens.
- * Each token is random UUID mapped to authenticated username and an expiry timestamp.
- * Background thread removes expired entries every 10 minutes.
+ * Store for Spark Connect session tokens.
+ * Each token is a random UUID mapped to an authenticated username and an expiry timestamp.
  */
-class SparkConnectTokenStore(val ttlMs: Long) extends Logging {
-
-  private case class Entry(username: String, expiresAt: Long)
-
-  private val tokens = new ConcurrentHashMap[String, Entry]()
-
-  private val scheduler = Executors.newSingleThreadScheduledExecutor(r => {
-    val thread = new Thread(r, "connect-token-cleaner")
-    thread.setDaemon(true)
-    thread
-  })
-
-  scheduler.scheduleAtFixedRate(
-    () => removeExpired(),
-    10,
-    10,
-    TimeUnit.MINUTES)
+trait SparkConnectTokenStore {
 
   /**
-   * Creates new token for the given username and stores it with a TTL.
+   * Creates a new token for the given username with a TTL.
    * @return (token, expiresAtMs)
    */
-  def create(username: String): (String, Long) = {
-    val token = UUID.randomUUID().toString
-    val expiresAt = System.currentTimeMillis() + ttlMs
-    tokens.put(token, Entry(username, expiresAt))
-    debug(s"Created Connect token for user $username")
-    (token, expiresAt)
-  }
+  def create(username: String): (String, Long)
 
   /**
-   * Returns username for valid, non-expired token.
-   * Removes token from the store if it has expired.
+   * Returns username for a valid, non-expired token, or None if missing / expired.
    */
-  def getUser(token: String): Option[String] = {
-    Option(tokens.get(token)).flatMap { entry =>
-      if (entry.expiresAt > System.currentTimeMillis()) {
-        Some(entry.username)
-      } else {
-        tokens.remove(token)
-        None
-      }
-    }
-  }
+  def getUser(token: String): Option[String]
 
   /**
-   * Extends TTL of existing token.
+   * Extends the TTL of an existing token.
    * @return new expiry time in milliseconds, or None if token was not found or expired
    */
-  def renew(token: String): Option[Long] = {
-    Option(tokens.get(token)).flatMap { entry =>
-      if (entry.expiresAt > System.currentTimeMillis()) {
-        val newExpiry = System.currentTimeMillis() + ttlMs
-        tokens.put(token, entry.copy(expiresAt = newExpiry))
-        debug(s"Renewed Connect token for user ${entry.username}")
-        Some(newExpiry)
-      } else {
-        tokens.remove(token)
-        None
-      }
-    }
-  }
+  def renew(token: String): Option[Long]
 
-  /**
-   * Invalidates token.
-   */
-  def revoke(token: String): Unit = {
-    Option(tokens.remove(token)).foreach { entry =>
-      debug(s"Revoked Connect token for user ${entry.username}")
-    }
-  }
+  /** Invalidates a token. No-op if the token does not exist. */
+  def revoke(token: String): Unit
 
-  /**
-   * Shuts down the background cleaner and clears tokens.
-   */
-  def stop(): Unit = {
-    scheduler.shutdownNow()
-    tokens.clear()
-  }
-
-  private def removeExpired(): Unit = {
-    val now = System.currentTimeMillis()
-    val before = tokens.size()
-    tokens.entrySet().removeIf(_.getValue.expiresAt <= now)
-    val removedCnt = before - tokens.size()
-    if (removedCnt > 0) info(s"Removed $removedCnt expired Connect tokens")
-  }
+  /** Releases resources (background threads, DB connections, etc.). */
+  def stop(): Unit
 }

@@ -121,6 +121,8 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
     }
   }
 
+  def handleDisconnect(sessionHandle: SessionHandle): Unit = {}
+
   def closeSession(sessionHandle: SessionHandle): Unit = {
     val session = handleToSession.remove(sessionHandle)
     if (session == null) {

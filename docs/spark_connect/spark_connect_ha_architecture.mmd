@@ -1,0 +1,63 @@
+graph TB
+    subgraph Clients
+        PY["Python Client\n(FailoverChannel)"]
+        JVM["JVM Client\n(FailoverManagedChannel)"]
+    end
+
+    subgraph ZK["ZooKeeper"]
+        ZK_SC["/kyuubi_sc\nKyuubi Spark Connect servers"]
+        ZK_ENG["/kyuubi\nSpark Engines"]
+    end
+
+    subgraph HA["Kyuubi Servers (HA)"]
+        KA["Kyuubi Server A"]
+        KB["Kyuubi Server B"]
+    end
+
+    DB[("DB Token Store")]
+
+    subgraph Engines["YARN Applications"]
+        E1["Spark Engine S1"]
+        E2["Spark Engine S2"]
+    end
+
+    PY -- "gRPC" --> KA
+    PY -- "gRPC failover" --> KB
+    JVM -- "gRPC" --> KA
+    JVM -- "gRPC failover" --> KB
+
+    PY -. "discover" .-> ZK_SC
+    JVM -. "discover" .-> ZK_SC
+
+    KA -. "register" .-> ZK_SC
+    KB -. "register" .-> ZK_SC
+
+    KA -- "tokens" --> DB
+    KB -- "tokens" --> DB
+
+    KA --> E1
+    KB --> E1
+    KA --> E2
+    KB --> E2
+
+    E1 -. "register" .-> ZK_ENG
+    E2 -. "register" .-> ZK_ENG
+    KA -. "discover" .-> ZK_ENG
+    KB -. "discover" .-> ZK_ENG
+
+    classDef client fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef kyuubi fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef zk fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef engine fill:#fce7f3,stroke:#db2777,color:#831843
+    classDef db fill:#f3e8ff,stroke:#9333ea,color:#581c87
+
+    class PY,JVM client
+    class KA,KB kyuubi
+    class ZK_SC,ZK_ENG zk
+    class E1,E2 engine
+    class DB db
+
+    style Clients fill:#eff6ff,stroke:#93c5fd
+    style HA fill:#f0fdf4,stroke:#86efac
+    style ZK fill:#fefce8,stroke:#fde047
+    style Engines fill:#fdf2f8,stroke:#f9a8d4

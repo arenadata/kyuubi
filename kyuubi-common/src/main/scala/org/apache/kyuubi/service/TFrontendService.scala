@@ -623,6 +623,7 @@ abstract class TFrontendService(name: String)
           } else {
             warn(s"Session not actually closed because configuration " +
               s"${SESSION_CLOSE_ON_DISCONNECT.key} is set to false")
+            be.sessionManager.handleDisconnect(handle)
           }
         } catch {
           case e: KyuubiSQLException =>

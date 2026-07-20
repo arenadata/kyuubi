@@ -75,7 +75,9 @@ class KyuubiSessionManager private (name: String) extends SessionManager(name) {
 
   override def initialize(conf: KyuubiConf): Unit = {
     this.conf = conf
-    if (conf.isRESTEnabled) metadataManager = Some(new MetadataManager())
+    if (conf.isRESTEnabled || conf.isSparkConnectEnabled) {
+      metadataManager = Some(new MetadataManager())
+    }
     applicationManager = new KyuubiApplicationManager(metadataManager)
     addService(applicationManager)
     addService(credentialsManager)

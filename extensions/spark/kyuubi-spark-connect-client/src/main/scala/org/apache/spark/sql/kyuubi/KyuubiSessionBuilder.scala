@@ -21,10 +21,15 @@ package org.apache.spark.sql.kyuubi
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connect.client.SparkConnectClient
 
-import org.apache.kyuubi.spark.connect.client.KyuubiTokenClient
+import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, ZookeeperUrlResolver}
 
 /**
- * Builder for a Kyuubi-authenticated Spark Connect session.
+ * Builder for a Kyuubi-authenticated Spark Connect session with transparent ZooKeeper HA
+ * failover.
+ *
+ * When the connected Kyuubi server becomes unavailable, [[FailoverManagedChannel]] silently
+ * switches to the next live server and [[ExecutePlanResponseReattachableIterator]] resumes
+ * the in-flight operation via ReattachExecute - no exception reaches user code.
  *
  * Usage:
  * {{{
@@ -38,6 +43,12 @@ import org.apache.kyuubi.spark.connect.client.KyuubiTokenClient
  *   // LDAP:
  *   val spark = new KyuubiSessionBuilder("sc://host:10199/;use_ssl=true",
  *     KyuubiAuthType.LDAP, "john", "secret").getOrCreate()
+ *
+ *   // ZooKeeper HA (Kerberos) - failover is fully transparent:
+ *   val spark = new KyuubiSessionBuilder(
+ *     "sc://zk1:2181,zk2:2181,zk3:2181/;serviceDiscoveryMode=zooKeeper" +
+ *     ";zooKeeperNamespace=arenadata/cluster/4/kyuubi_sc;use_ssl=true",
+ *     KyuubiAuthType.KERBEROS).getOrCreate()
  *
  *   spark.sql("SELECT current_user()").show()
  *   spark.stop()  // sends ReleaseSession, server revokes token automatically
@@ -53,22 +64,28 @@ class KyuubiSessionBuilder(
 
   def this(url: String, auth: KyuubiAuthType) = this(url, auth, null, null)
 
-  private val clientBuilder = SparkConnectClient.builder().connectionString(url)
+  private val resolvedUrl = ZookeeperUrlResolver.resolve(url)
+  private val configBuilder = SparkConnectClient.builder().connectionString(resolvedUrl)
 
   private val tokenClient: Option[KyuubiTokenClient] = auth match {
     case KyuubiAuthType.NONE => None
     case _ =>
       val client = new KyuubiTokenClient(
-        clientBuilder.host,
-        clientBuilder.port,
-        clientBuilder.sslEnabled)
+        configBuilder.host,
+        configBuilder.port,
+        configBuilder.sslEnabled)
       client.getToken(auth, username, password)
-      clientBuilder.option("authorization", s"Bearer ${client.currentToken}")
       Some(client)
   }
 
+  private val failoverChannel = new FailoverManagedChannel(url, tokenClient)
+  failoverChannel.init(resolvedUrl)
+
+  private val sparkClient = SparkConnectBridge.create(configBuilder.configuration, failoverChannel)
+  // private val sparkClient = new SparkConnectClient(configBuilder.configuration, failoverChannel)
+
   def getOrCreate(): SparkSession =
-    SparkSession.builder().client(clientBuilder.build()).getOrCreate()
+    SparkSession.builder().client(sparkClient).getOrCreate()
 
   def renew(): Unit = tokenClient.foreach(_.renewToken())
 

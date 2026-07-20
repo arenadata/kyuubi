@@ -26,13 +26,18 @@ import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 
 import org.apache.kyuubi.{KyuubiException, Logging}
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_PROTOCOLS, FrontendProtocols}
+import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_PROTOCOLS, FrontendProtocols, SESSION_CLOSE_ON_DISCONNECT}
+import org.apache.kyuubi.engine.ShareLevel
+import org.apache.kyuubi.engine.ShareLevel.ShareLevel
+import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 import org.apache.kyuubi.shaded.spark.connect.proto.SparkConnectServiceGrpc
 
-class SparkConnectSessionManager(backendService: BackendService) extends Logging {
+class SparkConnectSessionManager(
+    backendService: BackendService,
+    shareLevel: ShareLevel = ShareLevel.USER) extends Logging {
 
   protected def buildChannel(connectUrl: String): ManagedChannel =
     ManagedChannelBuilder
@@ -57,7 +62,11 @@ class SparkConnectSessionManager(backendService: BackendService) extends Logging
         username,
         "",
         "",
-        Map(FRONTEND_PROTOCOLS.key -> FrontendProtocols.SPARK_CONNECT.toString))
+        Map(FRONTEND_PROTOCOLS.key -> FrontendProtocols.SPARK_CONNECT.toString) ++
+          (if (shareLevel == ShareLevel.CONNECTION) Map(
+            HA_ENGINE_REF_ID.key -> sessionId,
+            SESSION_CLOSE_ON_DISCONNECT.key -> "false")
+          else Map.empty))
       try {
         val kyuubiSession = backendService.sessionManager.getSession(handle) match {
           case s: KyuubiSessionImpl => s
@@ -86,6 +95,7 @@ class SparkConnectSessionManager(backendService: BackendService) extends Logging
 
   def get(sessionId: String): Option[ConnectSession] = Option(sessions.get(sessionId))
 
+  // Client-initiated disconnect: sends Thrift CloseSession so the engine stops immediately.
   def release(sessionId: String, closeKyuubiSession: Boolean = true): Unit = {
     Option(sessions.remove(sessionId)).foreach { s =>
       try {
@@ -104,7 +114,25 @@ class SparkConnectSessionManager(backendService: BackendService) extends Logging
     }
   }
 
+  // Server shutdown: for CONNECTION share level, skip Thrift CloseSession so the engine gets
+  // a grace period (TCP drop triggers handleDisconnect) and can survive for HA failover.
   def closeAll(): Unit = {
-    sessions.keys().asScala.toSeq.foreach(release(_))
+    sessions.keys().asScala.toSeq.foreach { sessionId =>
+      Option(sessions.remove(sessionId)).foreach { s =>
+        try {
+          s.channel.shutdownNow()
+        } catch {
+          case NonFatal(e) => warn(s"Error shutting down channel for session $sessionId: $e")
+        }
+        if (shareLevel != ShareLevel.CONNECTION) {
+          try {
+            backendService.closeSession(s.kyuubiHandle)
+          } catch {
+            case NonFatal(e) =>
+              warn(s"Error closing Kyuubi session for Connect session $sessionId: $e")
+          }
+        }
+      }
+    }
   }
 }
