@@ -198,14 +198,28 @@ object HighAvailabilityConf {
       .booleanConf
       .createWithDefault(false)
 
-  val HA_ZK_ENGINE_SECURE_SECRET_NODE: OptionalConfigEntry[String] =
+  val HA_ZK_ENGINE_SECURE_SECRET_NODE: ConfigEntry[String] =
     buildConf("kyuubi.ha.zookeeper.engine.secure.secret.node")
       .internal
       .doc("The zk node contains the secret that used for internal secure, please make sure " +
-        "that it is only visible for Kyuubi.")
+        "that it is only visible for Kyuubi. If the node doesn't exist, it is auto-created " +
+        "with a randomly generated secret by the first Kyuubi server or engine that needs it, " +
+        "unless kyuubi.ha.zookeeper.engine.secure.secret.node.auto-create is set to false. " +
+        "Note this must not live under kyuubi.ha.namespace's subtree, since that breaks " +
+        "clients' service-discovery listing.")
       .version("1.5.0")
       .stringConf
-      .createOptional
+      .createWithDefault("/kyuubi_engine_secure_secret")
+
+  val HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE: ConfigEntry[Boolean] =
+    buildConf("kyuubi.ha.zookeeper.engine.secure.secret.node.auto-create")
+      .internal
+      .doc(s"Whether to auto-create ${HA_ZK_ENGINE_SECURE_SECRET_NODE.key} with a randomly " +
+        "generated secret when it doesn't exist yet. When false, the node must be provisioned " +
+        "manually beforehand, and Kyuubi throws instead of creating it.")
+      .version("1.11.0")
+      .booleanConf
+      .createWithDefault(true)
 
   val HA_ETCD_LEASE_TIMEOUT: ConfigEntry[Long] =
     buildConf("kyuubi.ha.etcd.lease.timeout")

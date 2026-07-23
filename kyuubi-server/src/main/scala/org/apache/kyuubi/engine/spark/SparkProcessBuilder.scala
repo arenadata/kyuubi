@@ -155,7 +155,8 @@ class SparkProcessBuilder(
       extraYarnConf(allConf) ++
       appendPodNameConf(allConf) ++
       prepareK8sFileUploadPath() ++
-      engineWaitCompletionConf).foreach {
+      engineWaitCompletionConf ++
+      engineSecurityGrpcInterceptorConf(allConf)).foreach {
       case (k, v) => buffer ++= confKeyValue(convertConfigKey(k), v)
     }
 
@@ -220,6 +221,22 @@ class SparkProcessBuilder(
           Map(SPARK_FILES -> s"$files,${zkAuthKeytab.get}")
         case _ =>
           Map(SPARK_FILES -> zkAuthKeytab.get)
+      }
+    } else {
+      Map()
+    }
+  }
+
+  // Registers the token-checking gRPC interceptor for the engine's Spark Connect service so the
+  // internal Kyuubi-server<->engine hop is authenticated the same way as the Thrift hop.
+  private[spark] def engineSecurityGrpcInterceptorConf(
+      sparkConf: Map[String, String]): Map[String, String] = {
+    if (conf.get(ENGINE_SECURITY_ENABLED)) {
+      val cls = "org.apache.kyuubi.engine.spark.connect.KyuubiEngineTokenServerInterceptor"
+      val key = "spark.connect.grpc.interceptor.classes"
+      sparkConf.get(key) match {
+        case Some(existing) if existing.nonEmpty => Map(key -> s"$existing,$cls")
+        case _ => Map(key -> cls)
       }
     } else {
       Map()
