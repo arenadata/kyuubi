@@ -42,23 +42,22 @@ class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProv
     val zkNode = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE)
     val autoCreate = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE)
     withDiscoveryClient[String](conf) { discoveryClient =>
-      if (discoveryClient.pathExists(zkNode)) {
-        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
-      } else if (!autoCreate) {
-        throw new IllegalArgumentException(
-          s"ZooKeeper node $zkNode does not exist and " +
-            s"${HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE.key} is false; please create it " +
-            "manually before enabling engine security, or leave auto-create enabled.")
-      } else {
-        discoveryClient.tryWithLock(s"${zkNode}_lock", conf.get(HA_ZK_NODE_TIMEOUT)) {
-          if (discoveryClient.pathExists(zkNode)) {
-            new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
-          } else {
-            val secret = generateSecret(conf)
-            discoveryClient.create(zkNode, "PERSISTENT")
-            discoveryClient.setData(zkNode, secret.getBytes(StandardCharsets.UTF_8))
-            secret
-          }
+      // The existence check and the create+setData below must all happen under the same lock:
+      // otherwise a concurrent reader could observe the node right after create() but before
+      // setData(), i.e. existing but still empty, and use that as its secret.
+      discoveryClient.tryWithLock(s"${zkNode}_lock", conf.get(HA_ZK_NODE_TIMEOUT)) {
+        if (discoveryClient.pathExists(zkNode)) {
+          new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
+        } else if (!autoCreate) {
+          throw new IllegalArgumentException(
+            s"ZooKeeper node $zkNode does not exist and " +
+              s"${HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE.key} is false; please create it " +
+              "manually before enabling engine security, or leave auto-create enabled.")
+        } else {
+          val secret = generateSecret(conf)
+          discoveryClient.create(zkNode, "PERSISTENT")
+          discoveryClient.setData(zkNode, secret.getBytes(StandardCharsets.UTF_8))
+          secret
         }
       }
     }
