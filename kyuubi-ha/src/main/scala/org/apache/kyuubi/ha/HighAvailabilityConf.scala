@@ -217,7 +217,7 @@ object HighAvailabilityConf {
       .doc(s"Whether to auto-create ${HA_ZK_ENGINE_SECURE_SECRET_NODE.key} with a randomly " +
         "generated secret when it doesn't exist yet. When false, the node must be provisioned " +
         "manually beforehand, and Kyuubi throws instead of creating it.")
-      .version("1.11.0")
+      .version("1.11.1")
       .booleanConf
       .createWithDefault(true)
 
