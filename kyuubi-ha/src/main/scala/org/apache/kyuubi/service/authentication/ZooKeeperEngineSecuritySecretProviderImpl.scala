@@ -40,21 +40,9 @@ class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProv
   override def getSecret(): String = {
     val zkNode = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE)
     val autoCreate = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE)
-    val expectedLength = conf.get(ENGINE_SECURITY_CRYPTO_KEY_LENGTH) / java.lang.Byte.SIZE
     withDiscoveryClient[String](conf) { discoveryClient =>
-      // Guards against a node poisoned by an older, pre-atomic-create revision of this class,
-      // which could leave non-secret placeholder data (e.g. a host address) in place forever.
-      def readValidated(): String = {
-        val secret = new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
-        if (secret.length != expectedLength) {
-          throw new IllegalStateException(
-            s"Secret at ZooKeeper node $zkNode has length ${secret.length}, expected " +
-              s"$expectedLength; the node is likely corrupted - delete it manually and retry.")
-        }
-        secret
-      }
       if (discoveryClient.pathExists(zkNode)) {
-        readValidated()
+        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
       } else if (!autoCreate) {
         throw new IllegalArgumentException(
           s"ZooKeeper node $zkNode does not exist and " +
@@ -66,7 +54,7 @@ class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProv
         // If another server/engine wins the race, it leaves that node untouched and we just
         // re-read whatever data won below, so no lock is needed here at all.
         discoveryClient.startSecretNode("PERSISTENT", zkNode, generateSecret(conf))
-        readValidated()
+        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
       }
     }
   }
