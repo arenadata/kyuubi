@@ -24,8 +24,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.ENGINE_SECURITY_CRYPTO_KEY_LENGTH
 import org.apache.kyuubi.ha.HighAvailabilityConf.{
   HA_ZK_ENGINE_SECURE_SECRET_NODE,
-  HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE,
-  HA_ZK_NODE_TIMEOUT}
+  HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider
 
 class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProvider {
@@ -42,23 +41,20 @@ class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProv
     val zkNode = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE)
     val autoCreate = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE)
     withDiscoveryClient[String](conf) { discoveryClient =>
-      // The existence check and the create+setData below must all happen under the same lock:
-      // otherwise a concurrent reader could observe the node right after create() but before
-      // setData(), i.e. existing but still empty, and use that as its secret.
-      discoveryClient.tryWithLock(s"${zkNode}_lock", conf.get(HA_ZK_NODE_TIMEOUT)) {
-        if (discoveryClient.pathExists(zkNode)) {
-          new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
-        } else if (!autoCreate) {
-          throw new IllegalArgumentException(
-            s"ZooKeeper node $zkNode does not exist and " +
-              s"${HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE.key} is false; please create it " +
-              "manually before enabling engine security, or leave auto-create enabled.")
-        } else {
-          val secret = generateSecret(conf)
-          discoveryClient.create(zkNode, "PERSISTENT")
-          discoveryClient.setData(zkNode, secret.getBytes(StandardCharsets.UTF_8))
-          secret
-        }
+      if (discoveryClient.pathExists(zkNode)) {
+        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
+      } else if (!autoCreate) {
+        throw new IllegalArgumentException(
+          s"ZooKeeper node $zkNode does not exist and " +
+            s"${HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE.key} is false; please create it " +
+            "manually before enabling engine security, or leave auto-create enabled.")
+      } else {
+        // startSecretNode() creates the node with this data atomically - node and data become
+        // visible together - so no concurrent reader can ever observe it existing but empty.
+        // If another server/engine wins the race, it leaves that node untouched and we just
+        // re-read whatever data won below, so no lock is needed here at all.
+        discoveryClient.startSecretNode("PERSISTENT", zkNode, generateSecret(conf))
+        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
       }
     }
   }

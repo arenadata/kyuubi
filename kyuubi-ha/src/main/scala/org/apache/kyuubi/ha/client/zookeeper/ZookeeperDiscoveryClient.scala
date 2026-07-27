@@ -284,16 +284,14 @@ class ZookeeperDiscoveryClient(conf: KyuubiConf) extends DiscoveryClient {
       basePath: String,
       initData: String,
       useProtection: Boolean = false): Unit = {
-    val secretNode = new PersistentNode(
-      zkClient,
-      CreateMode.valueOf(createMode),
-      useProtection,
-      basePath,
-      initData.getBytes(StandardCharsets.UTF_8))
-    secretNode.start()
-    val znodeTimeout = conf.get(HA_ZK_NODE_TIMEOUT)
-    if (!secretNode.waitForInitialCreate(znodeTimeout, TimeUnit.MILLISECONDS)) {
-      throw new KyuubiException(s"Max znode creation wait time $znodeTimeout s exhausted")
+    try {
+      zkClient.create()
+        .creatingParentsIfNeeded()
+        .withMode(CreateMode.valueOf(createMode))
+        .forPath(basePath, initData.getBytes(StandardCharsets.UTF_8))
+    } catch {
+      case _: NodeExistsException =>
+        debug(s"Secret node $basePath already exists; adopting its existing data.")
     }
   }
 
