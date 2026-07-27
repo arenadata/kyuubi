@@ -163,11 +163,13 @@ trait DiscoveryClient extends Logging {
       external: Boolean = false): String
 
   /**
-   * Create a node to store engine secret.
+   * Create a node to store engine secret. On ZooKeeper this is atomic - create and initData
+   * become visible together, and an already-existing node is left untouched. The Etcd
+   * implementation does not provide these guarantees; it's an unconditional overwrite.
    * @param createMode create node mode, automatically deleted or not
    * @param basePath the base path for the node
    * @param initData the init data to be stored
-   * @param useProtection if true, createBuilder with protection
+   * @param useProtection ignored by the current ZK implementation
    */
   def startSecretNode(
       createMode: String,

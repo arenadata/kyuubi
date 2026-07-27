@@ -28,6 +28,7 @@ import org.apache.kyuubi.ha.HighAvailabilityConf.{
   HA_ADDRESSES,
   HA_ZK_ENGINE_SECURE_SECRET_NODE,
   HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
+import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
 import org.apache.kyuubi.zookeeper.EmbeddedZookeeper
 import org.apache.kyuubi.zookeeper.ZookeeperConf.ZK_CLIENT_PORT
 
@@ -141,5 +142,25 @@ class ZooKeeperEngineSecuritySecretProviderImplSuite extends KyuubiFunSuite {
     provider.initialize(disabledConf)
 
     assert(provider.getSecret() != null)
+  }
+
+  test("a node poisoned with wrong-length data is rejected instead of used as-is") {
+    val zkNode = "/kyuubi_engine_secure_secret_poisoned_test"
+    val poisonedConf = new KyuubiConf()
+      .set(HA_ADDRESSES, zkServer.getConnectString)
+      .set(HA_ZK_ENGINE_SECURE_SECRET_NODE, zkNode)
+
+    // Simulates a node left over from the older, non-atomic create()+setData() code path,
+    // where a crash between the two calls could leave placeholder data (e.g. a host address)
+    // of the wrong length in place instead of a real secret.
+    withDiscoveryClient(poisonedConf) { discoveryClient =>
+      discoveryClient.startSecretNode("PERSISTENT", zkNode, "127.0.1.1")
+    }
+
+    val provider = new ZooKeeperEngineSecuritySecretProviderImpl()
+    provider.initialize(poisonedConf)
+    val e = intercept[IllegalStateException](provider.getSecret())
+    assert(e.getMessage.contains(zkNode))
+    assert(e.getMessage.contains("corrupted"))
   }
 }
