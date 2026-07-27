@@ -234,9 +234,13 @@ class SparkProcessBuilder(
     if (conf.get(ENGINE_SECURITY_ENABLED)) {
       val cls = "org.apache.kyuubi.engine.spark.connect.KyuubiEngineTokenServerInterceptor"
       val key = "spark.connect.grpc.interceptor.classes"
-      sparkConf.get(key) match {
-        case Some(existing) if existing.nonEmpty => Map(key -> s"$existing,$cls")
-        case _ => Map(key -> cls)
+      sparkConf.get(key).orElse(defaultsConf.get(key)) match {
+        case Some(existing) if existing.split(",").map(_.trim).contains(cls) =>
+          Map(key -> existing)
+        case Some(existing) if existing.nonEmpty =>
+          Map(key -> s"$existing,$cls")
+        case _ =>
+          Map(key -> cls)
       }
     } else {
       Map()
