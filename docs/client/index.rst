@@ -33,6 +33,8 @@ In addition, APIs like REST, Thrift, etc., allow developers to access kyuubi dir
     bi_tools/index
     rest/index
     flight_sql
+    flight_sql_compatibility
+    flight_sql_types
     ui/index
     python/index
     advanced/index

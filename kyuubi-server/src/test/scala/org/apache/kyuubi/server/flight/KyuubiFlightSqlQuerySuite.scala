@@ -20,16 +20,17 @@ package org.apache.kyuubi.server.flight
 import org.apache.arrow.flight.{FlightClient, Location}
 import org.apache.arrow.flight.sql.FlightSqlClient
 import org.apache.arrow.memory.RootAllocator
+import org.scalatest.tags.Slow
 
 import org.apache.kyuubi.WithFlightSqlServer
 import org.apache.kyuubi.config.KyuubiConf
-import org.scalatest.tags.Slow
 
+@Slow
 class KyuubiFlightSqlQuerySuite extends WithFlightSqlServer {
 
   override protected val conf: KyuubiConf = KyuubiConf()
 
-  test("execute a SQL statement and stream an Arrow batch", Slow) {
+  test("execute a SQL statement and stream an Arrow batch") {
     val endpoint = flightSqlUrl
     val separator = endpoint.lastIndexOf(':')
     val host = endpoint.substring(0, separator)

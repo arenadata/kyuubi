@@ -36,6 +36,9 @@ class KyuubiConfSuite extends KyuubiFunSuite {
     val conf = KyuubiConf()
     assert(conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT) === 10299)
     assert(conf.get(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS) === 1000)
+    assert(conf.get(FRONTEND_FLIGHT_SQL_SSL_ENABLED) === false)
+    assert(conf.get(FRONTEND_FLIGHT_SQL_SSL_CERT_FILE).isEmpty)
+    assert(conf.get(FRONTEND_FLIGHT_SQL_SSL_KEY_FILE).isEmpty)
     assert(conf.isFlightSqlEnabled === false)
 
     conf.set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
@@ -50,6 +53,23 @@ class KyuubiConfSuite extends KyuubiFunSuite {
       conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 1024).get(FRONTEND_FLIGHT_SQL_BIND_PORT))
     assertThrows[IllegalArgumentException](
       conf.set(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, 0).get(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS))
+  }
+
+  test("Flight SQL deprecated configuration aliases") {
+    val conf = KyuubiConf()
+      .set("kyuubi.flight.sql.enabled", "true")
+      .set("kyuubi.flight.sql.bind.host", "flight.example")
+      .set("kyuubi.flight.sql.bind.port", "11000")
+      .set("kyuubi.flight.sql.tls.enabled", "true")
+      .set("kyuubi.flight.sql.kerberos.principal", "HTTP/flight@EXAMPLE.COM")
+
+    // Aliases are normalized by the Flight frontend; verify raw keys are present for ADCM upgrades.
+    assert(conf.getOption("kyuubi.flight.sql.enabled").contains("true"))
+    assert(conf.getOption("kyuubi.flight.sql.bind.host").contains("flight.example"))
+    assert(conf.getOption("kyuubi.flight.sql.bind.port").contains("11000"))
+    assert(conf.getOption("kyuubi.flight.sql.tls.enabled").contains("true"))
+    assert(conf.getOption("kyuubi.flight.sql.kerberos.principal")
+      .contains("HTTP/flight@EXAMPLE.COM"))
   }
 
   test("kyuubi conf w/ w/o no sys defaults") {

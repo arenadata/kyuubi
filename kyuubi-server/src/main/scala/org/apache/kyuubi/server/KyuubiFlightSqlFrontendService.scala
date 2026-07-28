@@ -27,10 +27,13 @@ import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.kyuubi.{KyuubiException, Logging}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
+import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.server.flight.{
   KyuubiFlightAuthHandler,
-  KyuubiFlightSqlProducer}
+  KyuubiFlightSqlProducer,
+  KyuubiFlightTlsUtils}
 import org.apache.kyuubi.util.JavaUtils
 
 class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
@@ -40,6 +43,7 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   private var producer: KyuubiFlightSqlProducer = _
   private var flightServer: FlightServer = _
   private var configuredPort: Int = _
+  private var tlsMaterial: Option[KyuubiFlightTlsUtils.TlsMaterial] = None
 
   private val started = new AtomicBoolean(false)
 
@@ -51,55 +55,67 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
     }
   }
 
-  private def configuredLocation: Location =
-    Location.forGrpcInsecure(host, configuredPort)
+  private def sslEnabled: Boolean = conf.get(FRONTEND_FLIGHT_SQL_SSL_ENABLED)
+
+  private def locationFor(hostName: String, port: Int): Location =
+    if (sslEnabled) Location.forGrpcTls(hostName, port)
+    else Location.forGrpcInsecure(hostName, port)
+
+  private def configuredLocation: Location = locationFor(host, configuredPort)
 
   private def currentLocation: Location = {
     val advertisedHost = conf.get(FRONTEND_ADVERTISED_HOST).getOrElse(host)
     if (flightServer != null && started.get()) {
-      Location.forGrpcInsecure(advertisedHost, flightServer.getPort)
+      locationFor(advertisedHost, flightServer.getPort)
     } else {
-      Location.forGrpcInsecure(advertisedHost, configuredPort)
+      locationFor(advertisedHost, configuredPort)
     }
   }
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
-    this.conf = conf
-    configuredPort = conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT)
+    this.conf = normalizeLegacyFlightSqlConf(conf)
+    configuredPort = this.conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT)
     allocator = new RootAllocator()
     producer = new KyuubiFlightSqlProducer(
       serverable.backendService,
       allocator,
       () => currentLocation,
-      conf)
-    super.initialize(conf)
+      this.conf)
+    super.initialize(this.conf)
   }
 
   override def start(): Unit = synchronized {
     if (!started.get()) {
       try {
-        if (conf.get(FRONTEND_FLIGHT_SQL_SSL_ENABLED)) {
-          throw new IllegalArgumentException(
-            "Arrow Flight SQL TLS requires PEM certificate and key files; " +
-              "the current Kyuubi keystore settings are not supported by Arrow Flight 16")
-        }
-        flightServer = FlightServer
+        val builder = FlightServer
           .builder(allocator, configuredLocation, producer)
-          .headerAuthenticator(new KyuubiFlightAuthHandler(conf))
+          .headerAuthenticator(KyuubiFlightAuthHandler.create(conf))
           .backpressureThreshold(10 * 1024 * 1024)
-          .build()
-          .start()
+
+        if (sslEnabled) {
+          val material = KyuubiFlightTlsUtils.resolve(conf)
+          KyuubiFlightTlsUtils.validateCertPresent(material)
+          tlsMaterial = Some(material)
+          builder.useTls(material.certFile, material.keyFile)
+        }
+
+        flightServer = builder.build().start()
         started.set(true)
-        info(s"Flight SQL frontend service started at $connectionUrl")
+        info(s"Flight SQL frontend service started at $connectionUrl" +
+          s" (tls=$sslEnabled)")
       } catch {
         case NonFatal(e) =>
+          MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_CONN_FAIL))
           if (flightServer != null) {
-            try flightServer.close() catch {
+            try flightServer.close()
+            catch {
               case NonFatal(closeError) =>
                 warn("Failed to close Flight SQL server after startup failure", closeError)
             }
             flightServer = null
           }
+          tlsMaterial.foreach(_.cleanup())
+          tlsMaterial = None
           throw new KyuubiException("Cannot start Flight SQL frontend service", e)
       }
     }
@@ -109,18 +125,23 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   override def stop(): Unit = synchronized {
     if (started.getAndSet(false)) {
       if (producer != null) {
-        try producer.close() catch {
+        try producer.close()
+        catch {
           case NonFatal(e) => warn("Failed to close Flight SQL producer", e)
         }
       }
       if (flightServer != null) {
-        try flightServer.close() catch {
+        try flightServer.close()
+        catch {
           case NonFatal(e) => warn("Failed to close Flight SQL server", e)
         }
         flightServer = null
       }
+      tlsMaterial.foreach(_.cleanup())
+      tlsMaterial = None
       if (allocator != null) {
-        try allocator.close() catch {
+        try allocator.close()
+        catch {
           case NonFatal(e) => warn("Failed to close Flight SQL allocator", e)
         }
         allocator = null
@@ -135,5 +156,38 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
     s"$advertisedHost:${if (flightServer != null) flightServer.getPort else configuredPort}"
   }
 
-  override val discoveryService: Option[Service] = None
+  /** Client-facing URI including the Flight transport scheme. */
+  def flightUri: String = {
+    val scheme = if (sslEnabled) "grpc+tls" else "grpc"
+    s"$scheme://$connectionUrl"
+  }
+
+  override lazy val discoveryService: Option[Service] = {
+    if (ServiceDiscovery.supportServiceDiscovery(conf)) {
+      Some(new FlightSqlServiceDiscovery(this))
+    } else {
+      None
+    }
+  }
+
+  private def normalizeLegacyFlightSqlConf(input: KyuubiConf): KyuubiConf = {
+    // Deprecated ticket aliases are accepted only when the canonical key is unset.
+    copyIfAbsent(input, "kyuubi.flight.sql.bind.host", FRONTEND_FLIGHT_SQL_BIND_HOST.key)
+    copyIfAbsent(input, "kyuubi.flight.sql.bind.port", FRONTEND_FLIGHT_SQL_BIND_PORT.key)
+    copyIfAbsent(input, "kyuubi.flight.sql.tls.enabled", FRONTEND_FLIGHT_SQL_SSL_ENABLED.key)
+    copyIfAbsent(input, "kyuubi.flight.sql.kerberos.principal", SERVER_SPNEGO_PRINCIPAL.key)
+    input.getOption("kyuubi.flight.sql.enabled").foreach { enabled =>
+      if (enabled.equalsIgnoreCase("true") && !input.isFlightSqlEnabled) {
+        val protocols = input.get(FRONTEND_PROTOCOLS) :+ FrontendProtocols.FLIGHT_SQL.toString
+        input.set(FRONTEND_PROTOCOLS, protocols.distinct)
+      }
+    }
+    input
+  }
+
+  private def copyIfAbsent(conf: KyuubiConf, legacyKey: String, canonicalKey: String): Unit = {
+    if (conf.getOption(canonicalKey).isEmpty) {
+      conf.getOption(legacyKey).foreach(value => conf.set(canonicalKey, value))
+    }
+  }
 }

@@ -17,8 +17,6 @@
 
 package org.apache.kyuubi.server.flight
 
-import java.io.ByteArrayInputStream
-import java.nio.channels.Channels
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -34,18 +32,16 @@ import org.apache.arrow.flight.sql.{CancelResult, NoOpFlightSqlProducer, SqlInfo
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
 import org.apache.arrow.flight.sql.impl.FlightSql._
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
-import org.apache.arrow.vector.ipc.ReadChannel
-import org.apache.arrow.vector.ipc.message.{ArrowRecordBatch, MessageSerializer}
 import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
 import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, OPERATION_RESULT_FORMAT}
-import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle, OperationState, OperationStatus}
+import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
+import org.apache.kyuubi.operation.{OperationHandle, OperationState, OperationStatus}
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.SessionHandle
-import org.apache.kyuubi.shaded.hive.service.rpc.thrift.{TProtocolVersion, TRowSet}
+import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 
 class KyuubiFlightSqlProducer(
     backend: BackendService,
@@ -58,7 +54,8 @@ class KyuubiFlightSqlProducer(
       owner: String,
       session: SessionHandle,
       operation: OperationHandle,
-      schema: Schema)
+      schema: Schema,
+      ownerEndpoint: String)
 
   private val queryStates = new ConcurrentHashMap[String, QueryState]()
 
@@ -81,6 +78,10 @@ class KyuubiFlightSqlProducer(
       command: CommandStatementQuery,
       context: CallContext,
       descriptor: FlightDescriptor): FlightInfo = {
+    MetricsSystem.tracing { ms =>
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_TOTAL)
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
+    }
     try {
       val owner = ownerOf(context)
       val session = openSession(owner)
@@ -91,25 +92,31 @@ class KyuubiFlightSqlProducer(
           Map.empty,
           runAsync = true,
           queryTimeout = 0)
-        val status = waitForCompletion(operation)
+        val status = waitForCompletion(operation, () => context.isCancelled)
         val schema = KyuubiFlightArrowUtils.schemaFromMetadata(
           backend.getResultSetMetadata(operation))
         if (status.state != OperationState.FINISHED) {
           closeResources(session, operation)
+          MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
+          MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
           throw operationError(status)
         }
         val id = UUID.randomUUID().toString
-        queryStates.put(id, QueryState(owner, session, operation, schema))
+        val endpointLocation = location()
+        queryStates.put(
+          id,
+          QueryState(owner, session, operation, schema, endpointLocation.getUri.toString))
         val ticket = statementTicket(id)
         new FlightInfo(
           schema,
           descriptor,
-          java.util.Arrays.asList(new FlightEndpoint(ticket, location())),
+          java.util.Arrays.asList(new FlightEndpoint(ticket, endpointLocation)),
           -1L,
           -1L)
       } catch {
         case NonFatal(e) =>
-          try backend.closeSession(session) catch {
+          try backend.closeSession(session)
+          catch {
             case NonFatal(closeError) => warn("Failed to close Flight SQL session", closeError)
           }
           throw e
@@ -134,7 +141,7 @@ class KyuubiFlightSqlProducer(
         Map.empty,
         runAsync = true,
         queryTimeout = 0)
-      val status = waitForCompletion(operation)
+      val status = waitForCompletion(operation, () => context.isCancelled)
       if (status.state != OperationState.FINISHED) {
         throw operationError(status)
       }
@@ -154,50 +161,55 @@ class KyuubiFlightSqlProducer(
       listener: ServerStreamListener): Unit = {
     val id = ticket.getStatementHandle.toStringUtf8
     val state = Option(queryStates.get(id)).getOrElse(
-      throw flightError(CallStatus.NOT_FOUND, new IllegalArgumentException("Unknown Flight SQL ticket")))
+      throw flightError(
+        CallStatus.NOT_FOUND,
+        new IllegalArgumentException("Unknown Flight SQL ticket")))
     if (state.owner != ownerOf(context)) {
-      throw flightError(CallStatus.UNAUTHORIZED, new SecurityException("Flight SQL ticket owner mismatch"))
+      throw flightError(
+        CallStatus.UNAUTHORIZED,
+        new SecurityException("Flight SQL ticket owner mismatch"))
+    }
+    val current = location().getUri.toString
+    if (state.ownerEndpoint != current) {
+      throw flightError(
+        CallStatus.UNAVAILABLE,
+        new IllegalStateException(
+          s"Flight SQL ticket is owned by ${state.ownerEndpoint}, not $current. " +
+            "Retry against the owning endpoint; transparent failover is not supported."))
     }
 
-    listener.setOnCancelHandler(() => cancelState(state))
-    val root = VectorSchemaRoot.create(state.schema, allocator)
+    val iterator = new FlightResultIterator(
+      backend,
+      state.operation,
+      state.schema,
+      allocator,
+      fetchPageSize,
+      () => context.isCancelled || listener.isCancelled)
+    listener.setOnCancelHandler(() => {
+      MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
+      iterator.cancel()
+    })
     try {
-      listener.start(root)
-      val loader = new VectorLoader(root)
-      var finished = false
-      while (!finished && !context.isCancelled && !listener.isCancelled) {
-        val rowSet = backend.fetchResults(
-          state.operation,
-          FetchOrientation.FETCH_NEXT,
-          fetchPageSize,
-          fetchLog = false).getResults
-        if (isEmpty(rowSet)) {
-          finished = true
-        } else if (isArrowRowSet(rowSet)) {
-          root.clear()
-          val batch = decodeBatch(rowSet)
-          try {
-            loader.load(batch)
-            root.setRowCount(batch.getLength)
-            if (root.getRowCount > 0) listener.putNext()
-          } finally {
-            batch.close()
-          }
-        } else {
-          KyuubiFlightArrowUtils.populateRoot(root, KyuubiFlightArrowUtils.rowSetToRows(rowSet))
-          if (root.getRowCount > 0) listener.putNext()
+      iterator.start(listener)
+      var ok = true
+      while (ok && !context.isCancelled && !listener.isCancelled) {
+        ok = iterator.nextBatch()
+        if (ok && iterator.currentRoot.getRowCount > 0) {
+          listener.putNext()
         }
       }
       if (context.isCancelled || listener.isCancelled) {
-        cancelState(state)
+        iterator.cancel()
       } else {
         listener.completed()
       }
     } catch {
       case NonFatal(e) =>
+        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
         if (!context.isCancelled && !listener.isCancelled) listener.error(e)
     } finally {
-      root.close()
+      iterator.close()
+      MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
       closeState(id, state)
     }
   }
@@ -246,14 +258,18 @@ class KyuubiFlightSqlProducer(
     val catalog = if (command.hasCatalog) command.getCatalog else null
     val schema = if (command.hasDbSchemaFilterPattern) command.getDbSchemaFilterPattern else null
     val table = if (command.hasTableNameFilterPattern) command.getTableNameFilterPattern else null
-    streamMetadata(context, listener, if (command.getIncludeSchema) Schemas.GET_TABLES_SCHEMA
-    else Schemas.GET_TABLES_SCHEMA_NO_SCHEMA, s =>
-      backend.getTables(
-        s,
-        Option(catalog).getOrElse(""),
-        Option(schema).getOrElse(""),
-        Option(table).getOrElse(""),
-        command.getTableTypesList))
+    streamMetadata(
+      context,
+      listener,
+      if (command.getIncludeSchema) Schemas.GET_TABLES_SCHEMA
+      else Schemas.GET_TABLES_SCHEMA_NO_SCHEMA,
+      s =>
+        backend.getTables(
+          s,
+          Option(catalog).getOrElse(""),
+          Option(schema).getOrElse(""),
+          Option(table).getOrElse(""),
+          command.getTableTypesList))
   }
 
   override def getFlightInfoTableTypes(
@@ -305,6 +321,7 @@ class KyuubiFlightSqlProducer(
       Option(queryStates.get(id)) match {
         case Some(state) if state.owner == ownerOf(context) =>
           cancelState(state)
+          MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
           listener.onNext(CancelResult.CANCELLED)
         case Some(_) =>
           listener.onNext(CancelResult.NOT_CANCELLABLE)
@@ -343,43 +360,46 @@ class KyuubiFlightSqlProducer(
     val owner = ownerOf(context)
     val session = openSession(owner)
     var operation: OperationHandle = null
-    val root = VectorSchemaRoot.create(schema, allocator)
+    var iterator: FlightResultIterator = null
+    MetricsSystem.tracing { ms =>
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_TOTAL)
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
+    }
     try {
       operation = operationFactory(session)
-      val status = waitForCompletion(operation)
+      val status = waitForCompletion(operation, () => context.isCancelled || listener.isCancelled)
       if (status.state != OperationState.FINISHED) throw operationError(status)
+      iterator = new FlightResultIterator(
+        backend,
+        operation,
+        schema,
+        allocator,
+        fetchPageSize,
+        () => context.isCancelled || listener.isCancelled)
       listener.setOnCancelHandler(() => {
-        if (operation != null) {
-          try backend.cancelOperation(operation) catch {
-            case NonFatal(e) => warn("Failed to cancel metadata operation", e)
-          }
-        }
+        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
+        iterator.cancel()
       })
-      listener.start(root)
-      var finished = false
-      while (!finished && !context.isCancelled && !listener.isCancelled) {
-        val rowSet = backend.fetchResults(
-          operation,
-          FetchOrientation.FETCH_NEXT,
-          fetchPageSize,
-          fetchLog = false).getResults
-        if (isEmpty(rowSet)) {
-          finished = true
-        } else {
-          KyuubiFlightArrowUtils.populateRoot(root, KyuubiFlightArrowUtils.rowSetToRows(rowSet))
-          if (root.getRowCount > 0) listener.putNext()
+      iterator.start(listener)
+      var ok = true
+      while (ok && !context.isCancelled && !listener.isCancelled) {
+        ok = iterator.nextBatch()
+        if (ok && iterator.currentRoot.getRowCount > 0) {
+          listener.putNext()
         }
       }
       if (context.isCancelled || listener.isCancelled) {
-        backend.cancelOperation(operation)
+        iterator.cancel()
       } else {
         listener.completed()
       }
     } catch {
       case NonFatal(e) =>
+        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
         if (!context.isCancelled && !listener.isCancelled) listener.error(e)
     } finally {
-      root.close()
+      if (iterator != null) iterator.close()
+      MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
       closeResources(session, operation)
     }
   }
@@ -399,9 +419,11 @@ class KyuubiFlightSqlProducer(
           KyuubiConf.FrontendProtocols.FLIGHT_SQL.toString))
   }
 
-  private def waitForCompletion(operation: OperationHandle): OperationStatus = {
+  private def waitForCompletion(
+      operation: OperationHandle,
+      isCancelled: () => Boolean): OperationStatus = {
     var status = backend.getOperationStatus(operation, Some(1000L))
-    while (!OperationState.isTerminal(status.state)) {
+    while (!OperationState.isTerminal(status.state) && !isCancelled()) {
       status = backend.getOperationStatus(operation, Some(1000L))
     }
     status
@@ -414,25 +436,6 @@ class KyuubiFlightSqlProducer(
     new Ticket(ProtoAny.pack(statementTicket).toByteArray)
   }
 
-  private def decodeBatch(rowSet: TRowSet): ArrowRecordBatch = {
-    val buffer = rowSet.getColumns.get(0).getBinaryVal.getValues.get(0)
-    val bytes = new Array[Byte](buffer.remaining())
-    buffer.duplicate().get(bytes)
-    MessageSerializer.deserializeRecordBatch(
-      new ReadChannel(Channels.newChannel(new ByteArrayInputStream(bytes))),
-      allocator)
-  }
-
-  private def isArrowRowSet(rowSet: TRowSet): Boolean =
-    rowSet != null &&
-      rowSet.getColumnsSize == 1 &&
-      rowSet.getColumns.get(0).isSetBinaryVal &&
-      rowSet.getColumns.get(0).getBinaryVal.getValuesSize == 1
-
-  private def isEmpty(rowSet: TRowSet): Boolean =
-    rowSet == null ||
-      (rowSet.getColumnsSize == 0 && (rowSet.getRows == null || rowSet.getRows.isEmpty))
-
   private def ownerOf(context: CallContext): String =
     Option(context.peerIdentity()).filter(_.nonEmpty).getOrElse("anonymous")
 
@@ -444,19 +447,22 @@ class KyuubiFlightSqlProducer(
 
   private def closeResources(session: SessionHandle, operation: OperationHandle): Unit = {
     if (operation != null) {
-      try backend.closeOperation(operation) catch {
+      try backend.closeOperation(operation)
+      catch {
         case NonFatal(e) => warn(s"Failed to close Flight SQL operation $operation", e)
       }
     }
     if (session != null) {
-      try backend.closeSession(session) catch {
+      try backend.closeSession(session)
+      catch {
         case NonFatal(e) => warn(s"Failed to close Flight SQL session $session", e)
       }
     }
   }
 
   private def cancelState(state: QueryState): Unit = {
-    try backend.cancelOperation(state.operation) catch {
+    try backend.cancelOperation(state.operation)
+    catch {
       case NonFatal(e) => warn(s"Failed to cancel Flight SQL operation ${state.operation}", e)
     }
   }
