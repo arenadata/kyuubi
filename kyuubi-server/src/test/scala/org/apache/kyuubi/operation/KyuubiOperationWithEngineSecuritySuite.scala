@@ -43,7 +43,6 @@ class KyuubiOperationWithEngineSecuritySuite extends WithKyuubiServer with HiveJ
   override def beforeAll(): Unit = {
     super.beforeAll()
     withDiscoveryClient(conf) { discoveryClient =>
-      discoveryClient.create(engineSecretNode, "PERSISTENT", false)
       discoveryClient.startSecretNode("PERSISTENT", engineSecretNode, engineSecret)
       val expected = engineSecret.getBytes(StandardCharsets.UTF_8)
       assert(discoveryClient.getData(engineSecretNode) === expected)

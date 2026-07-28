@@ -484,6 +484,40 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
     val toady = DateTimeFormatter.ofPattern("yyyyMMdd").format(LocalDate.now())
     assert(commands1.contains(s"spark.kubernetes.file.upload.path=hdfs:///spark-upload-$toady"))
   }
+
+  test("engineSecurityGrpcInterceptorConf") {
+    val key = "spark.connect.grpc.interceptor.classes"
+    val cls = "org.apache.kyuubi.engine.spark.connect.KyuubiEngineTokenServerInterceptor"
+
+    // disabled: no-op regardless of any existing interceptor conf
+    val disabledBuilder = new SparkProcessBuilder("kyuubi", true, conf)
+    assert(disabledBuilder.engineSecurityGrpcInterceptorConf(Map(key -> "com.example.Foo")).isEmpty)
+
+    val enabledConf = conf.set(ENGINE_SECURITY_ENABLED, true)
+    val builder = new SparkProcessBuilder("kyuubi", true, enabledConf)
+
+    // nothing set anywhere: just our interceptor
+    assert(builder.engineSecurityGrpcInterceptorConf(Map.empty) === Map(key -> cls))
+
+    // already set via Kyuubi conf: appended
+    assert(
+      builder.engineSecurityGrpcInterceptorConf(Map(key -> "com.example.Foo")) ===
+        Map(key -> s"com.example.Foo,$cls"))
+
+    // already lists our class explicitly: not duplicated
+    assert(
+      builder.engineSecurityGrpcInterceptorConf(Map(key -> s"com.example.Foo,$cls")) ===
+        Map(key -> s"com.example.Foo,$cls"))
+
+    // set only in spark-defaults.conf, absent from Kyuubi conf: still picked up and appended
+    val defaultsBuilder = new SparkProcessBuilder("kyuubi", true, enabledConf) {
+      override protected lazy val defaultsConf: Map[String, String] =
+        Map(key -> "com.example.Bar")
+    }
+    assert(
+      defaultsBuilder.engineSecurityGrpcInterceptorConf(Map.empty) ===
+        Map(key -> s"com.example.Bar,$cls"))
+  }
 }
 
 class FakeSparkProcessBuilder(config: KyuubiConf)
