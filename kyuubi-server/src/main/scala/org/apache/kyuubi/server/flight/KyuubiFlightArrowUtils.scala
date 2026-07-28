@@ -267,8 +267,8 @@ object KyuubiFlightArrowUtils {
       case _: ArrowType.Binary =>
         vector.asInstanceOf[VarBinaryVector].setSafe(rowIndex, bytes(value))
       case _: ArrowType.Bool =>
-        val bit = value match {
-          case b: java.lang.Boolean => b
+        val bit: Boolean = value match {
+          case b: java.lang.Boolean => b.booleanValue()
           case s: String => s.toBoolean
           case _ => number(value).intValue() != 0
         }
