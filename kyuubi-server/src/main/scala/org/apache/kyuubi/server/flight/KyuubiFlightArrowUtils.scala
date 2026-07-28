@@ -24,7 +24,6 @@ import java.util.Collections
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector._
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
