@@ -36,7 +36,7 @@ import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.ha.client.{ServiceDiscovery, SparkConnectServiceDiscovery}
 import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, JdbcTokenStore, KerberosCredentialHandler, SparkConnectAuthInterceptor, SparkConnectAuthServiceImpl, SparkConnectCredentialHandler, SparkConnectKerberosValidator, SparkConnectRawHeaderContext, SparkConnectSessionManager, SparkConnectTokenStore}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
-import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
+import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils, InternalSecurityAccessor}
 import org.apache.kyuubi.shaded.spark.connect.proto._
 import org.apache.kyuubi.util.JavaUtils
 
@@ -213,6 +213,9 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
+    if (conf.get(ENGINE_SECURITY_ENABLED)) {
+      InternalSecurityAccessor.initialize(conf, isServer = true)
+    }
     connectSessionManager = createSessionManager()
     val authTypes = conf.get(KyuubiConf.AUTHENTICATION_METHOD)
       .map(value => AuthTypes.withName(value))

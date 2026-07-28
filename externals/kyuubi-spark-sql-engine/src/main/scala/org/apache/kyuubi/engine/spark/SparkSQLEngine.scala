@@ -45,6 +45,7 @@ import org.apache.kyuubi.events.EventBus
 import org.apache.kyuubi.ha.HighAvailabilityConf._
 import org.apache.kyuubi.ha.client.RetryPolicies
 import org.apache.kyuubi.service.Serverable
+import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
 import org.apache.kyuubi.session.SessionHandle
 import org.apache.kyuubi.util.{JavaUtils, SignalRegister, ThreadUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
@@ -77,6 +78,10 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   override def start(): Unit = {
     super.start()
     if (conf.isSparkConnectEnabled) {
+      // Don't rely on the Thrift frontend to init this as a side effect.
+      if (conf.get(ENGINE_SECURITY_ENABLED)) {
+        InternalSecurityAccessor.initialize(conf, false)
+      }
       val port = SparkConnectServerHelper.start(spark)
       val host = JavaUtils.findLocalInetAddress.getHostAddress
       _connectUrl = Some(s"$host:$port")

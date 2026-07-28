@@ -18,13 +18,18 @@
 package org.apache.kyuubi.service.authentication
 
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ZK_ENGINE_SECURE_SECRET_NODE
+import org.apache.kyuubi.config.KyuubiConf.ENGINE_SECURITY_CRYPTO_KEY_LENGTH
+import org.apache.kyuubi.ha.HighAvailabilityConf.{
+  HA_ZK_ENGINE_SECURE_SECRET_NODE,
+  HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider
 
 class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProvider {
   import DiscoveryClientProvider._
+  import ZooKeeperEngineSecuritySecretProviderImpl._
 
   private var conf: KyuubiConf = _
 
@@ -33,11 +38,34 @@ class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProv
   }
 
   override def getSecret(): String = {
-    conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE).map { zkNode =>
-      withDiscoveryClient[String](conf) { discoveryClient =>
+    val zkNode = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE)
+    val autoCreate = conf.get(HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE)
+    withDiscoveryClient[String](conf) { discoveryClient =>
+      if (discoveryClient.pathExists(zkNode)) {
+        new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
+      } else if (!autoCreate) {
+        throw new IllegalArgumentException(
+          s"ZooKeeper node $zkNode does not exist and " +
+            s"${HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE.key} is false; please create it " +
+            "manually before enabling engine security, or leave auto-create enabled.")
+      } else {
+        // startSecretNode() creates the node with this data atomically - node and data become
+        // visible together - so no concurrent reader can ever observe it existing but empty.
+        // If another server/engine wins the race, it leaves that node untouched and we just
+        // re-read whatever data won below, so no lock is needed here at all.
+        discoveryClient.startSecretNode("PERSISTENT", zkNode, generateSecret(conf))
         new String(discoveryClient.getData(zkNode), StandardCharsets.UTF_8)
       }
-    }.getOrElse(
-      throw new IllegalArgumentException(s"${HA_ZK_ENGINE_SECURE_SECRET_NODE.key} is not defined"))
+    }
+  }
+}
+
+object ZooKeeperEngineSecuritySecretProviderImpl {
+  private val SECRET_CHARS = (('A' to 'Z') ++ ('a' to 'z') ++ ('0' to '9')).toArray
+
+  private[authentication] def generateSecret(conf: KyuubiConf): String = {
+    val length = conf.get(ENGINE_SECURITY_CRYPTO_KEY_LENGTH) / java.lang.Byte.SIZE
+    val random = new SecureRandom()
+    (0 until length).map(_ => SECRET_CHARS(random.nextInt(SECRET_CHARS.length))).mkString
   }
 }

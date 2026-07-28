@@ -26,7 +26,7 @@ import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 
 import org.apache.kyuubi.{KyuubiException, Logging}
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_PROTOCOLS, FrontendProtocols, SESSION_CLOSE_ON_DISCONNECT}
+import org.apache.kyuubi.config.KyuubiConf.{ENGINE_SECURITY_ENABLED, FRONTEND_PROTOCOLS, FrontendProtocols, SESSION_CLOSE_ON_DISCONNECT}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.ShareLevel.ShareLevel
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
@@ -39,12 +39,22 @@ class SparkConnectSessionManager(
     backendService: BackendService,
     shareLevel: ShareLevel = ShareLevel.USER) extends Logging {
 
-  protected def buildChannel(connectUrl: String): ManagedChannel =
-    ManagedChannelBuilder
-      .forTarget(connectUrl)
-      .usePlaintext()
-      .asInstanceOf[ManagedChannelBuilder[_]]
-      .build()
+  protected def buildChannel(connectUrl: String): ManagedChannel = {
+    if (backendService.sessionManager.getConf.get(ENGINE_SECURITY_ENABLED)) {
+      ManagedChannelBuilder
+        .forTarget(connectUrl)
+        .usePlaintext()
+        .intercept(new KyuubiEngineTokenClientInterceptor)
+        .asInstanceOf[ManagedChannelBuilder[_]]
+        .build()
+    } else {
+      ManagedChannelBuilder
+        .forTarget(connectUrl)
+        .usePlaintext()
+        .asInstanceOf[ManagedChannelBuilder[_]]
+        .build()
+    }
+  }
 
   case class ConnectSession(
       kyuubiHandle: SessionHandle,
