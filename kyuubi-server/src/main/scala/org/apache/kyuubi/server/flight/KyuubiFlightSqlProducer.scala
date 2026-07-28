@@ -25,8 +25,14 @@ import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
 import com.google.protobuf.{Any => ProtoAny, ByteString}
-
-import org.apache.arrow.flight.{CallStatus, FlightDescriptor, FlightEndpoint, FlightInfo, Location, SchemaResult, Ticket}
+import org.apache.arrow.flight.{
+  CallStatus,
+  FlightDescriptor,
+  FlightEndpoint,
+  FlightInfo,
+  Location,
+  SchemaResult,
+  Ticket}
 import org.apache.arrow.flight.FlightProducer.{CallContext, ServerStreamListener, StreamListener}
 import org.apache.arrow.flight.sql.{CancelResult, NoOpFlightSqlProducer, SqlInfoBuilder}
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
@@ -36,7 +42,9 @@ import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, OPERATION_RESULT_FORMAT}
+import org.apache.kyuubi.config.KyuubiConf.{
+  FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS,
+  OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.operation.{OperationHandle, OperationState, OperationStatus}
 import org.apache.kyuubi.service.BackendService

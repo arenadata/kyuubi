@@ -29,11 +29,11 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.server.flight.{
   KyuubiFlightAuthHandler,
   KyuubiFlightSqlProducer,
   KyuubiFlightTlsUtils}
+import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.util.JavaUtils
 
 class KyuubiFlightSqlFrontendService(override val serverable: Serverable)

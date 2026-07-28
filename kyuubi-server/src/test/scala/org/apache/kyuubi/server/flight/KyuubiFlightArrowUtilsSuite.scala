@@ -21,9 +21,9 @@ import java.nio.ByteBuffer
 import java.util
 
 import org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
-import org.apache.arrow.vector.VectorSchemaRoot
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
@@ -31,17 +31,24 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 class KyuubiFlightArrowUtilsSuite extends KyuubiFunSuite {
 
   test("populateRootFromRowSet writes columnar thrift without Seq materialization") {
+    val emptyFields = util.Collections.emptyList[Field]()
     val schema = new Schema(util.Arrays.asList(
-      new Field("flag", new FieldType(true, ArrowType.Bool.INSTANCE, null), util.Collections.emptyList()),
+      new Field("flag", new FieldType(true, ArrowType.Bool.INSTANCE, null), emptyFields),
       new Field(
         "id",
         new FieldType(true, new ArrowType.Int(32, true), null),
-        util.Collections.emptyList()),
+        emptyFields),
       new Field(
         "score",
-        new FieldType(true, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE), null),
-        util.Collections.emptyList()),
-      new Field("name", new FieldType(true, ArrowType.Utf8.INSTANCE, null), util.Collections.emptyList())))
+        new FieldType(
+          true,
+          new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE),
+          null),
+        emptyFields),
+      new Field(
+        "name",
+        new FieldType(true, ArrowType.Utf8.INSTANCE, null),
+        emptyFields)))
 
     val boolNulls = ByteBuffer.wrap(Array[Byte](0))
     val i32Nulls = ByteBuffer.wrap(Array[Byte](0))
@@ -49,7 +56,8 @@ class KyuubiFlightArrowUtilsSuite extends KyuubiFunSuite {
     val stringNulls = ByteBuffer.wrap(Array[Byte](0))
 
     val rowSet = new TRowSet()
-    rowSet.addToColumns(TColumn.boolVal(new TBoolColumn(util.Arrays.asList(true, false), boolNulls)))
+    rowSet.addToColumns(TColumn.boolVal(
+      new TBoolColumn(util.Arrays.asList(true, false), boolNulls)))
     rowSet.addToColumns(TColumn.i32Val(new TI32Column(util.Arrays.asList(1, 2), i32Nulls)))
     rowSet.addToColumns(TColumn.doubleVal(new TDoubleColumn(
       util.Arrays.asList(1.5d, 2.5d),

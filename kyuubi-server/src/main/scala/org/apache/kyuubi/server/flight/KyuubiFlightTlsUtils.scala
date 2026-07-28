@@ -78,7 +78,8 @@ object KyuubiFlightTlsUtils extends Logging {
     }
     val keyStorePassword = conf.get(FRONTEND_SSL_KEYSTORE_PASSWORD).getOrElse {
       throw new IllegalArgumentException(
-        s"${FRONTEND_SSL_KEYSTORE_PASSWORD.key} must be configured for Flight SQL TLS keystore fallback")
+        s"${FRONTEND_SSL_KEYSTORE_PASSWORD.key} must be configured " +
+          "for Flight SQL TLS keystore fallback")
     }
     val keyStoreType = conf.get(FRONTEND_SSL_KEYSTORE_TYPE).getOrElse(KeyStore.getDefaultType)
     val keyStore = KeyStore.getInstance(keyStoreType)

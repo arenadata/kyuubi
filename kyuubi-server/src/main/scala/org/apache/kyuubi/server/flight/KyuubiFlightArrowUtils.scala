@@ -267,14 +267,12 @@ object KyuubiFlightArrowUtils {
       case _: ArrowType.Binary =>
         vector.asInstanceOf[VarBinaryVector].setSafe(rowIndex, bytes(value))
       case _: ArrowType.Bool =>
-        vector.asInstanceOf[BitVector].setSafe(
-          rowIndex,
-          if (value match {
-              case b: java.lang.Boolean => b
-              case s: String => s.toBoolean
-              case _ => number(value).intValue() != 0
-            }) 1
-          else 0)
+        val bit = value match {
+          case b: java.lang.Boolean => b
+          case s: String => s.toBoolean
+          case _ => number(value).intValue() != 0
+        }
+        vector.asInstanceOf[BitVector].setSafe(rowIndex, if (bit) 1 else 0)
       case intType: ArrowType.Int =>
         intType.getBitWidth match {
           case 8 => vector.asInstanceOf[TinyIntVector].setSafe(rowIndex, number(value).byteValue())
@@ -290,10 +288,14 @@ object KyuubiFlightArrowUtils {
             vector.asInstanceOf[Float4Vector].setSafe(rowIndex, number(value).floatValue())
           case FloatingPointPrecision.DOUBLE =>
             vector.asInstanceOf[Float8Vector].setSafe(rowIndex, number(value).doubleValue())
-          case _ => throw new IllegalArgumentException(s"Unsupported floating point type $arrowType")
+          case _ =>
+            throw new IllegalArgumentException(
+              s"Unsupported floating point type $arrowType")
         }
       case _: ArrowType.Decimal =>
-        vector.asInstanceOf[DecimalVector].setSafe(rowIndex, new java.math.BigDecimal(value.toString))
+        vector.asInstanceOf[DecimalVector].setSafe(
+          rowIndex,
+          new java.math.BigDecimal(value.toString))
       case _: ArrowType.Date =>
         val days = value match {
           case d: Date => (d.getTime / (24L * 60L * 60L * 1000L)).toInt

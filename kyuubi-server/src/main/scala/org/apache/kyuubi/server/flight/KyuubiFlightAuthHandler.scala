@@ -24,7 +24,6 @@ import java.util.concurrent.TimeUnit
 import scala.util.control.NonFatal
 
 import com.google.common.cache.CacheBuilder
-
 import org.apache.arrow.flight.{CallHeaders, CallStatus}
 import org.apache.arrow.flight.auth2.{
   Auth2Constants,
@@ -107,9 +106,15 @@ class KyuubiFlightAuthHandler(conf: KyuubiConf)
       val result = authorization match {
         case Some(value) if value.startsWith(Auth2Constants.BASIC_PREFIX) =>
           authenticateBasic(value.stripPrefix(Auth2Constants.BASIC_PREFIX))
-        case Some(value) if value.regionMatches(true, 0, KyuubiFlightAuthHandler.NEGOTIATE_PREFIX, 0,
+        case Some(value)
+            if value.regionMatches(
+              true,
+              0,
+              KyuubiFlightAuthHandler.NEGOTIATE_PREFIX,
+              0,
               KyuubiFlightAuthHandler.NEGOTIATE_PREFIX.length) =>
-          authenticateNegotiate(value.substring(KyuubiFlightAuthHandler.NEGOTIATE_PREFIX.length))
+          authenticateNegotiate(
+            value.substring(KyuubiFlightAuthHandler.NEGOTIATE_PREFIX.length))
         case Some(value) if value.startsWith(Auth2Constants.BEARER_PREFIX) =>
           // Bearer validation is handled by GeneratedBearerTokenAuthenticator when enabled.
           throw CallStatus.UNAUTHENTICATED
