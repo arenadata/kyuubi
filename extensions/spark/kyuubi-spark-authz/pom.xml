@@ -21,12 +21,12 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1.1-4.3.0-4</version>
+        <version>1.11.1.2-4.4.0-0</version>
         <relativePath>../../../pom.xml</relativePath>
 
     </parent>
 
-    <artifactId>kyuubi-spark-authz_${scala.binary.version}</artifactId>
+    <artifactId>kyuubi-spark-authz-spark-${spark.binary.version}_${scala.binary.version}</artifactId>
     <packaging>jar</packaging>
     <name>Kyuubi Dev Spark Authorization Extension</name>
     <url>https://kyuubi.apache.org/</url>
