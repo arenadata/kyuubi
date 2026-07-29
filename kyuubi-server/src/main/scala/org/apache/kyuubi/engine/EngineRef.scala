@@ -29,7 +29,7 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.kyuubi.{KYUUBI_VERSION, KyuubiSQLException, Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_ENGINE_SUBMIT_TIME_KEY
+import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_PROFILE_NAME_KEY, KYUUBI_ENGINE_SUBMIT_TIME_KEY}
 import org.apache.kyuubi.engine.EngineType._
 import org.apache.kyuubi.engine.ShareLevel.{CONNECTION, GROUP, SERVER, SERVER_LOCAL, ShareLevel}
 import org.apache.kyuubi.engine.chat.ChatProcessBuilder
@@ -72,6 +72,10 @@ private[kyuubi] class EngineRef(
 
   private val engineType: EngineType = EngineType.withName(conf.get(ENGINE_TYPE))
 
+  // The engine profile applied to the session, if any.
+  private val profileName: Option[String] =
+    conf.getOption(KYUUBI_ENGINE_PROFILE_NAME_KEY).filter(_.nonEmpty)
+
   // Server-side engine pool size threshold
   private val poolThreshold: Int =
     Option(engineManager).map(_.getConf).getOrElse(KyuubiConf()).get(ENGINE_POOL_SIZE_THRESHOLD)
@@ -112,29 +116,37 @@ private[kyuubi] class EngineRef(
   private[kyuubi] val appUser: String = if (doAsEnabled) routingUser else Utils.currentUser
 
   @VisibleForTesting
-  private[kyuubi] val subdomain: String = conf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN) match {
-    case subdomain if clientPoolSize > 0 && (subdomain.isEmpty || enginePoolIgnoreSubdomain) =>
-      val poolSize = math.min(clientPoolSize, poolThreshold)
-      if (poolSize < clientPoolSize) {
-        warn(s"Request engine pool size($clientPoolSize) exceeds, fallback to " +
-          s"system threshold $poolThreshold")
-      }
-      val seqNum = enginePoolSelectPolicy match {
-        case "POLLING" =>
-          val snPath =
-            DiscoveryPaths.makePath(
-              s"${serverSpace}_${KYUUBI_VERSION}_${shareLevel}_${engineType}_seqNum",
-              routingUser,
-              clientPoolName)
-          DiscoveryClientProvider.withDiscoveryClient(conf) { client =>
-            client.getAndIncrement(snPath)
-          }
-        case "RANDOM" =>
-          Random.nextInt(poolSize)
-      }
-      s"$clientPoolName-${seqNum % poolSize}"
-    case Some(_subdomain) => _subdomain
-    case _ => "default" // [KYUUBI #1293]
+  private[kyuubi] val subdomain: String = {
+    val baseSubdomain = conf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN) match {
+      case subdomain if clientPoolSize > 0 && (subdomain.isEmpty || enginePoolIgnoreSubdomain) =>
+        val poolSize = math.min(clientPoolSize, poolThreshold)
+        if (poolSize < clientPoolSize) {
+          warn(s"Request engine pool size($clientPoolSize) exceeds, fallback to " +
+            s"system threshold $poolThreshold")
+        }
+        val seqNum = enginePoolSelectPolicy match {
+          case "POLLING" =>
+            val snPath =
+              DiscoveryPaths.makePath(
+                s"${serverSpace}_${KYUUBI_VERSION}_${shareLevel}_${engineType}_seqNum",
+                routingUser,
+                clientPoolName)
+            DiscoveryClientProvider.withDiscoveryClient(conf) { client =>
+              client.getAndIncrement(snPath)
+            }
+          case "RANDOM" =>
+            Random.nextInt(poolSize)
+        }
+        s"$clientPoolName-${seqNum % poolSize}"
+      case Some(_subdomain) => _subdomain
+      case _ => "default" // [KYUUBI #1293]
+    }
+    // Fold the resolved engine profile (if any) into the subdomain so that engines launched from
+    // different profiles never share an instance, even at USER/GROUP/SERVER share level.
+    // The profile name rides through the existing subdomain machinery (engine space, lock path and
+    // the admin enumeration), so no other discovery path needs to change. If the profile is absent,
+    // the subdomain is identical to vanilla Kyuubi, preserving backward compatibility.
+    profileName.map(p => s"${p}_$baseSubdomain").getOrElse(baseSubdomain)
   }
 
   /**

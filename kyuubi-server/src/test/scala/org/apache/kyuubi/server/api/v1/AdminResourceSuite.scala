@@ -34,7 +34,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_CONNECTION_URL_KEY
 import org.apache.kyuubi.engine.{ApplicationManagerInfo, ApplicationState, EngineRef, KubernetesInfo, KyuubiApplicationManager}
-import org.apache.kyuubi.engine.EngineType.SPARK_SQL
+import org.apache.kyuubi.engine.EngineType.{CHAT, SPARK_SQL}
 import org.apache.kyuubi.engine.ShareLevel.{CONNECTION, GROUP, USER}
 import org.apache.kyuubi.ha.HighAvailabilityConf
 import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery}
@@ -56,6 +56,9 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
     .set(AUTHENTICATION_CUSTOM_CLASS, classOf[AnonymousAuthenticationProviderImpl].getName)
     .set(SERVER_ADMINISTRATORS, Set("admin001"))
     .set(ENGINE_IDLE_TIMEOUT, Duration.ofMinutes(3).toMillis)
+    // engine profiles are materialized once at startup, so declare the idle profile up front.
+    .set("kyuubi.engine.profile.idleprof.type", CHAT.toString)
+    .set("kyuubi.engine.profile.idleprof.conf.kyuubi.engine.chat.provider", "ECHO")
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -606,6 +609,62 @@ class AdminResourceSuite extends KyuubiFunSuite with RestFrontendTestHelper {
         assert(engineMgr.getApplicationInfo(ApplicationManagerInfo(None), id).exists(
           _.state == ApplicationState.NOT_FOUND))
       }
+    }
+  }
+
+  test("list engines by profile - defined-but-idle profile and auth") {
+    // requires authentication
+    val unauth = webTarget.path("api/v1/admin/engine/profile")
+      .request(MediaType.APPLICATION_JSON_TYPE)
+      .get
+    assert(unauth.getStatus === 401)
+
+    // a defined profile with no running instances is reported as IDLE with 0 instances
+    val response = webTarget.path("api/v1/admin/engine/profile")
+      .request(MediaType.APPLICATION_JSON_TYPE)
+      .header(AUTHORIZATION_HEADER, HttpAuthUtils.basicAuthorizationHeader(Utils.currentUser))
+      .get
+    assert(response.getStatus === 200)
+    val groups = response.readEntity(new GenericType[Seq[EngineProfileGroup]]() {})
+    val idle = groups.find(_.getProfile == "idleprof")
+    assert(idle.isDefined)
+    assert(idle.get.getEngineType == "CHAT")
+    assert(idle.get.getInstanceCount == 0)
+    assert(idle.get.getStatus == "IDLE")
+    assert(idle.get.getEngines.isEmpty)
+  }
+
+  test("list engines by profile - admin without proxyUser lists all users") {
+    conf.set(HighAvailabilityConf.HA_NAMESPACE, "kyuubi_test")
+    val typeRoot = s"kyuubi_test_${KYUUBI_VERSION}_USER_SPARK_SQL"
+    val aliceSpace = DiscoveryPaths.makePath(typeRoot, "alice", "default")
+    val bobSpace = DiscoveryPaths.makePath(typeRoot, "bob", "default")
+
+    withDiscoveryClient(conf) { client =>
+      // Register two fake engine instances owned by different users. They carry no profile
+      // attribute, so both land in the NO_PROFILE group.
+      client.createAndGetServiceNode(KyuubiConf(), aliceSpace, "localhost:10001")
+      client.createAndGetServiceNode(KyuubiConf(), bobSpace, "localhost:10002")
+
+      def listNoneGroupUsers(proxyUser: Option[String]): Set[String] = {
+        var target = webTarget.path("api/v1/admin/engine/profile")
+          .queryParam("sharelevel", "USER")
+        proxyUser.foreach(u => target = target.queryParam("hive.server2.proxy.user", u))
+        val response = target.request(MediaType.APPLICATION_JSON_TYPE)
+          .header(AUTHORIZATION_HEADER, HttpAuthUtils.basicAuthorizationHeader("admin001"))
+          .get
+        assert(response.getStatus === 200)
+        val groups = response.readEntity(new GenericType[Seq[EngineProfileGroup]]() {})
+        val noneGroup = groups.find(g => g.getProfile == "<none>" && g.getEngineType == "SPARK_SQL")
+        assert(noneGroup.isDefined, "expected a <none>/SPARK_SQL group")
+        noneGroup.get.getEngines.asScala.map(_.getUser).toSet
+      }
+
+      // An administrator that does not target a specific user sees both users' engines.
+      assert(Set("alice", "bob").subsetOf(listNoneGroupUsers(None)))
+
+      // Naming a proxy user scopes the listing back to that single user.
+      assert(listNoneGroupUsers(Some("alice")) === Set("alice"))
     }
   }
 

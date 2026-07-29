@@ -22,6 +22,11 @@ const router = [
     component: () => import('@/views/management/engine/index.vue')
   },
   {
+    path: '/management/engine-profile',
+    name: 'engine-profile',
+    component: () => import('@/views/management/engine-profile/index.vue')
+  },
+  {
     path: '/management/server',
     name: 'server',
     component: () => import('@/views/management/server/index.vue')

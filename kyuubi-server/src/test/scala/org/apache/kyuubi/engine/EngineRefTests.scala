@@ -29,6 +29,7 @@ import org.apache.kyuubi.{KYUUBI_VERSION, Utils}
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY
 import org.apache.kyuubi.engine.EngineType._
 import org.apache.kyuubi.engine.ShareLevel._
 import org.apache.kyuubi.ha.HighAvailabilityConf
@@ -255,6 +256,38 @@ trait EngineRefTests extends KyuubiFunSuite {
       val engine7 = new EngineRef(conf, user, true, PluginLoader.loadGroupProvider(conf), id, null)
       val engineNumber = Integer.parseInt(engine7.subdomain.substring(pool_name.length + 1))
       assert(engineNumber == (i % conf.get(ENGINE_POOL_SIZE)))
+    }
+  }
+
+  test("engine profile is folded into the subdomain to isolate the engine space") {
+    val id = UUID.randomUUID().toString
+    val engineType = conf.get(KyuubiConf.ENGINE_TYPE)
+    conf.set(KyuubiConf.ENGINE_SHARE_LEVEL, USER.toString)
+    conf.set(KyuubiConf.GROUP_PROVIDER, "hadoop")
+    try {
+      // no profile -> subdomain is unchanged (backward compatible)
+      val plain = new EngineRef(conf, user, true, PluginLoader.loadGroupProvider(conf), id, null)
+      assert(plain.subdomain === "default")
+
+      // a resolved profile is prefixed onto the subdomain, isolating the engine space
+      conf.set(KYUUBI_ENGINE_PROFILE_NAME_KEY, "spark3")
+      val profiled = new EngineRef(conf, user, true, PluginLoader.loadGroupProvider(conf), id, null)
+      assert(profiled.subdomain === "spark3_default")
+      val serverSpace = conf.get(HighAvailabilityConf.HA_NAMESPACE)
+      assert(profiled.engineSpace ===
+        DiscoveryPaths.makePath(
+          s"${serverSpace}_${KYUUBI_VERSION}_${USER}_$engineType",
+          user,
+          "spark3_default"))
+
+      // an explicit client subdomain still applies, with the profile keeping it isolated
+      conf.set(KyuubiConf.ENGINE_SHARE_LEVEL_SUBDOMAIN.key, "abc")
+      val profiledWithSubdomain =
+        new EngineRef(conf, user, true, PluginLoader.loadGroupProvider(conf), id, null)
+      assert(profiledWithSubdomain.subdomain === "spark3_abc")
+    } finally {
+      conf.unset(KYUUBI_ENGINE_PROFILE_NAME_KEY)
+      conf.unset(KyuubiConf.ENGINE_SHARE_LEVEL_SUBDOMAIN)
     }
   }
 

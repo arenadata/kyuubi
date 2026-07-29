@@ -15,16 +15,18 @@
  * limitations under the License.
  */
 
-interface IEngineSearch {
-  type: null | string
-  sharelevel: null | string
-  'hive.server2.proxy.user': null | string
-  subdomain?: null | string
-}
+package org.apache.kyuubi.engine
 
-interface IEngineProfileSearch {
-  sharelevel?: null | string
-  'hive.server2.proxy.user'?: null | string
-}
-
-export { IEngineSearch, IEngineProfileSearch }
+/**
+ * A materialized named engine profile, declared under
+ * `kyuubi.engine.profile.<name>.*`. The profile bundles, for a single named engine
+ * configuration, the engine type, environment variables, Kyuubi session variables and
+ * engine-native configs - already mapped to their effective Kyuubi config keys.
+ *
+ * All [[conf]] keys are applied to a session as defaults: any conflicting option the client
+ * supplies (e.g. via the JDBC url) overrides the profile.
+ *
+ * @param name the profile name
+ * @param conf the materialized engine-conf key-value pairs
+ */
+case class EngineProfile(name: String, conf: Map[String, String])

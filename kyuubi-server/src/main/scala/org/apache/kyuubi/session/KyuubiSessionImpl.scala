@@ -26,8 +26,8 @@ import org.apache.kyuubi.client.KyuubiSyncThriftClient
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiConf.EngineOpenOnFailure._
-import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_CREDENTIALS_KEY, KYUUBI_SESSION_HANDLE_KEY, KYUUBI_SESSION_SIGN_PUBLICKEY, KYUUBI_SESSION_USER_SIGN}
-import org.apache.kyuubi.engine.{EngineRef, KyuubiApplicationManager}
+import org.apache.kyuubi.config.KyuubiReservedKeys._
+import org.apache.kyuubi.engine.{EngineProfile, EngineProfileResolver, EngineRef, KyuubiApplicationManager}
 import org.apache.kyuubi.events.{EventBus, KyuubiSessionEvent}
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider._
@@ -56,15 +56,34 @@ class KyuubiSessionImpl(
 
   override val sessionType: SessionType = SessionType.INTERACTIVE
 
+  // The engine profile resolved for this session, if any. When None, behavior is unchanged.
+  private[kyuubi] val engineProfile: Option[EngineProfile] =
+    EngineProfileResolver.resolve(
+      sessionManager.getConf,
+      sessionManager.engineProfileRegistry,
+      user,
+      sessionManager.groupProvider.groups(user, normalizedConf.asJava).toSeq,
+      normalizedConf)
+
   private[kyuubi] val optimizedConf: Map[String, String] = {
     val confOverlay = sessionManager.sessionConfAdvisor.map(_.getConfOverlay(
       user,
       normalizedConf.asJava).asScala).reduce(_ ++ _)
-    if (confOverlay != null) {
-      normalizedConf ++ confOverlay
-    } else {
-      warn(s"the server plugin return null value for user: $user, ignore it")
-      normalizedConf
+    val mergedConf =
+      if (confOverlay != null) {
+        normalizedConf ++ confOverlay
+      } else {
+        warn(s"the server plugin return null value for user: $user, ignore it")
+        normalizedConf
+      }
+    engineProfile match {
+      case Some(profile) =>
+        // A profile supplies engine type, env, Kyuubi session vars and engine-native config as
+        // defaults; any option the client sent (e.g. via the JDBC url) overrides the profile.
+        // The resolved profile name is recorded so it can be surfaced as a service discovery
+        // attribute for the Web UI.
+        profile.conf ++ mergedConf + (KYUUBI_ENGINE_PROFILE_NAME_KEY -> profile.name)
+      case None => mergedConf
     }
   }
 
