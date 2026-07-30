@@ -81,12 +81,41 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    # The build above is Spark 3.5 only. The authz extension is Spark-version
+    # specific and its artifactId carries ${spark.artifact.version}, so a second,
+    # module-scoped build publishes the Spark 4 flavour under distinct
+    # coordinates. Non-Spark modules it depends on are already in the local
+    # repository from the step above, hence no -am.
+    - name: Build and Deploy Spark 4 Authz to GitHub Packages
+      run: >-
+        build/mvn -B -V -ntp clean deploy
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded
+        -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9 -Pspark-provided,flink-provided,hive-provided
+        -DskipTests -Drat.skip=true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Generate SBOM
       run: >-
         build/mvn -B -ntp
         org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
         -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9 -Pweb-ui
         -DoutputFormat=json -DoutputName=bom
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # The BOM above covers the Spark 3.5 reactor. The Spark 4 authz artifacts are
+    # built from a separate reactor, so they need their own BOM. `outputDirectory`
+    # is pinned because the aggregate goal otherwise writes into the first module
+    # of the reactor rather than the workspace root.
+    - name: Generate SBOM for Spark 4 Authz
+      run: >-
+        build/mvn -B -ntp
+        org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded
+        -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9
+        -DoutputFormat=json -DoutputName=bom-spark-4-authz
+        -DoutputDirectory=${{ github.workspace }}/target
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -98,10 +127,20 @@ jobs:
         output-format: json
         output-file: vulnerability-report.json
 
+    - name: Vulnerability scan for Spark 4 Authz (grype)
+      uses: anchore/scan-action@v6
+      with:
+        sbom: target/bom-spark-4-authz.json
+        fail-build: false
+        output-format: json
+        output-file: vulnerability-report-spark-4-authz.json
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         generate_release_notes: true
         files: |
           target/bom.json
+          target/bom-spark-4-authz.json
           vulnerability-report.json
+          vulnerability-report-spark-4-authz.json

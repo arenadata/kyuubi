@@ -27,7 +27,7 @@
 
     <groupId>org.apache.kyuubi</groupId>
     <artifactId>kyuubi-parent</artifactId>
-    <version>1.11.1.1-4.3.0-4</version>
+    <version>1.11.1.2-4.4.0-0</version>
     <packaging>pom</packaging>
 
     <name>Kyuubi Project Parent</name>
@@ -140,6 +140,9 @@
         <commons-cli.version>1.5.0</commons-cli.version>
         <commons-codec.version>1.17.1</commons-codec.version>
         <commons-collections.version>3.2.2</commons-collections.version>
+        <!-- Ranger needs commons-collections at runtime. Spark 3 ships it in jars/, Spark 4 does
+             not, so only the Spark 4-2 profile bundles it into kyuubi-spark-authz-shaded. -->
+        <commons-collections.shade.include>none:none</commons-collections.shade.include>
         <commons-io.version>2.16.1</commons-io.version>
         <commons-lang3.version>3.18.0</commons-lang3.version>
         <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
@@ -216,6 +219,13 @@
           -->
         <spark.version>3.5.4.4-4.3.0-2</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
+        <!--
+          Spark version marker embedded in the artifactId of the Spark-specific extensions.
+          Defaults to `spark.binary.version`, but several profiles share one binary version
+          (Spark 4.0/4.1/4.2 are all binary 4.0) while producing distinct artifacts, so those
+          profiles override this to their own minor version.
+          -->
+        <spark.artifact.version>${spark.binary.version}</spark.artifact.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
         <spark.archive.mirror>${apache.archive.dist}/spark/spark-${spark.version}</spark.archive.mirror>
@@ -2107,6 +2117,7 @@
                 <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
                 <spark.version>4.1.1</spark.version>
                 <spark.binary.version>4.0</spark.binary.version>
+                <spark.artifact.version>4.1</spark.artifact.version>
                 <antlr4.version>4.13.1</antlr4.version>
                 <delta.version>4.0.0</delta.version>
                 <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
@@ -2116,6 +2127,33 @@
                            paimon-spark-3.5 contains Scala 2.12 classes cause conflicts with Scala 2.13 -->
                 <paimon.artifact>paimon-common</paimon.artifact>
                 <maven.plugin.scalatest.exclude.tags>org.scalatest.tags.Slow,org.apache.kyuubi.tags.DeltaTest,org.apache.kyuubi.tags.IcebergTest,org.apache.kyuubi.tags.PaimonTest,org.apache.kyuubi.tags.HudiTest</maven.plugin.scalatest.exclude.tags>
+                <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>spark-4.2</id>
+            <modules>
+                <module>extensions/spark/kyuubi-extension-spark-4-1</module>
+                <module>extensions/spark/kyuubi-spark-connector-hive</module>
+            </modules>
+            <properties>
+                <maven.compiler.release>17</maven.compiler.release>
+                <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
+                <spark.version>4.2.0.1-4.3.0-2</spark.version>
+                <commons-collections.shade.include>commons-collections:commons-collections</commons-collections.shade.include>
+                <spark.binary.version>4.0</spark.binary.version>
+                <spark.artifact.version>4.2</spark.artifact.version>
+                <antlr4.version>4.13.1</antlr4.version>
+                <delta.version>4.0.0</delta.version>
+                <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
+                <!-- TODO: update once Hudi support Spark 4.1 -->
+                <hudi.artifact>hudi-spark3.5-bundle_${scala.binary.version}</hudi.artifact>
+                <!-- TODO: update once Paimon support Spark 4.1.
+                           paimon-spark-3.5 contains Scala 2.12 classes cause conflicts with Scala 2.13 -->
+                <paimon.artifact>paimon-common</paimon.artifact>
+                <maven.plugin.scalatest.exclude.tags>org.scalatest.tags.Slow,org.apache.kyuubi.tags.DeltaTest,org.apache.kyuubi.tags.IcebergTest,org.apache.kyuubi.tags.PaimonTest,org.apache.kyuubi.tags.HudiTest</maven.plugin.scalatest.exclude.tags>
+                <spark.archive.mirror>https://github.com/arenadata/spark/releases/download/v${spark.version}</spark.archive.mirror>
                 <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
             </properties>
         </profile>
