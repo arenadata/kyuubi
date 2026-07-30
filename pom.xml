@@ -219,6 +219,13 @@
           -->
         <spark.version>3.5.4.4-4.3.0-2</spark.version>
         <spark.binary.version>3.5</spark.binary.version>
+        <!--
+          Spark version marker embedded in the artifactId of the Spark-specific extensions.
+          Defaults to `spark.binary.version`, but several profiles share one binary version
+          (Spark 4.0/4.1/4.2 are all binary 4.0) while producing distinct artifacts, so those
+          profiles override this to their own minor version.
+          -->
+        <spark.artifact.version>${spark.binary.version}</spark.artifact.version>
         <spark.archive.scala.suffix></spark.archive.scala.suffix>
         <spark.archive.name>spark-${spark.version}-bin-hadoop3.tgz</spark.archive.name>
         <spark.archive.mirror>${apache.archive.dist}/spark/spark-${spark.version}</spark.archive.mirror>
@@ -2110,6 +2117,7 @@
                 <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
                 <spark.version>4.1.1</spark.version>
                 <spark.binary.version>4.0</spark.binary.version>
+                <spark.artifact.version>4.1</spark.artifact.version>
                 <antlr4.version>4.13.1</antlr4.version>
                 <delta.version>4.0.0</delta.version>
                 <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
@@ -2135,6 +2143,7 @@
                 <spark.version>4.2.0.1-4.3.0-2</spark.version>
                 <commons-collections.shade.include>commons-collections:commons-collections</commons-collections.shade.include>
                 <spark.binary.version>4.0</spark.binary.version>
+                <spark.artifact.version>4.2</spark.artifact.version>
                 <antlr4.version>4.13.1</antlr4.version>
                 <delta.version>4.0.0</delta.version>
                 <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>

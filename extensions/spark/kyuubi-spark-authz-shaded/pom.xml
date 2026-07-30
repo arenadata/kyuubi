@@ -25,7 +25,7 @@
         <relativePath>../../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>kyuubi-spark-authz-shaded-spark-${spark.binary.version}_${scala.binary.version}</artifactId>
+    <artifactId>kyuubi-spark-authz-shaded-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
     <packaging>jar</packaging>
     <name>Kyuubi Dev Spark Authorization Extension Shaded</name>
     <url>https://kyuubi.apache.org/</url>
@@ -39,7 +39,7 @@
     <dependencies>
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
-            <artifactId>kyuubi-spark-authz-spark-${spark.binary.version}_${scala.binary.version}</artifactId>
+            <artifactId>kyuubi-spark-authz-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!-- To be added for JDK15 and above -->
