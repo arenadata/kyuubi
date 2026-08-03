@@ -262,7 +262,7 @@ class HiveQuerySuite extends KyuubiHiveTest {
 
   test("ORC filter pushdown") {
     val table = "hive.default.orc_filter_pushdown"
-    withTable(table) {
+    dropTableAfter(table) {
       spark.sql(
         s"""
            | CREATE TABLE $table (
@@ -355,7 +355,7 @@ class HiveQuerySuite extends KyuubiHiveTest {
 
   test("PARQUET filter pushdown") {
     val table = "hive.default.parquet_filter_pushdown"
-    withTable(table) {
+    dropTableAfter(table) {
       spark.sql(
         s"""
            | CREATE TABLE $table (

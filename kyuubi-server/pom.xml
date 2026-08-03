@@ -554,5 +554,23 @@
                 </dependency>
             </dependencies>
         </profile>
+
+        <profile>
+            <id>spark-4.2</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.spark</groupId>
+                    <artifactId>spark-connect-client-jvm_${scala.binary.version}</artifactId>
+                    <version>${spark.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-spark-connect-client_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
     </profiles>
 </project>
