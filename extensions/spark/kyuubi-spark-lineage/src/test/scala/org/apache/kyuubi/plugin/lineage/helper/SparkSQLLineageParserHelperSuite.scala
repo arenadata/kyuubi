@@ -24,6 +24,7 @@ import org.apache.spark.kyuubi.lineage.{LineageConf, SparkContextHelper}
 import org.apache.spark.sql.{DataFrame, SparkListenerExtensionTest, SparkSession, SQLContext}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType}
+import org.apache.spark.sql.execution.CommandExecutionMode
 import org.apache.spark.sql.sources.{BaseRelation, InsertableRelation, SchemaRelationProvider}
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
 
@@ -1474,7 +1475,11 @@ abstract class SparkSQLLineageParserHelperSuite extends KyuubiFunSuite
 
   private def extractLineage(sql: String): Lineage = {
     val parsed = spark.sessionState.sqlParser.parsePlan(sql)
-    val qe = spark.sessionState.executePlan(parsed)
+    // Never actually executes the plan, so must use SKIP: since Spark 4.2 (transactional
+    // catalogs), a non-SKIP mode begins a catalog transaction during analysis that only gets
+    // committed/aborted by real execution - left dangling "Active" here, it fails the next
+    // statement's beginTransaction() assertion on the same (test-singleton) catalog instance.
+    val qe = spark.sessionState.executePlan(parsed, CommandExecutionMode.SKIP)
     val analyzed = qe.analyzed
     SparkSQLLineageParseHelper(spark).transformToLineage(0, analyzed).get
   }
