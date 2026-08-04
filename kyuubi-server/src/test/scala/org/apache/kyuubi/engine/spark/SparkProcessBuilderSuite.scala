@@ -448,6 +448,23 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
     }
   }
 
+  test("match Arenadata custom spark home naming") {
+    Seq(
+      "spark-3.5.4.4-4.3.0-2-bin-hadoop3",
+      "spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0",
+      "spark-4.2.0.1-4.3.0-2-bin-hadoop3").foreach { SPARK_HOME_ARENADATA =>
+      assertMatches(SPARK_HOME_ARENADATA, SPARK_HOME_REGEX_ARENADATA)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK3_HOME_REGEX_SCALA_212)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK3_HOME_REGEX_SCALA_213)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
+    }
+    Seq(
+      "spark-3.5.0-bin-hadoop3",
+      "spark-4.0.0-bin-hadoop3").foreach { nonArenadataHome =>
+      assertNotMatches(nonArenadataHome, SPARK_HOME_REGEX_ARENADATA)
+    }
+  }
+
   test("default spark.yarn.maxAppAttempts conf in yarn mode") {
     val conf1 = KyuubiConf(false)
     conf1.set("spark.master", "k8s://test:12345")

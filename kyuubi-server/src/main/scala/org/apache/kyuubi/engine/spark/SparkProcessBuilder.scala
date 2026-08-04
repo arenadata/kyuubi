@@ -128,7 +128,7 @@ class SparkProcessBuilder(
     val patterns = SCALA_COMPILE_VERSION match {
       case "2.12" => Seq(SPARK3_HOME_REGEX_SCALA_212)
       case "2.13" =>
-        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK3_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
+        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
     }
     file.isDirectory && patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }
@@ -490,7 +490,7 @@ object SparkProcessBuilder {
 
   // Matches Arenadata custom Spark distribution naming, either with a versioned Hadoop build
   // (spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0) or a plain Hadoop suffix
-  // (spark-3.5.4.4-4.3.0-2-bin-hadoop3)
-  final private[kyuubi] val SPARK3_HOME_REGEX_ARENADATA =
-    """^spark-3\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-(?:[\d.]+-[\d.]+-\d+|hadoop\d+(?:\.\d+)?)$""".r
+  // (spark-3.5.4.4-4.3.0-2-bin-hadoop3, spark-4.2.0.1-4.3.0-2-bin-hadoop3)
+  final private[kyuubi] val SPARK_HOME_REGEX_ARENADATA =
+    """^spark-[34]\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-(?:[\d.]+-[\d.]+-\d+|hadoop\d+(?:\.\d+)?)$""".r
 }
