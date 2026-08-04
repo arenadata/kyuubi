@@ -11,11 +11,6 @@ kyuubi.frontend.flight.sql.bind.host=0.0.0.0
 kyuubi.frontend.flight.sql.bind.port=10299
 ```
 
-Deprecated ticket aliases such as `kyuubi.flight.sql.enabled` and
-`kyuubi.flight.sql.bind.*` are accepted by the frontend only when the canonical
-`kyuubi.frontend.flight.sql.*` keys are unset. Prefer the canonical keys in new
-deployments. See [ADCM mapping](../deployment/adcm/flight_sql_config_mapping.md).
-
 The endpoint uses gRPC and is available at:
 
 ```text

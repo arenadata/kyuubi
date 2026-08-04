@@ -29,10 +29,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.server.flight.{
-  KyuubiFlightAuthHandler,
-  KyuubiFlightSqlProducer,
-  KyuubiFlightTlsUtils}
+import org.apache.kyuubi.server.flight.{KyuubiFlightAuthHandler, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.util.JavaUtils
 
@@ -73,7 +70,7 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   }
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
-    this.conf = normalizeLegacyFlightSqlConf(conf)
+    this.conf = conf
     configuredPort = this.conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT)
     allocator = new RootAllocator()
     producer = new KyuubiFlightSqlProducer(
@@ -156,38 +153,11 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
     s"$advertisedHost:${if (flightServer != null) flightServer.getPort else configuredPort}"
   }
 
-  /** Client-facing URI including the Flight transport scheme. */
-  def flightUri: String = {
-    val scheme = if (sslEnabled) "grpc+tls" else "grpc"
-    s"$scheme://$connectionUrl"
-  }
-
   override lazy val discoveryService: Option[Service] = {
     if (ServiceDiscovery.supportServiceDiscovery(conf)) {
       Some(new FlightSqlServiceDiscovery(this))
     } else {
       None
-    }
-  }
-
-  private def normalizeLegacyFlightSqlConf(input: KyuubiConf): KyuubiConf = {
-    // Deprecated ticket aliases are accepted only when the canonical key is unset.
-    copyIfAbsent(input, "kyuubi.flight.sql.bind.host", FRONTEND_FLIGHT_SQL_BIND_HOST.key)
-    copyIfAbsent(input, "kyuubi.flight.sql.bind.port", FRONTEND_FLIGHT_SQL_BIND_PORT.key)
-    copyIfAbsent(input, "kyuubi.flight.sql.tls.enabled", FRONTEND_FLIGHT_SQL_SSL_ENABLED.key)
-    copyIfAbsent(input, "kyuubi.flight.sql.kerberos.principal", SERVER_SPNEGO_PRINCIPAL.key)
-    input.getOption("kyuubi.flight.sql.enabled").foreach { enabled =>
-      if (enabled.equalsIgnoreCase("true") && !input.isFlightSqlEnabled) {
-        val protocols = input.get(FRONTEND_PROTOCOLS) :+ FrontendProtocols.FLIGHT_SQL.toString
-        input.set(FRONTEND_PROTOCOLS, protocols.distinct)
-      }
-    }
-    input
-  }
-
-  private def copyIfAbsent(conf: KyuubiConf, legacyKey: String, canonicalKey: String): Unit = {
-    if (conf.getOption(canonicalKey).isEmpty) {
-      conf.getOption(legacyKey).foreach(value => conf.set(canonicalKey, value))
     }
   }
 }

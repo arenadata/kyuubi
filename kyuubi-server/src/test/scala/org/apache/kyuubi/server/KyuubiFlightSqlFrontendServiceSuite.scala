@@ -66,23 +66,6 @@ class KyuubiFlightSqlFrontendServiceSuite extends KyuubiFunSuite {
     }
   }
 
-  test("Flight SQL normalizes deprecated aliases") {
-    val server = new KyuubiServer
-    val conf = KyuubiConf()
-      .set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
-      .set("kyuubi.flight.sql.bind.host", "localhost")
-      .set("kyuubi.flight.sql.bind.port", "0")
-
-    try {
-      server.initialize(conf)
-      val frontend = server.frontendServices.head.asInstanceOf[KyuubiFlightSqlFrontendService]
-      assert(frontend.connectionUrl.startsWith("localhost:"))
-      assert(frontend.discoveryService.isEmpty)
-    } finally {
-      server.stop()
-    }
-  }
-
   test("Flight SQL TLS without certificate material fails startup") {
     val server = new KyuubiServer
     val conf = KyuubiConf()
