@@ -50,6 +50,9 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
     val conf = newConf()
     conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
     conf.set("___alice___.kyuubi.engine.profile", "trino")
+    // check blacklisted profiles for other user/group don't affect resolution
+    conf.set("___bob___.kyuubi.engine.profiles.blacklist", "spark4")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark4")
     val profile = resolve(
       conf,
       "alice",
@@ -64,6 +67,9 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
     conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
     conf.set("___alice___.kyuubi.engine.profile", "spark4")
     conf.set("___analysts___.kyuubi.engine.profile", "trino")
+    // check blacklisted profiles for other user/group don't affect resolution
+    conf.set("___bob___.kyuubi.engine.profiles.blacklist", "spark4")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark4")
     val profile = resolve(conf, "alice", Seq("analysts"), Map.empty).get
     assert(profile.name === "spark4")
   }
@@ -71,6 +77,9 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
   test("tier 2 - group default profile when no user default") {
     val conf = newConf()
     conf.set("___analysts___.kyuubi.engine.profile", "trino")
+    // check blacklisted profiles for other user/group don't affect resolution
+    conf.set("___bob___.kyuubi.engine.profiles.blacklist", "trino")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "trino")
     val profile = resolve(conf, "alice", Seq("analysts"), Map.empty).get
     assert(profile.name === "trino")
     assert(profile.conf("kyuubi.engine.type") === "TRINO")
@@ -79,6 +88,9 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
   test("tier 3 - per-engine-type default from request engine type") {
     val conf = newConf()
     conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
+    // check blacklisted profiles for other user/group don't affect resolution
+    conf.set("___bob___.kyuubi.engine.profiles.blacklist", "spark3")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark3")
     val profile = resolve(
       conf,
       "alice",
@@ -91,6 +103,9 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
     val conf = newConf()
     conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
     conf.set("___analysts___.kyuubi.engine.type", "SPARK_SQL")
+    // check blacklisted profiles for other user/group don't affect resolution
+    conf.set("___bob___.kyuubi.engine.profiles.blacklist", "spark3")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark3")
     val profile = resolve(conf, "alice", Seq("analysts"), Map.empty).get
     assert(profile.name === "spark3")
   }
@@ -122,4 +137,120 @@ class EngineProfileResolverSuite extends KyuubiFunSuite {
       Seq.empty,
       Map("kyuubi.engine.profile" -> "does-not-exist")).isEmpty)
   }
+
+  test("explicit blacklisted profile for user fails") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark3, spark4")
+    val e = intercept[KyuubiSQLException] {
+      resolve(
+        conf,
+        "alice",
+        Seq.empty,
+        Map("kyuubi.engine.profile" -> "spark3"))
+    }
+    assert(e.getMessage.contains(
+      "user 'alice' is not allowed to use the engine profile 'spark3'"))
+  }
+
+  test("explicit blacklisted profile for group fails") {
+    val conf = newConf()
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark3")
+    val e = intercept[KyuubiSQLException] {
+      resolve(
+        conf,
+        "alice",
+        Seq("devs"),
+        Map("kyuubi.engine.profile" -> "spark3"))
+    }
+    assert(e.getMessage.contains(
+      "user 'alice' is not allowed to use the engine profile 'spark3'"))
+  }
+
+  test("explicit blacklisted profile for user or group fails") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark3,spark4, trino")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark3")
+    conf.set("___users___.kyuubi.engine.profiles.blacklist", "spark4,trino,other")
+
+    Seq("spark3", "spark4", "trino", "other")
+      .foreach { profile =>
+        val e = intercept[KyuubiSQLException] {
+          resolve(
+            conf,
+            "alice",
+            Seq("devs", "users"),
+            Map("kyuubi.engine.profile" -> profile))
+        }
+        assert(e.getMessage.contains(
+          s"user 'alice' is not allowed to use the engine profile '$profile'"))
+      }
+  }
+
+  test("blacklist ignores whitespace around profile names") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", " spark3 , spark4  ")
+    Seq("spark3", "spark4").foreach { profile =>
+      val e = intercept[KyuubiSQLException] {
+        resolve(conf, "alice", Seq.empty, Map("kyuubi.engine.profile" -> profile))
+      }
+      assert(e.getMessage.contains(
+        s"user 'alice' is not allowed to use the engine profile '$profile'"))
+    }
+  }
+
+  test("implicit - blacklisted user default profile is skipped, falls back to no profile") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profile", "spark4")
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark4")
+    assert(resolve(conf, "alice", Seq.empty, Map.empty).isEmpty)
+  }
+
+  test("implicit - blacklisted user default is skipped, allowed group default applies") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profile", "spark4")
+    conf.set("___analysts___.kyuubi.engine.profile", "trino")
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark4")
+    val profile = resolve(conf, "alice", Seq("analysts"), Map.empty).get
+    assert(profile.name === "trino")
+  }
+
+  test("implicit - blacklisted group default is skipped, per-engine-type default applies") {
+    val conf = newConf()
+    conf.set("___analysts___.kyuubi.engine.profile", "spark4")
+    conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark4")
+    val profile = resolve(conf, "alice", Seq("analysts"), Map.empty).get
+    assert(profile.name === "spark3")
+  }
+
+  test("implicit - blacklisted per-engine-type default is skipped, falls back to no profile") {
+    val conf = newConf()
+    conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark3")
+    assert(resolve(
+      conf,
+      "alice",
+      Seq.empty,
+      Map("kyuubi.engine.type" -> "SPARK_SQL")).isEmpty)
+  }
+
+  test("implicit - every candidate profile in the chain is blacklisted, falls back to no profile") {
+    val conf = newConf()
+    conf.set("___analysts___.kyuubi.engine.profile", "spark4")
+    conf.set("kyuubi.engine.SPARK_SQL.profile.default", "spark3")
+    conf.set("___alice___.kyuubi.engine.profiles.blacklist", "spark3,spark4")
+    assert(resolve(
+      conf,
+      "alice",
+      Seq("analysts"),
+      Map("kyuubi.engine.type" -> "SPARK_SQL")).isEmpty)
+  }
+
+  test("implicit - profile blacklisted via group blacklist is skipped (union of blacklists)") {
+    val conf = newConf()
+    conf.set("___alice___.kyuubi.engine.profile", "spark4")
+    conf.set("___devs___.kyuubi.engine.profiles.blacklist", "spark4")
+    assert(resolve(conf, "alice", Seq("devs"), Map.empty).isEmpty)
+  }
+
 }

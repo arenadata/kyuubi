@@ -2617,6 +2617,19 @@ object KyuubiConf {
       .checkValues(Set("FAIL", "LOG"))
       .createWithDefault("FAIL")
 
+  val ENGINE_PROFILES_BLACKLIST: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.profiles.blacklist")
+      .doc("A comma-separated list of engine profile names a user or group is forbidden to use." +
+        " It is declared per principal through the user/group defaults overlay," +
+        " `___<user|group>___.kyuubi.engine.profiles.blacklist=<name1>,<name2>`; setting it" +
+        " unprefixed has no effect. Blacklists matching the session user and their groups are" +
+        " combined. An explicit request for a blacklisted profile fails opening the session," +
+        " while a blacklisted profile resolved implicitly via a user/group or per-engine-type" +
+        " default is skipped with a warning and the session falls back to no profile.")
+      .version("1.10.1")
+      .stringConf
+      .createOptional
+
   val ENGINE_POOL_IGNORE_SUBDOMAIN: ConfigEntry[Boolean] =
     buildConf("kyuubi.engine.pool.ignoreSubdomain")
       .doc(s"Whether to ignore ${ENGINE_SHARE_LEVEL_SUBDOMAIN.key}" +
