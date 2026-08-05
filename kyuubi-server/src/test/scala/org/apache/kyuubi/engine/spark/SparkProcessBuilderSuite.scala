@@ -465,6 +465,19 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
     }
   }
 
+  test("engineHomeDirFilter picks the home matching this build's Spark major version") {
+    val dir = Utils.createTempDir().toFile
+    val ownMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
+    val otherMajorVersion = if (ownMajorVersion == "3") "4" else "3"
+    val ownHome = new File(dir, s"spark-$ownMajorVersion.9.9.9-4.3.0-2-bin-hadoop3")
+    val otherHome = new File(dir, s"spark-$otherMajorVersion.9.9.9-4.3.0-2-bin-hadoop3")
+    assert(ownHome.mkdir() && otherHome.mkdir())
+
+    val builder = new SparkProcessBuilder("kentyao", true, conf)
+    val candidates = dir.listFiles(builder.engineHomeDirFilter)
+    assert(candidates.map(_.getName).toSeq === Seq(ownHome.getName))
+  }
+
   test("default spark.yarn.maxAppAttempts conf in yarn mode") {
     val conf1 = KyuubiConf(false)
     conf1.set("spark.master", "k8s://test:12345")

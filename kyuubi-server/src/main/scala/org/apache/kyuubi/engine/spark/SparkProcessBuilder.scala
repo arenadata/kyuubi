@@ -124,13 +124,18 @@ class SparkProcessBuilder(
     }
   }
 
-  override protected lazy val engineHomeDirFilter: FileFilter = file => {
+  override protected[kyuubi] lazy val engineHomeDirFilter: FileFilter = file => {
     val patterns = SCALA_COMPILE_VERSION match {
       case "2.12" => Seq(SPARK3_HOME_REGEX_SCALA_212)
       case "2.13" =>
         Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
     }
-    file.isDirectory && patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
+    // SPARK_HOME_REGEX_ARENADATA matches both major versions, so if homes for two majors
+    // both exist, only accept the one matching this build's own Spark major version.
+    val expectedMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
+    file.isDirectory &&
+      file.getName.startsWith(s"spark-$expectedMajorVersion.") &&
+      patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }
 
   override protected[kyuubi] lazy val commands: Iterable[String] = {

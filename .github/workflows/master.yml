@@ -64,6 +64,10 @@ jobs:
           - '4.2'
         spark-archive: ["-Pscala-2.13"]
         exclude-tags: [""]
+        exclude:
+          # PySpark 4 does not support Python 3.9
+          - python: '3.9'
+            spark: '4.2'
     env:
       SPARK_LOCAL_IP: localhost
     steps:
