@@ -154,12 +154,14 @@ class FailoverChannel:
         self._channel = new_channel
         self._current_server = self._builder.endpoint
 
-    def unary_unary(self, method, request_serializer=None, response_deserializer=None):
+    def unary_unary(self, method, request_serializer=None, response_deserializer=None,
+                     **channel_kwargs):
         def callable_(*args, **kwargs):
             tried = {self._current_server}
             try:
                 return self._channel.unary_unary(
-                    method, request_serializer, response_deserializer)(*args, **kwargs)
+                    method, request_serializer, response_deserializer,
+                    **channel_kwargs)(*args, **kwargs)
             except grpc.RpcError as e:
                 if e.code() == grpc.StatusCode.UNAVAILABLE:
                     try:
@@ -167,15 +169,18 @@ class FailoverChannel:
                     except RuntimeError:
                         raise e
                     return self._channel.unary_unary(
-                        method, request_serializer, response_deserializer)(*args, **kwargs)
+                        method, request_serializer, response_deserializer,
+                        **channel_kwargs)(*args, **kwargs)
                 raise
         return callable_
 
-    def unary_stream(self, method, request_serializer=None, response_deserializer=None):
+    def unary_stream(self, method, request_serializer=None, response_deserializer=None,
+                      **channel_kwargs):
         def callable_(request, **kwargs):
             tried_servers = set()
             iterator = iter(self._channel.unary_stream(
-                method, request_serializer, response_deserializer)(request, **kwargs))
+                method, request_serializer, response_deserializer,
+                **channel_kwargs)(request, **kwargs))
 
             def _gen():
                 while True:
@@ -195,11 +200,15 @@ class FailoverChannel:
             return _gen()
         return callable_
 
-    def stream_unary(self, method, request_serializer=None, response_deserializer=None):
-        return self._channel.stream_unary(method, request_serializer, response_deserializer)
+    def stream_unary(self, method, request_serializer=None, response_deserializer=None,
+                      **channel_kwargs):
+        return self._channel.stream_unary(
+            method, request_serializer, response_deserializer, **channel_kwargs)
 
-    def stream_stream(self, method, request_serializer=None, response_deserializer=None):
-        return self._channel.stream_stream(method, request_serializer, response_deserializer)
+    def stream_stream(self, method, request_serializer=None, response_deserializer=None,
+                       **channel_kwargs):
+        return self._channel.stream_stream(
+            method, request_serializer, response_deserializer, **channel_kwargs)
 
     def subscribe(self, callback, try_to_connect=False):
         return self._channel.subscribe(callback, try_to_connect)
