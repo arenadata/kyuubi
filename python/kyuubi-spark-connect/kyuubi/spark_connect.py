@@ -36,7 +36,11 @@ Usage:
 import base64
 import random
 import grpc
-from pyspark.sql.connect.client import ChannelBuilder
+# DefaultChannelBuilder exists since 3.4.0 and is the URL-parsing implementation on all
+# supported versions. Plain ChannelBuilder is still importable in Spark 4.x but its __init__
+# no longer takes a URL string there (that moved to DefaultChannelBuilder), so importing it
+# directly would silently break Spark 4.x sessions.
+from pyspark.sql.connect.client import DefaultChannelBuilder as ChannelBuilder
 from pyspark.sql.connect.session import SparkSession
 
 from kyuubi.spark_connect_auth_pb2 import GetTokenRequest, RenewTokenRequest, RevokeTokenRequest
@@ -142,13 +146,13 @@ class FailoverChannel:
     def __init__(self, builder: "KyuubiSessionBuilder"):
         self._builder = builder
         self._channel = builder._raw_channel()
-        self._current_server = f"{builder.host}:{builder.port}"
+        self._current_server = builder.endpoint
 
     def _do_failover(self, exclude: set):
         new_channel = self._builder._failover(self._current_server, exclude=exclude)
         self._channel.close()
         self._channel = new_channel
-        self._current_server = f"{self._builder.host}:{self._builder.port}"
+        self._current_server = self._builder.endpoint
 
     def unary_unary(self, method, request_serializer=None, response_deserializer=None):
         def callable_(*args, **kwargs):
@@ -318,12 +322,26 @@ class KyuubiSessionBuilder(ChannelBuilder):
         if auth == "none":
             self._kyuubi_client = None
         else:
-            self._kyuubi_client = KyuubiTokenClient(self.host, self.port, self.secure)
+            self._kyuubi_client = KyuubiTokenClient(self.host, self._grpc_port, self.secure)
             self._kyuubi_client.get_token(auth, username=username, password=password)
+
+    @property
+    def _grpc_port(self) -> int:
+        """The connect port as an int.
+
+        Spark 3.5's ChannelBuilder exposes `port` as a plain attribute; Spark 4.x's
+        DefaultChannelBuilder made it private (`_port`) and only exposes the combined
+        `endpoint` ("host:port") property. Fall back to parsing `endpoint` so this works
+        on both.
+        """
+        port = getattr(self, "port", None)
+        if port is not None:
+            return port
+        return int(self.endpoint.rsplit(":", 1)[1])
 
     def _raw_channel(self) -> grpc.Channel:
         """Create a plain gRPC channel to the current host:port (no failover wrapper)."""
-        destination = f"{self.host}:{self.port}"
+        destination = self.endpoint
         if self.secure:
             return grpc.secure_channel(
                 destination,
@@ -343,7 +361,7 @@ class KyuubiSessionBuilder(ChannelBuilder):
         super(KyuubiSessionBuilder, self).__init__(new_url)
         if self._kyuubi_client is not None:
             # Renewal must follow the current live server, not the token's original issuer.
-            self._kyuubi_client.retarget(self.host, self.port)
+            self._kyuubi_client.retarget(self.host, self._grpc_port)
         return self._raw_channel()
 
     def toChannel(self) -> FailoverChannel:
@@ -366,7 +384,7 @@ class KyuubiSessionBuilder(ChannelBuilder):
         Normally not needed - FailoverChannel handles failover transparently between queries.
         Use reconnect() to force a new SparkSession after a mid-stream failure.
         """
-        self._failover(f"{self.host}:{self.port}")
+        self._failover(self.endpoint)
         return self.getOrCreate()
 
     def renew(self):

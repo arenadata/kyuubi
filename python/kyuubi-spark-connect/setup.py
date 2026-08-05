@@ -4,8 +4,13 @@ from setuptools import setup, find_packages
 
 setup(
     name="kyuubi-spark-connect",
-    version="1.0.1",
+    version="1.0.2",
     description="Kyuubi Spark Connect Python client",
+    long_description=(
+        "Python client for connecting to Apache Spark via Kyuubi Spark Connect frontend. "
+        "Drop-in replacement for PySpark SparkSession.builder with Kerberos/LDAP auth and "
+        "transparent ZooKeeper-based failover."
+    ),
     packages=["kyuubi"],
     package_dir={"": "."},
     install_requires=[

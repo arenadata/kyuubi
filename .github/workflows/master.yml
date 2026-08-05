@@ -177,7 +177,7 @@ jobs:
           - java: 17
             scala: "2.13"
             spark-compile: "3.5"
-            spark-runtime: "4.0"
+            spark-runtime: "4.2"
             comment: "normal"
     env:
       SPARK_LOCAL_IP: localhost
