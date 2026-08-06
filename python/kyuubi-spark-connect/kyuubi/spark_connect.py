@@ -378,7 +378,15 @@ class KyuubiSessionBuilder(ChannelBuilder):
 
     def getOrCreate(self) -> SparkSession:
         session = SparkSession.builder.channelBuilder(self).getOrCreate()
-        session.client._retry_policy.update({"max_retries": 3, "max_backoff": 5000})
+        client = session.client
+        if hasattr(client, "_retry_policy"):
+            # Spark < 4.1: retry config is a plain dict.
+            client._retry_policy.update({"max_retries": 3, "max_backoff": 5000})
+        else:
+            # Spark >= 4.1: retry config moved to a list of RetryPolicy objects.
+            for policy in client._retry_policies:
+                policy.max_retries = 3
+                policy.max_backoff = 5000
         return session
 
     def metadata(self):
