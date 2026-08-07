@@ -26,7 +26,7 @@ import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 
 import org.apache.kyuubi.{KyuubiException, Logging}
-import org.apache.kyuubi.config.KyuubiConf.{ENGINE_SECURITY_ENABLED, FRONTEND_PROTOCOLS, FrontendProtocols, SESSION_CLOSE_ON_DISCONNECT}
+import org.apache.kyuubi.config.KyuubiConf.{ENGINE_PROFILE, ENGINE_SECURITY_ENABLED, FRONTEND_PROTOCOLS, FrontendProtocols, SESSION_CLOSE_ON_DISCONNECT}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.ShareLevel.ShareLevel
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
@@ -76,7 +76,11 @@ class SparkConnectSessionManager(
           (if (shareLevel == ShareLevel.CONNECTION) Map(
             HA_ENGINE_REF_ID.key -> sessionId,
             SESSION_CLOSE_ON_DISCONNECT.key -> "false")
-          else Map.empty))
+          else Map.empty) ++
+          // Client-selected engine profile, e.g. sc://host:port/;kyuubi.engine.profile=spark42,
+          // forwarded from the kyuubi.engine.profile gRPC header by SparkConnectAuthInterceptor.
+          Option(SparkConnectAuthInterceptor.ENGINE_PROFILE_KEY.get())
+            .map(ENGINE_PROFILE.key -> _).toMap)
       try {
         val kyuubiSession = backendService.sessionManager.getSession(handle) match {
           case s: KyuubiSessionImpl => s

@@ -118,10 +118,23 @@ class SparkProcessBuilder(
       .getOrElse(throw new KyuubiException("Failed to extract Scala version from spark-core jar"))
   }
 
+  // e.g. "4.2" out of spark-core_2.13-4.2.0.1-4.3.0-2.jar - matches spark.artifact.version, the
+  // Maven property kyuubi-spark-sql-engine's artifactId is built from (see its pom.xml), so the
+  // engine jar for the Spark distribution actually pointed at by SPARK_HOME can be found even
+  // when kyuubi.session.engine.spark.main.resource isn't explicitly overridden.
+  private[kyuubi] def extractSparkArtifactVersion(fileNames: Iterable[String]): String = {
+    fileNames.collectFirst { case SPARK_CORE_VERSION_REGEX(version) => version }
+      .getOrElse(throw new KyuubiException("Failed to extract Spark version from spark-core jar"))
+  }
+
   override protected val engineScalaBinaryVersion: String = {
     env.get("SPARK_SCALA_VERSION").filter(StringUtils.isNotBlank).getOrElse {
       extractSparkCoreScalaVersion(Paths.get(sparkHome, "jars").toFile.list())
     }
+  }
+
+  private[kyuubi] lazy val sparkArtifactVersion: String = {
+    extractSparkArtifactVersion(Paths.get(sparkHome, "jars").toFile.list())
   }
 
   override protected[kyuubi] lazy val engineHomeDirFilter: FileFilter = file => {
@@ -173,6 +186,9 @@ class SparkProcessBuilder(
   }
 
   override protected def module: String = "kyuubi-spark-sql-engine"
+
+  override protected def mainResourceArtifact: String =
+    s"kyuubi-spark-sql-engine-spark-$sparkArtifactVersion"
 
   protected def setupKerberos(buffer: mutable.Buffer[String]): Unit = {
     // if the keytab is specified, PROXY_USER is not supported
@@ -483,6 +499,9 @@ object SparkProcessBuilder {
 
   final private[kyuubi] val SPARK_CORE_SCALA_VERSION_REGEX =
     """^spark-core_(\d\.\d+)-.*\.jar$""".r
+
+  final private[kyuubi] val SPARK_CORE_VERSION_REGEX =
+    """^spark-core_\d\.\d+-(\d+\.\d+).*\.jar$""".r
 
   final private[kyuubi] val SPARK3_HOME_REGEX_SCALA_212 =
     """^spark-3\.\d+\.\d+-bin-hadoop\d+(\.\d+)?$""".r

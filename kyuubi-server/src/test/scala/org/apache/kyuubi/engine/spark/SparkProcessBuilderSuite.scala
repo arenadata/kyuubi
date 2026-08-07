@@ -422,6 +422,26 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
     }
   }
 
+  test("extract spark artifact version") {
+    val builder = new SparkProcessBuilder("kentyao", true, KyuubiConf(false))
+    Seq(
+      "spark-core_2.13-3.4.1.jar" -> "3.4",
+      "spark-core_2.13-3.5.0-abc-20230921.jar" -> "3.5",
+      "spark-core_2.13-3.5.4.4-4.3.0-2.jar" -> "3.5",
+      "spark-core_2.13-4.0.0.jar" -> "4.0",
+      "spark-core_2.13-4.1.1.jar" -> "4.1",
+      "spark-core_2.13-4.2.0.1-4.3.0-2.jar" -> "4.2").foreach { case (f, expected) =>
+      assertResult(expected)(builder.extractSparkArtifactVersion(Seq(f)))
+    }
+
+    Seq(
+      "spark-dummy_2.13-3.5.0.jar",
+      "spark-core_2.13-3.5.0.1.zip",
+      "yummy-spark-core_2.13-3.5.0.jar").foreach { f =>
+      assertThrows[KyuubiException](builder.extractSparkArtifactVersion(Seq(f)))
+    }
+  }
+
   test("match scala version of spark home") {
     Seq(
       "spark-3.2.4-bin-hadoop3.2",

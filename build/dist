@@ -35,6 +35,8 @@ ENABLE_WEBUI=false
 FLINK_PROVIDED=false
 SPARK_PROVIDED=false
 HIVE_PROVIDED=false
+NO_CLEAN=false
+ENGINE_ONLY=false
 NAME=none
 MVN="$KYUUBI_HOME/build/mvn"
 
@@ -45,7 +47,7 @@ function usage {
   echo "Usage:"
   echo "+----------------------------------------------------------------------------------------------+"
   echo "| ./build/dist [--name <custom_name>] [--tgz] [--web-ui] [--flink-provided] [--hive-provided]  |"
-  echo "|              [--spark-provided] [--mvn <maven_executable>] <maven build options>             |"
+  echo "|              [--spark-provided] [--no-clean] [--mvn <maven_executable>] <maven build options>|"
   echo "+----------------------------------------------------------------------------------------------+"
   echo "name:           -  custom binary name, using project version if undefined"
   echo "tgz:            -  whether to make a whole bundled package"
@@ -53,6 +55,10 @@ function usage {
   echo "flink-provided: -  whether to make a package without Flink binary"
   echo "hive-provided:  -  whether to make a package without Hive binary"
   echo "spark-provided: -  whether to make a package without Spark binary"
+  echo "no-clean:       -  do not wipe an existing DISTDIR first; use to merge a second Spark"
+  echo "                   engine build (e.g. -Pspark-4.2 after a -Pspark-3.5 run) into it"
+  echo "engine-only:    -  only rebuild the Spark engine jar and copy it into DISTDIR's engine"
+  echo "                   dir, creating it if needed; skips everything else in a full build"
   echo "mvn:            -  external maven executable location"
   echo ""
 }
@@ -77,6 +83,12 @@ while (( "$#" )); do
       ;;
     --spark-provided)
       SPARK_PROVIDED=true
+      ;;
+    --no-clean)
+      NO_CLEAN=true
+      ;;
+    --engine-only)
+      ENGINE_ONLY=true
       ;;
     --hive-provided)
       HIVE_PROVIDED=true
@@ -233,6 +245,23 @@ if [[ "$HIVE_PROVIDED" == "true" ]]; then
   MVN_DIST_OPT="$MVN_DIST_OPT -Phive-provided"
 fi
 
+if [[ "$ENGINE_ONLY" == "true" ]]; then
+  ENGINE_DIR="$DISTDIR/externals/engines/spark"
+  if [[ ! -d "$ENGINE_DIR" ]]; then
+    echo "$ENGINE_DIR does not exist yet - creating it. Note this does not produce a full" \
+      "distribution (no server jars, bin/, conf/, etc.); run a full ./build/dist for that."
+    mkdir -p "$ENGINE_DIR"
+  fi
+  # shellcheck disable=SC2068
+  "$MVN" install $MVN_DIST_OPT $@ -pl externals/kyuubi-spark-sql-engine
+  for scala_version in 2.13; do
+    cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine-spark-${SPARK_VERSION:0:3}_${scala_version}-${VERSION}.jar" \
+      "$ENGINE_DIR/"
+  done
+  echo "Updated $ENGINE_DIR with the Spark ${SPARK_VERSION:0:3} engine jar."
+  exit 0
+fi
+
 # clean up all versions of Spark extension, to avoid collecting outdated artifacts
 SPARK_EXTENSION_VERSIONS=('3-2' '3-3' '3-4' '3-5' '4-2')
 # shellcheck disable=SC2068
@@ -252,7 +281,9 @@ echo -e "\$ ${BUILD_COMMAND[@]}\n"
 "${EXTRA_SPARK_ENGINE_BUILD_COMMAND[@]}"
 
 # Make directories
-rm -rf "$DISTDIR"
+if [[ "$NO_CLEAN" == "false" ]]; then
+  rm -rf "$DISTDIR"
+fi
 mkdir -p "$DISTDIR/pid"
 mkdir -p "$DISTDIR/logs"
 mkdir -p "$DISTDIR/work"
@@ -297,9 +328,12 @@ done
 cp "$KYUUBI_HOME/externals/kyuubi-flink-sql-engine/target/kyuubi-flink-sql-engine_${SCALA_VERSION}-${VERSION}.jar" "$DISTDIR/externals/engines/flink/"
 
 # Copy spark engines
+# kyuubi-spark-sql-engine's artifactId carries spark.artifact.version (e.g. -spark-4.2), so its
+# jar in target/ is already named distinctly per Spark profile - matches SPARK_VERSION:0:3, the
+# same truncation used for $SUFFIX above.
 # shellcheck disable=SC2045
 for scala_version in 2.13; do
-  cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine_${scala_version}-${VERSION}.jar" "$DISTDIR/externals/engines/spark/"
+  cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine-spark-${SPARK_VERSION:0:3}_${scala_version}-${VERSION}.jar" "$DISTDIR/externals/engines/spark/"
 done
 
 # Copy trino engines

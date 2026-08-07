@@ -63,7 +63,7 @@ trait ProcBuilder {
    */
   def mainResource: Option[String] = {
     // 1. get the main resource jar for user specified config first
-    val jarName: String = s"${module}_$engineScalaBinaryVersion-$KYUUBI_VERSION.jar"
+    val jarName: String = s"${mainResourceArtifact}_$engineScalaBinaryVersion-$KYUUBI_VERSION.jar"
     conf.getOption(s"kyuubi.session.engine.$shortName.main.resource").filter { userSpecified =>
       // skip check exist if not local file.
       val uri = new URI(userSpecified)
@@ -91,6 +91,10 @@ trait ProcBuilder {
   }
 
   protected def module: String
+
+  /** Jar-name prefix for locating the main resource jar. Defaults to `module`; override when
+   * the artifactId differs from the module's own directory name under `externals/`. */
+  protected def mainResourceArtifact: String = module
 
   /**
    * The class containing the main method
