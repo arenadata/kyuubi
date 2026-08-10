@@ -90,5 +90,52 @@ class KyuubiFlightArrowUtilsSuite extends KyuubiFunSuite {
     arrow.addToColumns(TColumn.binaryVal(binary))
     assert(KyuubiFlightArrowUtils.isArrowRowSet(arrow))
     assert(KyuubiFlightArrowUtils.arrowBatchBytes(arrow) === 3L)
+    assert(!KyuubiFlightArrowUtils.isEmpty(arrow))
+  }
+
+  test("isEmpty is true for exhausted columnar thrift pages with schema columns") {
+    // Matches TRowSetGenerator.toColumnBasedSet(Nil, schema): one empty TColumn per field.
+    val emptyNulls = ByteBuffer.wrap(Array[Byte](0))
+    val rowSet = new TRowSet()
+    rowSet.setRows(new util.ArrayList[TRow]())
+    rowSet.addToColumns(TColumn.i32Val(new TI32Column(new util.ArrayList[Integer](), emptyNulls)))
+    rowSet.addToColumns(TColumn.stringVal(
+      new TStringColumn(new util.ArrayList[String](), emptyNulls)))
+
+    assert(rowSet.getColumnsSize === 2)
+    assert(KyuubiFlightArrowUtils.rowCount(rowSet) === 0)
+    assert(KyuubiFlightArrowUtils.isEmpty(rowSet))
+    assert(!KyuubiFlightArrowUtils.isArrowRowSet(rowSet))
+  }
+
+  test("isEmpty is false when columnar thrift page has values") {
+    val nulls = ByteBuffer.wrap(Array[Byte](0))
+    val rowSet = new TRowSet()
+    rowSet.addToColumns(TColumn.i32Val(new TI32Column(util.Arrays.asList(7), nulls)))
+    assert(KyuubiFlightArrowUtils.rowCount(rowSet) === 1)
+    assert(!KyuubiFlightArrowUtils.isEmpty(rowSet))
+  }
+
+  test("populateRootFromRowSet yields zero rows for exhausted columnar page") {
+    val emptyFields = util.Collections.emptyList[Field]()
+    val schema = new Schema(util.Arrays.asList(
+      new Field("id", new FieldType(true, new ArrowType.Int(32, true), null), emptyFields),
+      new Field("name", new FieldType(true, ArrowType.Utf8.INSTANCE, null), emptyFields)))
+
+    val emptyNulls = ByteBuffer.wrap(Array[Byte](0))
+    val rowSet = new TRowSet()
+    rowSet.addToColumns(TColumn.i32Val(new TI32Column(new util.ArrayList[Integer](), emptyNulls)))
+    rowSet.addToColumns(TColumn.stringVal(
+      new TStringColumn(new util.ArrayList[String](), emptyNulls)))
+
+    val allocator = new RootAllocator()
+    val root = VectorSchemaRoot.create(schema, allocator)
+    try {
+      KyuubiFlightArrowUtils.populateRootFromRowSet(root, rowSet)
+      assert(root.getRowCount === 0)
+    } finally {
+      root.close()
+      allocator.close()
+    }
   }
 }

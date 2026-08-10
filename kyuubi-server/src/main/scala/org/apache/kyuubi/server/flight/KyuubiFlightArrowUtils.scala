@@ -80,9 +80,34 @@ object KyuubiFlightArrowUtils {
     }
   }
 
-  def isEmpty(rowSet: TRowSet): Boolean =
-    rowSet == null ||
-      (rowSet.getColumnsSize == 0 && (rowSet.getRows == null || rowSet.getRows.isEmpty))
+  /**
+   * True when the row set carries no data rows.
+   *
+   * Columnar thrift generators
+   * (see [[org.apache.kyuubi.engine.result.TRowSetGenerator.toColumnBasedSet]])
+   * still emit one empty [[TColumn]] per schema field when the iterator is exhausted. Checking only
+   * `getColumnsSize == 0` would treat those pages as non-empty and can loop forever in
+   * [[FlightResultIterator]].
+   */
+  def isEmpty(rowSet: TRowSet): Boolean = rowCount(rowSet) == 0
+
+  /**
+   * Number of data rows in a thrift [[TRowSet]] (columnar values, row-based rows, or Arrow batch).
+   */
+  def rowCount(rowSet: TRowSet): Int = {
+    if (rowSet == null) {
+      0
+    } else if (rowSet.getColumns != null && rowSet.getColumnsSize > 0) {
+      // Arrow IPC is encoded as a single binary value; callers that need Arrow row length
+      // should decode via [[arrowBatchRowCount]]. For emptiness, a present Arrow binary value
+      // counts as non-empty at the thrift layer (decoded length may still be 0).
+      columnSize(rowSet.getColumns.get(0))
+    } else if (rowSet.getRows != null) {
+      rowSet.getRowsSize
+    } else {
+      0
+    }
+  }
 
   def isArrowRowSet(rowSet: TRowSet): Boolean =
     rowSet != null &&

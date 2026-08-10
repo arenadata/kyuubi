@@ -99,6 +99,13 @@ class FlightResultIterator(
         }
         return true
       }
+
+      // Zero decoded rows means the backend page is exhausted (including an empty Arrow
+      // IPC batch). Do not keep fetching: columnar empty pages already look "non-empty"
+      // at the thrift column level before [[KyuubiFlightArrowUtils.isEmpty]] was fixed.
+      finished = true
+      pendingRows = false
+      return false
     }
     false
   }
