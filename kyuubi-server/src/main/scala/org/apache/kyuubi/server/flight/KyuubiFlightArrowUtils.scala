@@ -98,8 +98,7 @@ object KyuubiFlightArrowUtils {
     if (rowSet == null) {
       0
     } else if (rowSet.getColumns != null && rowSet.getColumnsSize > 0) {
-      // Arrow IPC is encoded as a single binary value; callers that need Arrow row length
-      // should decode via [[arrowBatchRowCount]]. For emptiness, a present Arrow binary value
+      // Arrow IPC is encoded as a single binary value. A present Arrow binary value
       // counts as non-empty at the thrift layer (decoded length may still be 0).
       columnSize(rowSet.getColumns.get(0))
     } else if (rowSet.getRows != null) {
@@ -120,16 +119,6 @@ object KyuubiFlightArrowUtils {
       0L
     } else {
       rowSet.getColumns.get(0).getBinaryVal.getValues.get(0).remaining().toLong
-    }
-  }
-
-  def arrowBatchRowCount(rowSet: TRowSet, allocator: BufferAllocator): Int = {
-    if (!isArrowRowSet(rowSet)) {
-      0
-    } else {
-      val batch = decodeBatch(rowSet, allocator)
-      try batch.getLength
-      finally batch.close()
     }
   }
 
@@ -188,40 +177,6 @@ object KyuubiFlightArrowUtils {
     } else {
       root.setRowCount(0)
     }
-  }
-
-  /** @deprecated Prefer [[populateRootFromRowSet]] to avoid full-page materialization. */
-  def rowSetToRows(rowSet: TRowSet): Seq[Seq[AnyRef]] = {
-    if (rowSet == null) {
-      Seq.empty
-    } else if (rowSet.getColumns != null && rowSet.getColumnsSize > 0) {
-      val columns = rowSet.getColumns.asScala
-      val rowCount = columnSize(columns.head)
-      (0 until rowCount).map { rowIndex =>
-        columns.map(column => columnValue(column, rowIndex)).toSeq
-      }
-    } else if (rowSet.getRows != null) {
-      rowSet.getRows.asScala.map { row =>
-        row.getColVals.asScala.map(_.getFieldValue).toSeq
-      }.toSeq
-    } else {
-      Seq.empty
-    }
-  }
-
-  def populateRoot(root: VectorSchemaRoot, rows: Seq[Seq[AnyRef]]): Unit = {
-    root.clear()
-    root.allocateNew()
-    val fields = root.getSchema.getFields.asScala
-    val vectors = root.getFieldVectors.asScala
-    vectors.zip(fields).zipWithIndex.foreach { case ((vector, field), columnIndex) =>
-      rows.zipWithIndex.foreach { case (row, rowIndex) =>
-        val value = if (columnIndex < row.length) row(columnIndex) else null
-        setValue(vector, field.getType, rowIndex, value)
-      }
-      vector.setValueCount(rows.size)
-    }
-    root.setRowCount(rows.size)
   }
 
   private def writeColumn(vector: FieldVector, arrowType: ArrowType, column: TColumn): Unit = {

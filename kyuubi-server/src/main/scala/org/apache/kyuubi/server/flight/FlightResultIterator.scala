@@ -28,7 +28,7 @@ import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle, OperationState}
+import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle}
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TRowSet
 
@@ -50,7 +50,6 @@ class FlightResultIterator(
   private val closed = new AtomicBoolean(false)
   private var started = false
   private var finished = false
-  private var pendingRows = false
 
   def start(listener: ServerStreamListener): VectorSchemaRoot = {
     if (!started) {
@@ -78,7 +77,6 @@ class FlightResultIterator(
         fetchLog = false).getResults
       if (KyuubiFlightArrowUtils.isEmpty(rowSet)) {
         finished = true
-        pendingRows = false
         return false
       }
 
@@ -92,7 +90,6 @@ class FlightResultIterator(
         }
 
       if (loadedRows > 0) {
-        pendingRows = true
         MetricsSystem.tracing { ms =>
           ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_BATCHES)
           ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_ROWS, loadedRows)
@@ -101,18 +98,14 @@ class FlightResultIterator(
       }
 
       // Zero decoded rows means the backend page is exhausted (including an empty Arrow
-      // IPC batch). Do not keep fetching: columnar empty pages already look "non-empty"
-      // at the thrift column level before [[KyuubiFlightArrowUtils.isEmpty]] was fixed.
+      // IPC batch). Do not keep fetching.
       finished = true
-      pendingRows = false
       return false
     }
     false
   }
 
   def currentRoot: VectorSchemaRoot = root
-
-  def hasPendingRows: Boolean = pendingRows
 
   def cancel(): Unit = {
     try backend.cancelOperation(operation)
@@ -149,20 +142,5 @@ class FlightResultIterator(
     if (closed.get()) {
       throw new IllegalStateException("FlightResultIterator is closed")
     }
-  }
-}
-
-object FlightResultIterator {
-
-  def waitUntilReady(
-      backend: BackendService,
-      operation: OperationHandle,
-      isCancelled: () => Boolean,
-      pollMs: Long = 1000L): OperationState.Value = {
-    var status = backend.getOperationStatus(operation, Some(pollMs))
-    while (!OperationState.isTerminal(status.state) && !isCancelled()) {
-      status = backend.getOperationStatus(operation, Some(pollMs))
-    }
-    status.state
   }
 }
