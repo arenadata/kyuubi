@@ -36,11 +36,16 @@ Usage:
 import base64
 import random
 import grpc
-# DefaultChannelBuilder exists since 3.4.0 and is the URL-parsing implementation on all
-# supported versions. Plain ChannelBuilder is still importable in Spark 4.x but its __init__
-# no longer takes a URL string there (that moved to DefaultChannelBuilder), so importing it
-# directly would silently break Spark 4.x sessions.
-from pyspark.sql.connect.client import DefaultChannelBuilder as ChannelBuilder
+# Spark 4.x split ChannelBuilder into an abstract base plus DefaultChannelBuilder, the
+# URL-parsing implementation - importing plain ChannelBuilder there gets the base class,
+# whose __init__ no longer takes a URL string, silently breaking Spark 4.x sessions.
+# Spark 3.5 never had that split:
+# ChannelBuilder there IS the URL-parsing implementation and DefaultChannelBuilder doesn't
+# exist at all, so the Spark 4.x import must fall back for 3.5.
+try:
+    from pyspark.sql.connect.client import DefaultChannelBuilder as ChannelBuilder
+except ImportError:
+    from pyspark.sql.connect.client import ChannelBuilder
 from pyspark.sql.connect.session import SparkSession
 
 from kyuubi.spark_connect_auth_pb2 import GetTokenRequest, RenewTokenRequest, RevokeTokenRequest

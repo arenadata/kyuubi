@@ -81,15 +81,15 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # The build above is Spark 3.5 only. The authz extension and the engine jar are
-    # both Spark-version specific and their artifactIds carry ${spark.artifact.version},
-    # so a second, module-scoped build publishes the Spark 4 flavours under distinct
-    # coordinates. Non-Spark modules they depend on are already in the local
-    # repository from the step above, hence no -am.
+    # The build above is Spark 3.5 only. The authz extension, the engine jar, and the
+    # Spark Connect JVM client are all Spark-version specific and their artifactIds carry
+    # ${spark.artifact.version}, so a second, module-scoped build publishes the Spark 4
+    # flavours under distinct coordinates. Non-Spark modules they depend on are already
+    # in the local repository from the step above, hence no -am.
     - name: Build and Deploy Spark 4 Artifacts to GitHub Packages
       run: >-
         build/mvn -B -V -ntp clean deploy
-        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine,extensions/spark/kyuubi-spark-connect-client,extensions/spark/kyuubi-spark-connect-client-standalone
         -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9 -Pspark-provided,flink-provided,hive-provided
         -DskipTests -Drat.skip=true
       env:
@@ -112,7 +112,7 @@ jobs:
       run: >-
         build/mvn -B -ntp
         org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
-        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine,extensions/spark/kyuubi-spark-connect-client,extensions/spark/kyuubi-spark-connect-client-standalone
         -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9
         -DoutputFormat=json -DoutputName=bom-spark-4-authz
         -DoutputDirectory=${{ github.workspace }}/target

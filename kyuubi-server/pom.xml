@@ -548,7 +548,7 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.kyuubi</groupId>
-                    <artifactId>kyuubi-spark-connect-client_${scala.binary.version}</artifactId>
+                    <artifactId>kyuubi-spark-connect-client-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
                     <version>${project.version}</version>
                     <scope>test</scope>
                 </dependency>
@@ -566,7 +566,7 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.kyuubi</groupId>
-                    <artifactId>kyuubi-spark-connect-client_${scala.binary.version}</artifactId>
+                    <artifactId>kyuubi-spark-connect-client-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
                     <version>${project.version}</version>
                     <scope>test</scope>
                 </dependency>
