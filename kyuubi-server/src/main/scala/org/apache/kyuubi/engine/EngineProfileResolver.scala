@@ -57,6 +57,12 @@ object EngineProfileResolver extends Logging {
           handleUndefinedProfile(serverConf, registry, name)
           None
       }
+    }.fold[Option[EngineProfile]] {
+      info(s"No engine profile resolved for user '$user', proceeding without one.")
+      None
+    } { profile =>
+      info(s"Proceeding with engine profile '${profile.name}' for user '$user'.")
+      Some(profile)
     }
   }
 
@@ -78,7 +84,7 @@ object EngineProfileResolver extends Logging {
         s" ${registry.names.toSeq.sorted.mkString("[", ", ", "]")}."
     serverConf.get(ENGINE_PROFILES_UNKNOWN_STRATEGY) match {
       case "LOG" =>
-        warn(s"$message Continuing without applying any engine profile.")
+        warn(message)
       case _ =>
         throw KyuubiSQLException(message)
     }
@@ -164,8 +170,8 @@ object EngineProfileResolver extends Logging {
     profilesBlacklist: Set[String],
     user: String): Boolean = {
     if (profilesBlacklist.contains(profile)) {
-      warn(s"User '$user' is not allowed to implicitly use the engine profile '$profile'. " +
-        "Continuing without applying any engine profile.")
+      warn(s"User '$user' is not allowed to implicitly use the engine profile '$profile', " +
+        "skipping it.")
       false
     } else {
       true

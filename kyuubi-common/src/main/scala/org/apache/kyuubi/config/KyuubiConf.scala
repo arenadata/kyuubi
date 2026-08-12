@@ -2621,7 +2621,7 @@ object KyuubiConf {
     buildConf("kyuubi.engine.profiles.blacklist")
       .doc("A comma-separated list of engine profile names a user or group is forbidden to use." +
         " It is declared per principal through the user/group defaults overlay," +
-        " `___<user|group>___.kyuubi.engine.profiles.blacklist=<name1>,<name2>`; setting it" +
+        " `___<user\\|group>___.kyuubi.engine.profiles.blacklist=<name1>,<name2>`; setting it" +
         " unprefixed has no effect. Blacklists matching the session user and their groups are" +
         " combined. An explicit request for a blacklisted profile fails opening the session," +
         " while a blacklisted profile resolved implicitly via a user/group or per-engine-type" +
