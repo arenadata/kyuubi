@@ -35,7 +35,6 @@ ENABLE_WEBUI=false
 FLINK_PROVIDED=false
 SPARK_PROVIDED=false
 HIVE_PROVIDED=false
-ENGINE_ONLY=false
 EXTRA_SPARK_PROFILES=()
 NAME=none
 MVN="$KYUUBI_HOME/build/mvn"
@@ -55,8 +54,6 @@ function usage {
   echo "flink-provided: -  whether to make a package without Flink binary"
   echo "hive-provided:  -  whether to make a package without Hive binary"
   echo "spark-provided: -  whether to make a package without Spark binary"
-  echo "engine-only:    -  only rebuild the Spark engine jar and copy it into DISTDIR's engine"
-  echo "                   dir, creating it if needed; skips everything else in a full build"
   echo "extra-spark-profiles: -  comma-separated Spark version profiles (e.g. spark-4.2,spark-4.1)"
   echo "                   to also build the Spark engine jar for, after the main build; each is"
   echo "                   added to DISTDIR's engine dir alongside the primary one, so a single"
@@ -85,9 +82,6 @@ while (( "$#" )); do
       ;;
     --spark-provided)
       SPARK_PROVIDED=true
-      ;;
-    --engine-only)
-      ENGINE_ONLY=true
       ;;
     --extra-spark-profiles)
       IFS=',' read -ra EXTRA_SPARK_PROFILES <<< "$2"
@@ -246,23 +240,6 @@ fi
 
 if [[ "$HIVE_PROVIDED" == "true" ]]; then
   MVN_DIST_OPT="$MVN_DIST_OPT -Phive-provided"
-fi
-
-if [[ "$ENGINE_ONLY" == "true" ]]; then
-  ENGINE_DIR="$DISTDIR/externals/engines/spark"
-  if [[ ! -d "$ENGINE_DIR" ]]; then
-    echo "$ENGINE_DIR does not exist yet - creating it. Note this does not produce a full" \
-      "distribution (no server jars, bin/, conf/, etc.); run a full ./build/dist for that."
-    mkdir -p "$ENGINE_DIR"
-  fi
-  # shellcheck disable=SC2068
-  "$MVN" install $MVN_DIST_OPT $@ -pl externals/kyuubi-spark-sql-engine
-  for scala_version in 2.13; do
-    cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine-spark-${SPARK_VERSION:0:3}_${scala_version}-${VERSION}.jar" \
-      "$ENGINE_DIR/"
-  done
-  echo "Updated $ENGINE_DIR with the Spark ${SPARK_VERSION:0:3} engine jar."
-  exit 0
 fi
 
 # clean up all versions of Spark extension, to avoid collecting outdated artifacts

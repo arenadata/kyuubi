@@ -2141,7 +2141,7 @@
                 <maven.compiler.release>17</maven.compiler.release>
                 <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
                 <spark.version>4.2.0.1-4.3.0-2</spark.version>
-                <!-- 1Spark 4.2 bundles Jetty 12 (Jakarta EE10), which needs ServletConnection
+                <!-- Spark 4.2 bundles Jetty 12 (Jakarta EE10), which needs ServletConnection
                      (added in Servlet 6.0); the default 5.0.0 lacks it, causing
                      NoClassDefFoundError at runtime for any embedded Spark UI handler. -->
                 <jakarta.servlet-api.version>6.0.0</jakarta.servlet-api.version>
