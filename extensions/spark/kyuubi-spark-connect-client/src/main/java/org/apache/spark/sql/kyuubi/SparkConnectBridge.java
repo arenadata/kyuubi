@@ -22,13 +22,13 @@ import org.apache.spark.sql.connect.client.SparkConnectClient;
 /**
  * Bridges Scala-signature / JVM-bytecode mismatch.
  *
- * spark-connect-client-jvm jar is built with shading (io.grpc -> org.sparkproject.io.grpc) 
- * but its embedded Scala signature still references io.grpc.*.
- * The Scala compiler reads the Scala signature and types SparkConnectClient APIs as io.grpc.*,
- * while the JVM bytecode says org.sparkproject.io.grpc.*. This causes NoSuchMethodError at
- * runtime when Scala-compiled code calls createChannel() or the SparkConnectClient constructor.
+ * <p>spark-connect-client-jvm jar is built with shading (io.grpc -> org.sparkproject.io.grpc) but
+ * its embedded Scala signature still references io.grpc.*. The Scala compiler reads the Scala
+ * signature and types SparkConnectClient APIs as io.grpc.*, while the JVM bytecode says
+ * org.sparkproject.io.grpc.*. This causes NoSuchMethodError at runtime when Scala-compiled code
+ * calls createChannel() or the SparkConnectClient constructor.
  *
- * Java reads only JVM bytecode (not Scala signatures), so this class sees and uses the correct
+ * <p>Java reads only JVM bytecode (not Scala signatures), so this class sees and uses the correct
  * org.sparkproject.io.grpc.* types and compiles without any mismatch.
  */
 class SparkConnectBridge {
@@ -39,8 +39,7 @@ class SparkConnectBridge {
   }
 
   static SparkConnectClient create(
-      SparkConnectClient.Configuration config,
-      org.sparkproject.io.grpc.ManagedChannel channel) {
+      SparkConnectClient.Configuration config, org.sparkproject.io.grpc.ManagedChannel channel) {
     return new SparkConnectClient(config, channel);
   }
 }

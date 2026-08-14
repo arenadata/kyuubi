@@ -22,7 +22,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connect.client.SparkConnectClient
 
 import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, ZookeeperUrlResolver}
-import org.apache.kyuubi.util.reflect.DynClasses
+import org.apache.kyuubi.util.reflect.{DynClasses, DynMethods}
 import org.apache.kyuubi.util.reflect.ReflectUtils.invokeAs
 
 /**
@@ -108,7 +108,15 @@ class KyuubiSessionBuilder(
     val builder = invokeAs[AnyRef](sessionClz, "builder")
     val builderWithClient =
       invokeAs[AnyRef](builder, "client", classOf[SparkConnectClient] -> sparkClient)
-    invokeAs[SparkSession](builderWithClient, "getOrCreate")
+
+    // getOrCreate() opens the connection, so it is the one call here that fails for real
+    // reasons (Kerberos rejected, server unreachable). Resolved and invoked separately, via
+    // invokeChecked, so that reason survives instead of becoming "does not have getOrCreate()".
+    val getOrCreateMethod = DynMethods.builder("getOrCreate")
+      .hiddenImpl(builderWithClient.getClass)
+      .impl(builderWithClient.getClass)
+      .buildChecked(builderWithClient)
+    getOrCreateMethod.invokeChecked[SparkSession]()
   }
 
   def renew(): Unit = tokenClient.foreach(_.renewToken())
