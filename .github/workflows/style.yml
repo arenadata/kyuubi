@@ -22,8 +22,6 @@ on:
     branches:
       - master
       - branch-*
-      - develop/**
-      - release/**
 
 concurrency:
   group: linter-${{ github.head_ref || github.run_id }}
