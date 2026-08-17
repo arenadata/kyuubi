@@ -235,6 +235,9 @@ case class KyuubiConf(loadSysDefault: Boolean = true) extends Logging {
 
   def isSparkConnectEnabled: Boolean =
     get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.SPARK_CONNECT.toString)
+
+  def isFlightSqlEnabled: Boolean =
+    get(FRONTEND_PROTOCOLS).contains(FrontendProtocols.FLIGHT_SQL.toString)
 }
 
 /**
@@ -426,7 +429,7 @@ object KyuubiConf {
 
   object FrontendProtocols extends Enumeration {
     type FrontendProtocol = Value
-    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO, SPARK_CONNECT = Value
+    val THRIFT_BINARY, THRIFT_HTTP, REST, MYSQL, TRINO, SPARK_CONNECT, FLIGHT_SQL = Value
   }
 
   val FRONTEND_PROTOCOLS: ConfigEntry[Seq[String]] =
@@ -439,6 +442,8 @@ object KyuubiConf {
         " <li>REST - Kyuubi defined REST API(experimental).</li> " +
         " <li>MYSQL - MySQL compatible text protocol(experimental).</li> " +
         " <li>TRINO - Trino compatible http protocol(experimental).</li> " +
+        " <li>SPARK_CONNECT - Spark Connect compatible gRPC protocol(experimental).</li> " +
+        " <li>FLIGHT_SQL - Arrow Flight SQL compatible gRPC protocol(experimental).</li> " +
         "</ul>")
       .version("1.4.0")
       .stringConf
@@ -1277,6 +1282,68 @@ object KyuubiConf {
       .serverOnly
       .booleanConf
       .createWithDefault(false)
+
+  val FRONTEND_FLIGHT_SQL_BIND_HOST: ConfigEntry[Option[String]] =
+    buildConf("kyuubi.frontend.flight.sql.bind.host")
+      .doc("Hostname or IP on which to run the Arrow Flight SQL gRPC frontend service.")
+      .version("1.11.1")
+      .serverOnly
+      .fallbackConf(FRONTEND_BIND_HOST)
+
+  val FRONTEND_FLIGHT_SQL_BIND_PORT: ConfigEntry[Int] =
+    buildConf("kyuubi.frontend.flight.sql.bind.port")
+      .doc("Port on which to run the Arrow Flight SQL gRPC frontend service.")
+      .version("1.11.1")
+      .serverOnly
+      .intConf
+      .checkValue(p => p == 0 || (p > 1024 && p < 65535), "Invalid Port number")
+      .createWithDefault(10299)
+
+  val FRONTEND_FLIGHT_SQL_SSL_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.flight.sql.ssl.enabled")
+      .doc("Set this to true to enable TLS/SSL encryption on the Arrow Flight SQL gRPC frontend. " +
+        "Arrow Flight 16 requires PEM certificate and private key files, configured by " +
+        "kyuubi.frontend.flight.sql.ssl.cert.file and kyuubi.frontend.flight.sql.ssl.key.file. " +
+        "When those are unset, Kyuubi can materialize temporary PEM files from the shared " +
+        "kyuubi.frontend.ssl.keystore.* settings.")
+      .version("1.11.1")
+      .serverOnly
+      .booleanConf
+      .createWithDefault(false)
+
+  val FRONTEND_FLIGHT_SQL_SSL_CERT_FILE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.frontend.flight.sql.ssl.cert.file")
+      .doc("PEM certificate chain file used by the Arrow Flight SQL frontend when TLS is enabled.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val FRONTEND_FLIGHT_SQL_SSL_KEY_FILE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.frontend.flight.sql.ssl.key.file")
+      .doc("PEM private key file used by the Arrow Flight SQL frontend when TLS is enabled.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS: ConfigEntry[Int] =
+    buildConf("kyuubi.frontend.flight.sql.fetch.max.rows")
+      .doc("Maximum number of rows requested from Kyuubi for each Arrow Flight SQL result page.")
+      .version("1.11.1")
+      .serverOnly
+      .intConf
+      .checkValue(_ > 0, "must be positive")
+      .createWithDefault(1000)
+
+  val FRONTEND_FLIGHT_SQL_TOKEN_TTL: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.flight.sql.token.ttl")
+      .doc("Lifetime of Arrow Flight SQL bearer tokens issued after Basic or " +
+        "SPNEGO authentication.")
+      .version("1.11.1")
+      .serverOnly
+      .timeConf
+      .createWithDefaultString("PT2H")
 
   val FRONTEND_SPARK_CONNECT_TOKEN_TTL: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.spark.connect.token.ttl")

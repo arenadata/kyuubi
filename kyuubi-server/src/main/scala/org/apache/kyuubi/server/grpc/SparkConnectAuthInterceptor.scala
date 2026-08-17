@@ -36,7 +36,7 @@ class SparkConnectAuthInterceptor(
     Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER)
 
   private val authTypes =
-    conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
+    conf.get(AUTHENTICATION_METHOD).map(value => AuthTypes.withName(value))
 
   private val saslDisabled = AuthUtils.saslDisabled(authTypes)
 
