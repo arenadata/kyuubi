@@ -486,6 +486,9 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
   }
 
   test("engineHomeDirFilter picks the home matching this build's Spark major version") {
+    // engineHomeDirFilter only knows SPARK_HOME_REGEX_ARENADATA on scala 2.13, so ADH
+    // dirs below match nothing on a 2.12 build. ADH Spark is 2.13-only by design.
+    assume(SCALA_COMPILE_VERSION == "2.13")
     val dir = Utils.createTempDir().toFile
     val ownMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
     val otherMajorVersion = if (ownMajorVersion == "3") "4" else "3"

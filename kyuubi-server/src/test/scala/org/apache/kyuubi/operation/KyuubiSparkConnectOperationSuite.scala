@@ -20,7 +20,7 @@ package org.apache.kyuubi.operation
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.kyuubi.KyuubiSessionBuilder
 
-import org.apache.kyuubi.WithSparkConnectServer
+import org.apache.kyuubi.{Utils, WithSparkConnectServer}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.HighAvailabilityConf
@@ -91,6 +91,8 @@ class KyuubiSparkConnectOperationSuite extends WithSparkConnectServer {
     try {
       val result = sparkViaZk.sql("SELECT current_user()").collect()
       assert(result.length === 1)
+      // No auth here, so session user is the OS user
+      assert(result(0).getString(0) === Utils.currentUser)
     } finally {
       sparkViaZk.stop()
     }

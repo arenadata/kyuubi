@@ -258,23 +258,11 @@ echo -e "\nBuilding with..."
 echo -e "\$ ${BUILD_COMMAND[@]}\n"
 "${BUILD_COMMAND[@]}"
 
-if [[ ${#EXTRA_SPARK_PROFILES[@]} -gt 0 ]]; then
-  EXTRA_SPARK_ENGINE_BUILD_ARGS=()
-  # shellcheck disable=SC2068
-  for arg in $@; do
-    case "$arg" in
-      # Drop the primary Spark version profile - activating two spark-X.Y profiles at once
-      # would clash (both redefine spark.version/spark.artifact.version).
-      -Pspark-[0-9]*) ;;
-      *) EXTRA_SPARK_ENGINE_BUILD_ARGS+=("$arg") ;;
-    esac
-  done
-  for EXTRA_SPARK_PROFILE in "${EXTRA_SPARK_PROFILES[@]}"; do
-    echo "Building the extra Spark engine jar for -P$EXTRA_SPARK_PROFILE..."
-    "$MVN" install $MVN_DIST_OPT "${EXTRA_SPARK_ENGINE_BUILD_ARGS[@]}" "-P$EXTRA_SPARK_PROFILE" \
-      -pl externals/kyuubi-spark-sql-engine
-  done
-fi
+for EXTRA_SPARK_PROFILE in "${EXTRA_SPARK_PROFILES[@]}"; do
+  echo "Building the extra Spark engine jar for -P$EXTRA_SPARK_PROFILE..."
+  "$MVN" install $MVN_DIST_OPT "$@" "-P$EXTRA_SPARK_PROFILE" \
+    -pl externals/kyuubi-spark-sql-engine
+done
 
 # Make directories
 rm -rf "$DISTDIR"
