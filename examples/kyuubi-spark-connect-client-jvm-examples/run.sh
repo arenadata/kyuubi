@@ -17,11 +17,19 @@
 # limitations under the License.
 #
 # Usage:
-#   mnv clean package
+#   mvn clean package -Dspark.artifact.version=3.5   (or 4.2)
 #   KYUUBI_URL=sc://host:10199/;use_ssl=true KYUUBI_AUTH=KERBEROS ./run.sh
 #   KYUUBI_URL=sc://host:10199/;use_ssl=true KYUUBI_AUTH=LDAP KYUUBI_USERNAME=john KYUUBI_PASSWORD=secret ./run.sh
+#   SPARK_ARTIFACT_VERSION=4.2 ./run.sh   # to run the jar built against Spark 4.2
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SPARK_ARTIFACT_VERSION="${SPARK_ARTIFACT_VERSION:-3.5}"
+JAR="$SCRIPT_DIR/target/kyuubi-spark-connect-client-jvm-examples-spark-${SPARK_ARTIFACT_VERSION}-1.0-SNAPSHOT.jar"
 
-exec java --add-opens=java.base/java.nio=ALL-UNNAMED \
-  -jar "$SCRIPT_DIR/target/kyuubi-spark-connect-client-jvm-examples-1.0-SNAPSHOT.jar" "$@"
+if [[ ! -f "$JAR" ]]; then
+  echo "Jar not found: $JAR" >&2
+  echo "Build it first: mvn clean package -f \"$SCRIPT_DIR/pom.xml\" -Dspark.artifact.version=${SPARK_ARTIFACT_VERSION}" >&2
+  exit 1
+fi
+
+exec java --add-opens=java.base/java.nio=ALL-UNNAMED -jar "$JAR" "$@"

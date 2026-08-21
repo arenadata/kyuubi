@@ -29,7 +29,7 @@ import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, ENGINE_PROFILE}
 import org.apache.kyuubi.server.metadata.jdbc.DatabaseType
 import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStore
 import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf._
@@ -37,6 +37,7 @@ import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf._
 class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar {
 
   private val USER_KEY = SparkConnectAuthInterceptor.USER_KEY
+  private val ENGINE_PROFILE_KEY = SparkConnectAuthInterceptor.ENGINE_PROFILE_KEY
 
   private def newStore(ttlMs: Long): JdbcTokenStore = {
     val dbPath = Files.createTempFile("kyuubi-token", ".db").toAbsolutePath.toString
@@ -51,13 +52,17 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
 
   private def makeHeaders(
       authValue: Option[String] = None,
-      xUser: Option[String] = None): Metadata = {
+      xUser: Option[String] = None,
+      engineProfile: Option[String] = None): Metadata = {
     val headers = new Metadata()
     authValue.foreach { v =>
       headers.put(Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER), v)
     }
     xUser.foreach { u =>
       headers.put(Metadata.Key.of("x-user-name", Metadata.ASCII_STRING_MARSHALLER), u)
+    }
+    engineProfile.foreach { p =>
+      headers.put(Metadata.Key.of(ENGINE_PROFILE.key, Metadata.ASCII_STRING_MARSHALLER), p)
     }
     headers
   }
@@ -94,6 +99,43 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
     interceptor.interceptCall(call, makeHeaders(), handler)
 
     assert(capturedUser === System.getProperty("user.name", "anonymous"))
+  }
+
+  test("NOSASL: kyuubi.engine.profile header sets ENGINE_PROFILE_KEY") {
+    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NOSASL"))
+    val interceptor = new SparkConnectAuthInterceptor(conf)
+
+    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
+    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
+    var capturedProfile: String = null
+    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
+      capturedProfile = ENGINE_PROFILE_KEY.get()
+      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
+    })
+
+    interceptor.interceptCall(
+      call,
+      makeHeaders(xUser = Some("vit"), engineProfile = Some("spark42")),
+      handler)
+
+    assert(capturedProfile === "spark42")
+  }
+
+  test("NOSASL: no kyuubi.engine.profile header leaves ENGINE_PROFILE_KEY unset") {
+    val conf = KyuubiConf().set(AUTHENTICATION_METHOD, Seq("NOSASL"))
+    val interceptor = new SparkConnectAuthInterceptor(conf)
+
+    val call = mock[ServerCall[Array[Byte], Array[Byte]]]
+    val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
+    var capturedProfile: String = "unset"
+    when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
+      capturedProfile = ENGINE_PROFILE_KEY.get()
+      null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
+    })
+
+    interceptor.interceptCall(call, makeHeaders(xUser = Some("vit")), handler)
+
+    assert(capturedProfile === null)
   }
 
   test("missing Authorization header with non-NOSASL auth returns UNAUTHENTICATED") {
@@ -185,6 +227,37 @@ class SparkConnectAuthInterceptorSuite extends KyuubiFunSuite with MockitoSugar 
       verify(store).renew(token)
     } finally {
       realStore.stop()
+    }
+  }
+
+  test("Bearer: kyuubi.engine.profile header survives a reconnect on a fresh server instance") {
+    // Simulates HA failover: a valid token plus the profile header, replayed against a brand
+    // new interceptor/tokenStore instance standing in for a different KyuubiServer process.
+    val conf = KyuubiConf()
+    val store = newStore(ttlMs = 60000L)
+    try {
+      val (token, _) = store.create("john")
+      val interceptor = new SparkConnectAuthInterceptor(conf, tokenStore = Some(store))
+
+      val call = mock[ServerCall[Array[Byte], Array[Byte]]]
+      val handler = mock[ServerCallHandler[Array[Byte], Array[Byte]]]
+      var capturedUser: String = null
+      var capturedProfile: String = null
+      when(handler.startCall(any(), any())).thenAnswer((_: InvocationOnMock) => {
+        capturedUser = USER_KEY.get()
+        capturedProfile = ENGINE_PROFILE_KEY.get()
+        null.asInstanceOf[ServerCall.Listener[Array[Byte]]]
+      })
+
+      interceptor.interceptCall(
+        call,
+        makeHeaders(authValue = Some(s"Bearer $token"), engineProfile = Some("spark42")),
+        handler)
+
+      assert(capturedUser === "john")
+      assert(capturedProfile === "spark42")
+    } finally {
+      store.stop()
     }
   }
 

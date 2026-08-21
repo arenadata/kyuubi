@@ -105,7 +105,7 @@
 
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
-            <artifactId>kyuubi-spark-sql-engine_${scala.binary.version}</artifactId>
+            <artifactId>kyuubi-spark-sql-engine-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -261,6 +261,31 @@
                 </dependency>
                 <!-- TODO: support KSHC -->
                 <!-- TODO: support authz -->
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-spark-lineage_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>spark-4.2</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-extension-spark-4-2_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-spark-connector-hive_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-spark-authz-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
                 <dependency>
                     <groupId>org.apache.kyuubi</groupId>
                     <artifactId>kyuubi-spark-lineage_${scala.binary.version}</artifactId>

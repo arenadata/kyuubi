@@ -17,12 +17,14 @@
 
 package org.apache.kyuubi.server.grpc
 
-import io.grpc.ManagedChannel
+import io.grpc.{Context, ManagedChannel}
+import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.{doNothing, doThrow, times, verify, verifyNoInteractions, when}
 import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.kyuubi.{KyuubiException, KyuubiFunSuite}
+import org.apache.kyuubi.config.KyuubiConf.ENGINE_PROFILE
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.{KyuubiSessionImpl, Session, SessionHandle}
 import org.apache.kyuubi.session.SessionManager
@@ -106,6 +108,52 @@ class SparkConnectSessionManagerSuite extends KyuubiFunSuite with MockitoSugar {
     manager.getOrOpen("s1", "john")
 
     verify(backendService, times(1)).openSession(any(), any(), any(), any(), any())
+  }
+
+  test("getOrOpen: forwards engine profile from gRPC context into session conf") {
+    val backendService = mock[BackendService]
+    val manager = makeManager(backendService, mock[ManagedChannel])
+    val handle = SessionHandle(java.util.UUID.randomUUID())
+    val sessionMgr = mock[SessionManager]
+    val kyuubiSession = mock[KyuubiSessionImpl]
+    val confCaptor = ArgumentCaptor.forClass(classOf[Map[String, String]])
+    when(backendService.openSession(any(), any(), any(), any(), confCaptor.capture()))
+      .thenReturn(handle)
+    when(backendService.sessionManager).thenReturn(sessionMgr)
+    when(sessionMgr.getSession(handle)).thenReturn(kyuubiSession)
+    doNothing().when(kyuubiSession).waitForEngineLaunched()
+    when(kyuubiSession.engineConnectUrl).thenReturn(Some("localhost:1"))
+
+    // Stands in for SparkConnectAuthInterceptor having read the kyuubi.engine.profile header,
+    // e.g. after an HA failover reconnect landing on a different, cold KyuubiServer instance.
+    val ctx = Context.current().withValue(SparkConnectAuthInterceptor.ENGINE_PROFILE_KEY, "spark42")
+    val previous = ctx.attach()
+    try {
+      manager.getOrOpen("s1", "john")
+    } finally {
+      ctx.detach(previous)
+    }
+
+    assert(confCaptor.getValue.get(ENGINE_PROFILE.key) === Some("spark42"))
+  }
+
+  test("getOrOpen: no engine profile in context leaves session conf unset") {
+    val backendService = mock[BackendService]
+    val manager = makeManager(backendService, mock[ManagedChannel])
+    val handle = SessionHandle(java.util.UUID.randomUUID())
+    val sessionMgr = mock[SessionManager]
+    val kyuubiSession = mock[KyuubiSessionImpl]
+    val confCaptor = ArgumentCaptor.forClass(classOf[Map[String, String]])
+    when(backendService.openSession(any(), any(), any(), any(), confCaptor.capture()))
+      .thenReturn(handle)
+    when(backendService.sessionManager).thenReturn(sessionMgr)
+    when(sessionMgr.getSession(handle)).thenReturn(kyuubiSession)
+    doNothing().when(kyuubiSession).waitForEngineLaunched()
+    when(kyuubiSession.engineConnectUrl).thenReturn(Some("localhost:1"))
+
+    manager.getOrOpen("s1", "john")
+
+    assert(confCaptor.getValue.get(ENGINE_PROFILE.key) === None)
   }
 
   test("getOrOpen: unexpected session type closes backend session") {

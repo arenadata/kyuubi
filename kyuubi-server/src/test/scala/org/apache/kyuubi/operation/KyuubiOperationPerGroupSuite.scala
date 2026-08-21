@@ -78,6 +78,19 @@ class KyuubiOperationPerGroupSuite extends WithKyuubiServer with SparkQueryTests
     }
   }
 
+  test("current_user returns the session user, not the engine user") {
+    withSessionConf(Map("hive.server2.proxy.user" -> "user1"))(Map.empty)(Map.empty) {
+      withJdbcStatement() { statement =>
+        val res = statement.executeQuery("select system_user() as c1, current_user() as c2")
+        assert(res.next())
+        assert(res.getString("c1") === "testGG")
+        // SparkOperation.withLocalProperties sets CurrentUserContext.CURRENT_USER on every
+        // Spark version, so the built-in current_user() must agree with session_user() above.
+        assert(res.getString("c2") === "user1")
+      }
+    }
+  }
+
   test("support real user for kyuubi session") {
     withSessionConf(Map("hive.server2.proxy.user" -> "user1"))(Map.empty)(Map.empty) {
       withJdbcStatement() { _ =>

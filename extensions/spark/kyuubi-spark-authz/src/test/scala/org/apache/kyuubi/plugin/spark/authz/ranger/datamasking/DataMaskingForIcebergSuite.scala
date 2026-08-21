@@ -21,10 +21,12 @@ import org.apache.spark.SparkConf
 import org.scalatest.Outcome
 
 import org.apache.kyuubi.Utils
+import org.apache.kyuubi.tags.IcebergTest
 
+@IcebergTest
 class DataMaskingForIcebergSuite extends DataMaskingTestBase {
-  override protected val extraSparkConf: SparkConf = {
-    new SparkConf()
+  override protected def extraSparkConf: SparkConf = {
+    super.extraSparkConf
       .set("spark.sql.defaultCatalog", "testcat")
       .set(
         "spark.sql.catalog.testcat",

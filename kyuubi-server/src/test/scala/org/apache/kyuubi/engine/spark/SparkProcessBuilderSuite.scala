@@ -422,6 +422,26 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
     }
   }
 
+  test("extract spark artifact version") {
+    val builder = new SparkProcessBuilder("kentyao", true, KyuubiConf(false))
+    Seq(
+      "spark-core_2.13-3.4.1.jar" -> "3.4",
+      "spark-core_2.13-3.5.0-abc-20230921.jar" -> "3.5",
+      "spark-core_2.13-3.5.4.4-4.3.0-2.jar" -> "3.5",
+      "spark-core_2.13-4.0.0.jar" -> "4.0",
+      "spark-core_2.13-4.1.1.jar" -> "4.1",
+      "spark-core_2.13-4.2.0.1-4.3.0-2.jar" -> "4.2").foreach { case (f, expected) =>
+      assertResult(expected)(builder.extractSparkArtifactVersion(Seq(f)))
+    }
+
+    Seq(
+      "spark-dummy_2.13-3.5.0.jar",
+      "spark-core_2.13-3.5.0.1.zip",
+      "yummy-spark-core_2.13-3.5.0.jar").foreach { f =>
+      assertThrows[KyuubiException](builder.extractSparkArtifactVersion(Seq(f)))
+    }
+  }
+
   test("match scala version of spark home") {
     Seq(
       "spark-3.2.4-bin-hadoop3.2",
@@ -446,6 +466,39 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
       assertNotMatches(SPARK4_HOME_SCALA_213, SPARK3_HOME_REGEX_SCALA_212)
       assertNotMatches(SPARK4_HOME_SCALA_213, SPARK3_HOME_REGEX_SCALA_213)
     }
+  }
+
+  test("match Arenadata custom spark home naming") {
+    Seq(
+      "spark-3.5.4.4-4.3.0-2-bin-hadoop3",
+      "spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0",
+      "spark-4.2.0.1-4.3.0-2-bin-hadoop3").foreach { SPARK_HOME_ARENADATA =>
+      assertMatches(SPARK_HOME_ARENADATA, SPARK_HOME_REGEX_ARENADATA)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK3_HOME_REGEX_SCALA_212)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK3_HOME_REGEX_SCALA_213)
+      assertNotMatches(SPARK_HOME_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
+    }
+    Seq(
+      "spark-3.5.0-bin-hadoop3",
+      "spark-4.0.0-bin-hadoop3").foreach { nonArenadataHome =>
+      assertNotMatches(nonArenadataHome, SPARK_HOME_REGEX_ARENADATA)
+    }
+  }
+
+  test("engineHomeDirFilter picks the home matching this build's Spark major version") {
+    // engineHomeDirFilter only knows SPARK_HOME_REGEX_ARENADATA on scala 2.13, so ADH
+    // dirs below match nothing on a 2.12 build. ADH Spark is 2.13-only by design.
+    assume(SCALA_COMPILE_VERSION == "2.13")
+    val dir = Utils.createTempDir().toFile
+    val ownMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
+    val otherMajorVersion = if (ownMajorVersion == "3") "4" else "3"
+    val ownHome = new File(dir, s"spark-$ownMajorVersion.9.9.9-4.3.0-2-bin-hadoop3")
+    val otherHome = new File(dir, s"spark-$otherMajorVersion.9.9.9-4.3.0-2-bin-hadoop3")
+    assert(ownHome.mkdir() && otherHome.mkdir())
+
+    val builder = new SparkProcessBuilder("kentyao", true, conf)
+    val candidates = dir.listFiles(builder.engineHomeDirFilter)
+    assert(candidates.map(_.getName).toSeq === Seq(ownHome.getName))
   }
 
   test("default spark.yarn.maxAppAttempts conf in yarn mode") {
