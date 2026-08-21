@@ -118,19 +118,37 @@ class SparkProcessBuilder(
       .getOrElse(throw new KyuubiException("Failed to extract Scala version from spark-core jar"))
   }
 
+  // e.g. "4.2" out of spark-core_2.13-4.2.0.1-4.3.0-2.jar - matches spark.artifact.version, the
+  // Maven property kyuubi-spark-sql-engine's artifactId is built from (see its pom.xml), so the
+  // engine jar for the Spark distribution actually pointed at by SPARK_HOME can be found even
+  // when kyuubi.session.engine.spark.main.resource isn't explicitly overridden.
+  private[kyuubi] def extractSparkArtifactVersion(fileNames: Iterable[String]): String = {
+    fileNames.collectFirst { case SPARK_CORE_VERSION_REGEX(version) => version }
+      .getOrElse(throw new KyuubiException("Failed to extract Spark version from spark-core jar"))
+  }
+
   override protected val engineScalaBinaryVersion: String = {
     env.get("SPARK_SCALA_VERSION").filter(StringUtils.isNotBlank).getOrElse {
       extractSparkCoreScalaVersion(Paths.get(sparkHome, "jars").toFile.list())
     }
   }
 
-  override protected lazy val engineHomeDirFilter: FileFilter = file => {
+  private[kyuubi] lazy val sparkArtifactVersion: String = {
+    extractSparkArtifactVersion(Paths.get(sparkHome, "jars").toFile.list())
+  }
+
+  override protected[kyuubi] lazy val engineHomeDirFilter: FileFilter = file => {
     val patterns = SCALA_COMPILE_VERSION match {
       case "2.12" => Seq(SPARK3_HOME_REGEX_SCALA_212)
       case "2.13" =>
-        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK3_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
+        Seq(SPARK3_HOME_REGEX_SCALA_213, SPARK_HOME_REGEX_ARENADATA, SPARK4_HOME_REGEX_SCALA_213)
     }
-    file.isDirectory && patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
+    // SPARK_HOME_REGEX_ARENADATA matches both major versions, so if homes for two majors
+    // both exist, only accept the one matching this build's own Spark major version.
+    val expectedMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
+    file.isDirectory &&
+      file.getName.startsWith(s"spark-$expectedMajorVersion.") &&
+      patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }
 
   override protected[kyuubi] lazy val commands: Iterable[String] = {
@@ -168,6 +186,9 @@ class SparkProcessBuilder(
   }
 
   override protected def module: String = "kyuubi-spark-sql-engine"
+
+  override protected def mainResourceArtifact: String =
+    s"kyuubi-spark-sql-engine-spark-$sparkArtifactVersion"
 
   protected def setupKerberos(buffer: mutable.Buffer[String]): Unit = {
     // if the keytab is specified, PROXY_USER is not supported
@@ -479,6 +500,9 @@ object SparkProcessBuilder {
   final private[kyuubi] val SPARK_CORE_SCALA_VERSION_REGEX =
     """^spark-core_(\d\.\d+)-.*\.jar$""".r
 
+  final private[kyuubi] val SPARK_CORE_VERSION_REGEX =
+    """^spark-core_\d\.\d+-(\d+\.\d+).*\.jar$""".r
+
   final private[kyuubi] val SPARK3_HOME_REGEX_SCALA_212 =
     """^spark-3\.\d+\.\d+-bin-hadoop\d+(\.\d+)?$""".r
 
@@ -490,7 +514,7 @@ object SparkProcessBuilder {
 
   // Matches Arenadata custom Spark distribution naming, either with a versioned Hadoop build
   // (spark-3.5.4.4-4.3.0-0-bin-3.4.3.1-4.3.0-0) or a plain Hadoop suffix
-  // (spark-3.5.4.4-4.3.0-2-bin-hadoop3)
-  final private[kyuubi] val SPARK3_HOME_REGEX_ARENADATA =
-    """^spark-3\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-(?:[\d.]+-[\d.]+-\d+|hadoop\d+(?:\.\d+)?)$""".r
+  // (spark-3.5.4.4-4.3.0-2-bin-hadoop3, spark-4.2.0.1-4.3.0-2-bin-hadoop3)
+  final private[kyuubi] val SPARK_HOME_REGEX_ARENADATA =
+    """^spark-[34]\.\d+\.\d+\.\d+-[\d.]+-\d+-bin-(?:[\d.]+-[\d.]+-\d+|hadoop\d+(?:\.\d+)?)$""".r
 }

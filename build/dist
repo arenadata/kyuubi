@@ -35,6 +35,7 @@ ENABLE_WEBUI=false
 FLINK_PROVIDED=false
 SPARK_PROVIDED=false
 HIVE_PROVIDED=false
+EXTRA_SPARK_PROFILES=()
 NAME=none
 MVN="$KYUUBI_HOME/build/mvn"
 
@@ -53,6 +54,10 @@ function usage {
   echo "flink-provided: -  whether to make a package without Flink binary"
   echo "hive-provided:  -  whether to make a package without Hive binary"
   echo "spark-provided: -  whether to make a package without Spark binary"
+  echo "extra-spark-profiles: -  comma-separated Spark version profiles (e.g. spark-4.2,spark-4.1)"
+  echo "                   to also build the Spark engine jar for, after the main build; each is"
+  echo "                   added to DISTDIR's engine dir alongside the primary one, so a single"
+  echo "                   ./build/dist run produces engine jars for every listed Spark version"
   echo "mvn:            -  external maven executable location"
   echo ""
 }
@@ -77,6 +82,10 @@ while (( "$#" )); do
       ;;
     --spark-provided)
       SPARK_PROVIDED=true
+      ;;
+    --extra-spark-profiles)
+      IFS=',' read -ra EXTRA_SPARK_PROFILES <<< "$2"
+      shift
       ;;
     --hive-provided)
       HIVE_PROVIDED=true
@@ -234,7 +243,7 @@ if [[ "$HIVE_PROVIDED" == "true" ]]; then
 fi
 
 # clean up all versions of Spark extension, to avoid collecting outdated artifacts
-SPARK_EXTENSION_VERSIONS=('3-2' '3-3' '3-4' '3-5')
+SPARK_EXTENSION_VERSIONS=('3-2' '3-3' '3-4' '3-5' '4-2')
 # shellcheck disable=SC2068
 for SPARK_EXTENSION_VERSION in ${SPARK_EXTENSION_VERSIONS[@]}; do
   rm -f "$KYUUBI_HOME/extensions/spark/kyuubi-extension-spark-$SPARK_EXTENSION_VERSION/target/kyuubi-extension-spark-${SPARK_EXTENSION_VERSION}_${SCALA_VERSION}-${VERSION}.jar"
@@ -249,7 +258,11 @@ echo -e "\nBuilding with..."
 echo -e "\$ ${BUILD_COMMAND[@]}\n"
 "${BUILD_COMMAND[@]}"
 
-"${EXTRA_SPARK_ENGINE_BUILD_COMMAND[@]}"
+for EXTRA_SPARK_PROFILE in "${EXTRA_SPARK_PROFILES[@]}"; do
+  echo "Building the extra Spark engine jar for -P$EXTRA_SPARK_PROFILE..."
+  "$MVN" install $MVN_DIST_OPT "$@" "-P$EXTRA_SPARK_PROFILE" \
+    -pl externals/kyuubi-spark-sql-engine
+done
 
 # Make directories
 rm -rf "$DISTDIR"
@@ -297,9 +310,21 @@ done
 cp "$KYUUBI_HOME/externals/kyuubi-flink-sql-engine/target/kyuubi-flink-sql-engine_${SCALA_VERSION}-${VERSION}.jar" "$DISTDIR/externals/engines/flink/"
 
 # Copy spark engines
+# kyuubi-spark-sql-engine's artifactId carries spark.artifact.version (e.g. -spark-4.2), so its
+# jar in target/ is already named distinctly per Spark profile - matches SPARK_VERSION:0:3, the
+# same truncation used for $SUFFIX above.
 # shellcheck disable=SC2045
 for scala_version in 2.13; do
-  cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine_${scala_version}-${VERSION}.jar" "$DISTDIR/externals/engines/spark/"
+  cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine-spark-${SPARK_VERSION:0:3}_${scala_version}-${VERSION}.jar" "$DISTDIR/externals/engines/spark/"
+done
+
+for EXTRA_SPARK_PROFILE in "${EXTRA_SPARK_PROFILES[@]}"; do
+  EXTRA_SPARK_VERSION_SHORT="${EXTRA_SPARK_PROFILE#spark-}"
+  for scala_version in 2.13; do
+    cp "$KYUUBI_HOME/externals/kyuubi-spark-sql-engine/target/kyuubi-spark-sql-engine-spark-${EXTRA_SPARK_VERSION_SHORT}_${scala_version}-${VERSION}.jar" \
+      "$DISTDIR/externals/engines/spark/"
+  done
+  echo "Also added the Spark $EXTRA_SPARK_VERSION_SHORT engine jar (via --extra-spark-profiles)."
 done
 
 # Copy trino engines

@@ -22,6 +22,8 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connect.client.SparkConnectClient
 
 import org.apache.kyuubi.spark.connect.client.{KyuubiTokenClient, ZookeeperUrlResolver}
+import org.apache.kyuubi.util.reflect.{DynClasses, DynMethods}
+import org.apache.kyuubi.util.reflect.ReflectUtils.invokeAs
 
 /**
  * Builder for a Kyuubi-authenticated Spark Connect session with transparent ZooKeeper HA
@@ -84,8 +86,38 @@ class KyuubiSessionBuilder(
   private val sparkClient = SparkConnectBridge.create(configBuilder.configuration, failoverChannel)
   // private val sparkClient = new SparkConnectClient(configBuilder.configuration, failoverChannel)
 
-  def getOrCreate(): SparkSession =
-    SparkSession.builder().client(sparkClient).getOrCreate()
+  def getOrCreate(): SparkSession = {
+    // SPARK-49282 (4.1.0): concrete Connect SparkSession + Builder.client(...) moved from
+    // org.apache.spark.sql.SparkSession to org.apache.spark.sql.connect.SparkSession.
+    val sessionClz = DynClasses.builder()
+      .impl("org.apache.spark.sql.connect.SparkSession")
+      .impl("org.apache.spark.sql.SparkSession")
+      .build()
+
+    // builder()/client()/getOrCreate() also need reflection: `client(SparkConnectClient)` is
+    // declared directly on each concrete Builder class in both versions, never on a shared
+    // supertype; `builder()`/`getOrCreate()` do have a shared `SparkSessionBuilder` supertype in
+    // 4.2, but that type doesn't exist at all in 3.5.
+
+    // spark-3.5:
+    // org.apache.spark.sql.SparkSession.builder().client(client).getOrCreate()
+
+    // spark-4.2:
+    // org.apache.spark.sql.connect.SparkSession.builder().client(client).getOrCreate()
+
+    val builder = invokeAs[AnyRef](sessionClz, "builder")
+    val builderWithClient =
+      invokeAs[AnyRef](builder, "client", classOf[SparkConnectClient] -> sparkClient)
+
+    // getOrCreate() opens the connection, so it is the one call here that fails for real
+    // reasons (Kerberos rejected, server unreachable). Resolved and invoked separately, via
+    // invokeChecked, so that reason survives instead of becoming "does not have getOrCreate()".
+    val getOrCreateMethod = DynMethods.builder("getOrCreate")
+      .hiddenImpl(builderWithClient.getClass)
+      .impl(builderWithClient.getClass)
+      .buildChecked(builderWithClient)
+    getOrCreateMethod.invokeChecked[SparkSession]()
+  }
 
   def renew(): Unit = tokenClient.foreach(_.renewToken())
 

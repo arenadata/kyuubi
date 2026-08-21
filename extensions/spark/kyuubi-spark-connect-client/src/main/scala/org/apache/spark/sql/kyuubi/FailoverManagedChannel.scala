@@ -116,7 +116,7 @@ private[kyuubi] class FailoverClientCall[Req, Resp](
     delegate: ClientCall[Req, Resp],
     pendingFailedServer: AtomicReference[String],
     serverAtCallTime: String)
-    extends ForwardingClientCall.SimpleForwardingClientCall[Req, Resp](delegate) {
+  extends ForwardingClientCall.SimpleForwardingClientCall[Req, Resp](delegate) {
 
   override def start(responseListener: ClientCall.Listener[Resp], headers: Metadata): Unit = {
     delegate.start(
@@ -129,7 +129,7 @@ private[kyuubi] class FailoverClientCallListener[Resp](
     delegate: ClientCall.Listener[Resp],
     pendingFailedServer: AtomicReference[String],
     serverAtCallTime: String)
-    extends ForwardingClientCallListener.SimpleForwardingClientCallListener[Resp](delegate) {
+  extends ForwardingClientCallListener.SimpleForwardingClientCallListener[Resp](delegate) {
 
   override def onClose(status: Status, trailers: Metadata): Unit = {
     if (status.getCode == Status.Code.UNAVAILABLE) {
