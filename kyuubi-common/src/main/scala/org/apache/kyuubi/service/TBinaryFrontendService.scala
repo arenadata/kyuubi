@@ -29,7 +29,7 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 import org.apache.kyuubi.shaded.thrift.protocol.TBinaryProtocol
 import org.apache.kyuubi.shaded.thrift.server.{TServer, TThreadPoolServer}
 import org.apache.kyuubi.shaded.thrift.transport.{TServerSocket, TSSLTransportFactory}
-import org.apache.kyuubi.util.NamedThreadFactory
+import org.apache.kyuubi.util.{KyuubiHadoopUtils, NamedThreadFactory}
 
 /**
  * Apache Thrift based hive service rpc
@@ -78,7 +78,7 @@ abstract class TBinaryFrontendService(name: String)
         // only enable ssl for server side
         if (isServer() && conf.get(FRONTEND_THRIFT_BINARY_SSL_ENABLED)) {
           keyStorePath = conf.get(FRONTEND_SSL_KEYSTORE_PATH)
-          keyStorePassword = conf.get(FRONTEND_SSL_KEYSTORE_PASSWORD)
+          keyStorePassword = KyuubiHadoopUtils.getPassword(conf, FRONTEND_SSL_KEYSTORE_PASSWORD)
           keyStoreType = conf.get(FRONTEND_SSL_KEYSTORE_TYPE)
           val keyStoreAlgorithm = conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
           val disallowedSslProtocols = conf.get(FRONTEND_THRIFT_BINARY_SSL_DISALLOWED_PROTOCOLS)

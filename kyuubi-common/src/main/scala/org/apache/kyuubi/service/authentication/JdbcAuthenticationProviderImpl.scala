@@ -27,7 +27,7 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.util.JdbcUtils
+import org.apache.kyuubi.util.{JdbcUtils, KyuubiHadoopUtils}
 
 class JdbcAuthenticationProviderImpl(conf: KyuubiConf) extends PasswdAuthenticationProvider
   with Logging {
@@ -42,7 +42,7 @@ class JdbcAuthenticationProviderImpl(conf: KyuubiConf) extends PasswdAuthenticat
   private val driverClass = conf.get(AUTHENTICATION_JDBC_DRIVER)
   private val authDbJdbcUrl = conf.get(AUTHENTICATION_JDBC_URL)
   private val authDbUser = conf.get(AUTHENTICATION_JDBC_USER)
-  private val authDbPassword = conf.get(AUTHENTICATION_JDBC_PASSWORD)
+  private val authDbPassword = KyuubiHadoopUtils.getPassword(conf, AUTHENTICATION_JDBC_PASSWORD)
   private val authQuery = conf.get(AUTHENTICATION_JDBC_QUERY)
 
   checkJdbcConfigs()

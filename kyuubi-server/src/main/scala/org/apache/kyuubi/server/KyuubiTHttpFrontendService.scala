@@ -51,7 +51,7 @@ import org.apache.kyuubi.service.TFrontendService.{CURRENT_SERVER_CONTEXT, OK_ST
 import org.apache.kyuubi.session.KyuubiSessionImpl
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.{TCLIService, TOpenSessionReq, TOpenSessionResp}
 import org.apache.kyuubi.shaded.thrift.protocol.TBinaryProtocol
-import org.apache.kyuubi.util.{NamedThreadFactory, SSLUtils}
+import org.apache.kyuubi.util.{KyuubiHadoopUtils, NamedThreadFactory, SSLUtils}
 
 /**
  * Apache Thrift based hive service rpc
@@ -135,7 +135,8 @@ final class KyuubiTHttpFrontendService(
               FRONTEND_THRIFT_HTTP_SSL_KEYSTORE_PATH.doc)
           }
 
-          keyStorePassword = conf.get(FRONTEND_THRIFT_HTTP_SSL_KEYSTORE_PASSWORD)
+          keyStorePassword =
+            KyuubiHadoopUtils.getPassword(conf, FRONTEND_THRIFT_HTTP_SSL_KEYSTORE_PASSWORD)
           if (keyStorePassword.isEmpty) {
             throw new IllegalArgumentException(FRONTEND_THRIFT_HTTP_SSL_KEYSTORE_PASSWORD.key +
               " Not configured for SSL connection. please set the key with: " +

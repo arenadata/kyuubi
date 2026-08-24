@@ -49,7 +49,7 @@ object KubernetesUtils extends Logging {
     val oauthTokenFile = conf.get(KUBERNETES_AUTHENTICATE_OAUTH_TOKEN_FILE)
       .map(new File(_))
       .orElse(serviceAccountToken)
-    val oauthTokenValue = conf.get(KUBERNETES_AUTHENTICATE_OAUTH_TOKEN)
+    val oauthTokenValue = KyuubiHadoopUtils.getPassword(conf, KUBERNETES_AUTHENTICATE_OAUTH_TOKEN)
 
     KubernetesUtils.requireNandDefined(
       oauthTokenFile,

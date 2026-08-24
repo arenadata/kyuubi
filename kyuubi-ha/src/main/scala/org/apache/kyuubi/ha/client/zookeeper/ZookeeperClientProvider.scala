@@ -74,7 +74,7 @@ object ZookeeperClientProvider extends Logging {
       .aclProvider(new ZookeeperACLProvider(conf))
       .retryPolicy(retryPolicy)
 
-    conf.get(HA_ZK_AUTH_DIGEST).foreach { authString =>
+    KyuubiHadoopUtils.getPassword(conf, HA_ZK_AUTH_DIGEST).foreach { authString =>
       builder.authorization("digest", authString.getBytes(StandardCharsets.UTF_8))
     }
 

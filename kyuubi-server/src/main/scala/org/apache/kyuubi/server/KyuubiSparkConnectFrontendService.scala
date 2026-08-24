@@ -38,7 +38,7 @@ import org.apache.kyuubi.server.grpc.{BasicCredentialHandler, JdbcTokenStore, Ke
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils, InternalSecurityAccessor}
 import org.apache.kyuubi.shaded.spark.connect.proto._
-import org.apache.kyuubi.util.JavaUtils
+import org.apache.kyuubi.util.{JavaUtils, KyuubiHadoopUtils}
 
 class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
   extends AbstractFrontendService("KyuubiSparkConnectFrontendService") {
@@ -266,7 +266,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
 
     if (conf.get(FRONTEND_SPARK_CONNECT_SSL_ENABLED)) {
       val keyStorePath = conf.get(FRONTEND_SSL_KEYSTORE_PATH)
-      val keyStorePassword = conf.get(FRONTEND_SSL_KEYSTORE_PASSWORD)
+      val keyStorePassword = KyuubiHadoopUtils.getPassword(conf, FRONTEND_SSL_KEYSTORE_PASSWORD)
       val keyStoreType = conf.get(FRONTEND_SSL_KEYSTORE_TYPE).getOrElse(KeyStore.getDefaultType)
       val keyStoreAlgorithm = conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
         .getOrElse(KeyManagerFactory.getDefaultAlgorithm)

@@ -28,6 +28,7 @@ import org.apache.kyuubi.service.ServiceUtils
 import org.apache.kyuubi.service.authentication.LdapAuthenticationProviderImpl.FILTER_FACTORIES
 import org.apache.kyuubi.service.authentication.ldap._
 import org.apache.kyuubi.service.authentication.ldap.LdapUtils.getUserName
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 class LdapAuthenticationProviderImpl(
     conf: KyuubiConf,
@@ -37,6 +38,9 @@ class LdapAuthenticationProviderImpl(
   private val filterOpt: Option[Filter] = FILTER_FACTORIES
     .map { f => f.getInstance(conf) }
     .collectFirst { case Some(f: Filter) => f }
+
+  private val configuredBindPassword =
+    KyuubiHadoopUtils.getPassword(conf, KyuubiConf.AUTHENTICATION_LDAP_BIND_PASSWORD)
 
   /**
    * The authenticate method is called by the Kyuubi Server authentication layer
@@ -53,7 +57,7 @@ class LdapAuthenticationProviderImpl(
 
     val (usedBind, bindUser, bindPassword) = (
       conf.get(KyuubiConf.AUTHENTICATION_LDAP_BIND_USER),
-      conf.get(KyuubiConf.AUTHENTICATION_LDAP_BIND_PASSWORD)) match {
+      configuredBindPassword) match {
       case (Some(_bindUser), Some(_bindPw)) => (true, _bindUser, _bindPw)
       case _ =>
         // If no bind user or bind password was specified,

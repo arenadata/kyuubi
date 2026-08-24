@@ -19,10 +19,12 @@ package org.apache.kyuubi.server.metadata.jdbc
 
 import java.util.UUID
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.security.alias.CredentialProviderFactory
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import org.scalatest.time.SpanSugar._
 
-import org.apache.kyuubi.{KyuubiException, KyuubiFunSuite}
+import org.apache.kyuubi.{KyuubiException, KyuubiFunSuite, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.ApplicationState
 import org.apache.kyuubi.server.metadata.MetadataManager
@@ -31,6 +33,27 @@ import org.apache.kyuubi.server.metadata.jdbc.JDBCMetadataStoreConf._
 import org.apache.kyuubi.session.SessionType
 
 class JDBCMetadataStoreSuite extends KyuubiFunSuite {
+
+  test("metadata store jdbc password via hadoop credential provider") {
+    assert(getMetadataStoreJDBCPassword(KyuubiConf(loadSysDefault = false)) === "")
+
+    val literalConf = KyuubiConf(loadSysDefault = false)
+      .set(METADATA_STORE_JDBC_PASSWORD, "literal-password")
+    assert(getMetadataStoreJDBCPassword(literalConf) === "literal-password")
+
+    val providerPath = s"jceks://file${Utils.createTempDir().toAbsolutePath}/test.jceks"
+    val providerConf = new Configuration(false)
+    providerConf.set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
+    val provider = CredentialProviderFactory.getProviders(providerConf).get(0)
+    provider.createCredentialEntry(
+      METADATA_STORE_JDBC_PASSWORD.key,
+      "provider-password".toCharArray)
+    provider.flush()
+
+    val aliasConf = literalConf.clone
+      .set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
+    assert(getMetadataStoreJDBCPassword(aliasConf) === "provider-password")
+  }
   private val conf = KyuubiConf()
     .set(METADATA_STORE_JDBC_DATABASE_TYPE, DatabaseType.SQLITE.toString)
     .set(METADATA_STORE_JDBC_DATABASE_SCHEMA_INIT, true)

@@ -234,9 +234,13 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
     case (k, v) => validateKey(k, v)
   }
 
-  // validate whether if a batch key should be ignored
+  // validate whether if a batch key should be ignored, honouring the restrict list too
   def validateBatchKey(key: String, value: String): Option[(String, String)] = {
-    if (_batchConfIgnoreMatchList.exists(key.startsWith) || _batchConfIgnoreList.contains(key)) {
+    if (_confRestrictMatchList.exists(key.startsWith) || _confRestrictList.contains(key)) {
+      throw KyuubiSQLException(s"$key is a restrict key according to the server-side" +
+        s" configuration, please remove it and retry if you want to proceed")
+    } else if (_batchConfIgnoreMatchList.exists(key.startsWith) ||
+      _batchConfIgnoreList.contains(key)) {
       warn(s"$key is a ignored batch key according to the server-side configuration")
       None
     } else {
@@ -273,7 +277,11 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
         conf.get(ENGINE_EXEC_KEEPALIVE_TIME)
       }
 
-    _confRestrictList = conf.get(SESSION_CONF_RESTRICT_LIST)
+    // always restricted: a session-supplied credential provider path or credential-store
+    // setting would steer password resolution (KyuubiHadoopUtils.getPassword) at a
+    // client-chosen store, including relaying a Vault token to an attacker-named host
+    _confRestrictList = conf.get(SESSION_CONF_RESTRICT_LIST) ++
+      SessionManager.ALWAYS_RESTRICTED_CONF_PREFIXES
     _confIgnoreList = conf.get(SESSION_CONF_IGNORE_LIST) +
       s"${SESSION_USER_SIGN_ENABLED.key}"
     _batchConfIgnoreList = conf.get(BATCH_CONF_IGNORE_LIST)
@@ -369,4 +377,11 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
   }
 
   private[kyuubi] def isEngineContextStopped: Boolean = false
+}
+
+object SessionManager {
+  // Session conf prefixes that clients must never set, because they steer credential-provider
+  // password resolution (KyuubiHadoopUtils.getPassword) at a client-chosen store.
+  val ALWAYS_RESTRICTED_CONF_PREFIXES: Set[String] =
+    Set("hadoop.security.credential.*", "hadoop.security.credstore.*")
 }

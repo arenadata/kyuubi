@@ -39,6 +39,7 @@ import org.apache.kyuubi.events.EventBus
 import org.apache.kyuubi.operation.{Operation, OperationHandle}
 import org.apache.kyuubi.session._
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.{TGetInfoType, TGetInfoValue, TProtocolVersion}
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 class TrinoSessionImpl(
     protocol: TProtocolVersion,
@@ -120,11 +121,14 @@ class TrinoSessionImpl(
       OkHttpUtil.setupInsecureSsl(builder)
     } else {
       val keystorePath = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_KEYSTORE_PATH)
-      val keystorePassword = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_KEYSTORE_PASSWORD)
+      val keystorePassword = KyuubiHadoopUtils.getPassword(
+        sessionConf,
+        KyuubiConf.ENGINE_TRINO_CONNECTION_KEYSTORE_PASSWORD)
       val keystoreType = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_KEYSTORE_TYPE)
       val truststorePath = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_TRUSTSTORE_PATH)
-      val truststorePassword =
-        sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_TRUSTSTORE_PASSWORD)
+      val truststorePassword = KyuubiHadoopUtils.getPassword(
+        sessionConf,
+        KyuubiConf.ENGINE_TRINO_CONNECTION_TRUSTSTORE_PASSWORD)
       val truststoreType = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_TRUSTSTORE_TYPE)
 
       OkHttpUtil.setupSsl(
@@ -174,14 +178,15 @@ class TrinoSessionImpl(
         delegatedKerberos)
     }
 
-    sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_PASSWORD).foreach { password =>
-      require(
-        serverScheme.equalsIgnoreCase("https"),
-        "Trino engine using username/password requires HTTPS to be enabled")
-      val user: String = sessionConf
-        .get(KyuubiConf.ENGINE_TRINO_CONNECTION_USER).getOrElse(sessionUser)
-      builder.addInterceptor(OkHttpUtil.basicAuth(user, password))
-    }
+    KyuubiHadoopUtils.getPassword(sessionConf, KyuubiConf.ENGINE_TRINO_CONNECTION_PASSWORD)
+      .foreach { password =>
+        require(
+          serverScheme.equalsIgnoreCase("https"),
+          "Trino engine using username/password requires HTTPS to be enabled")
+        val user: String = sessionConf
+          .get(KyuubiConf.ENGINE_TRINO_CONNECTION_USER).getOrElse(sessionUser)
+        builder.addInterceptor(OkHttpUtil.basicAuth(user, password))
+      }
 
     builder.build()
   }
