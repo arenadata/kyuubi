@@ -151,10 +151,6 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
         }
         flightServer = null
       }
-      try serverThread.join(5000)
-      catch {
-        case _: InterruptedException => Thread.currentThread().interrupt()
-      }
       tlsMaterial.foreach(_.cleanup())
       tlsMaterial = None
       if (allocator != null) {
