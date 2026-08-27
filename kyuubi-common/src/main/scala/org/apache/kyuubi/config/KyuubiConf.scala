@@ -355,6 +355,21 @@ object KyuubiConf {
     .timeConf
     .createWithDefault(Duration.ofHours(3).toMillis)
 
+  val HADOOP_CREDENTIAL_CACHE_TTL: ConfigEntry[Long] =
+    buildConf("kyuubi.hadoop.credential.cache.ttl")
+      .doc("TTL for password aliases resolved from Hadoop credential providers " +
+        "(hadoop.security.credential.provider.path) and cached by the server and engines. " +
+        "A value rotated inside the credential store is picked up within this TTL by call " +
+        "sites that re-read the password, e.g. per connection or login; values read once at " +
+        "startup (connection pools, SSL keystores, the internal secret) still need a restart. " +
+        "Lowering a non-zero TTL takes effect immediately for already-cached entries. " +
+        "Set 0 to disable caching, so every read hits the credential store; this also disables " +
+        "the short-lived fallback that keeps serving the last resolved value during a store " +
+        "outage.")
+      .version("1.11.1")
+      .timeConf
+      .createWithDefault(Duration.ofMinutes(5).toMillis)
+
   val CREDENTIALS_RENEWAL_INTERVAL: ConfigEntry[Long] =
     buildConf("kyuubi.credentials.renewal.interval")
       .serverOnly

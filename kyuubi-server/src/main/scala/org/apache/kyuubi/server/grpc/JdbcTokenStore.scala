@@ -62,7 +62,7 @@ class JdbcTokenStore(
     hc.setDriverClassName(resolveDriver())
     hc.setJdbcUrl(JDBCMetadataStoreConf.getMetadataStoreJdbcUrl(conf))
     hc.setUsername(conf.get(METADATA_STORE_JDBC_USER))
-    hc.setPassword(conf.get(METADATA_STORE_JDBC_PASSWORD))
+    hc.setPassword(JDBCMetadataStoreConf.getMetadataStoreJDBCPassword(conf))
     hc.setMaximumPoolSize(3)
     hc.setPoolName("connect-token-store-pool")
     new HikariDataSource(hc)
@@ -81,8 +81,7 @@ class JdbcTokenStore(
     val expiresAt = now + ttlMs
     JdbcUtils.executeUpdate(
       "INSERT INTO spark_connect_tokens(token_id, username, created_at, expires_at)" +
-        " VALUES(?,?,?,?)"
-    ) { stmt =>
+        " VALUES(?,?,?,?)") { stmt =>
       stmt.setString(1, token)
       stmt.setString(2, username)
       stmt.setLong(3, now)
@@ -126,8 +125,7 @@ class JdbcTokenStore(
       case Some(entry) if entry.expiresAt > now =>
         val newExpiry = now + ttlMs
         JdbcUtils.executeUpdate(
-          "UPDATE spark_connect_tokens SET expires_at=? WHERE token_id=?"
-        ) { stmt =>
+          "UPDATE spark_connect_tokens SET expires_at=? WHERE token_id=?") { stmt =>
           stmt.setLong(1, newExpiry)
           stmt.setString(2, token)
         }
@@ -154,10 +152,10 @@ class JdbcTokenStore(
 
   private def loadFromDb(token: String, now: Long): Option[Entry] = {
     JdbcUtils.executeQuery(
-      "SELECT username, expires_at FROM spark_connect_tokens WHERE token_id=? AND expires_at>?"
-    ) { stmt =>
-      stmt.setString(1, token)
-      stmt.setLong(2, now)
+      "SELECT username, expires_at FROM spark_connect_tokens WHERE token_id=? AND expires_at>?") {
+      stmt =>
+        stmt.setString(1, token)
+        stmt.setLong(2, now)
     } { rs =>
       if (rs.next()) Some(Entry(rs.getString("username"), rs.getLong("expires_at"), now))
       else None
@@ -174,8 +172,7 @@ class JdbcTokenStore(
     val now = System.currentTimeMillis()
     cache.entrySet().removeIf(_.getValue.expiresAt <= now)
     val deleted = JdbcUtils.executeUpdate(
-      "DELETE FROM spark_connect_tokens WHERE expires_at<=?"
-    ) { stmt =>
+      "DELETE FROM spark_connect_tokens WHERE expires_at<=?") { stmt =>
       stmt.setLong(1, now)
     }
     if (deleted > 0) info(s"Removed $deleted expired Connect tokens from DB")
@@ -191,7 +188,7 @@ class JdbcTokenStore(
         else "com.mysql.jdbc.Driver"
       case POSTGRESQL => "org.postgresql.Driver"
       case CUSTOM => throw new IllegalArgumentException(
-        s"${METADATA_STORE_JDBC_DRIVER.key} must be set for CUSTOM database type")
+          s"${METADATA_STORE_JDBC_DRIVER.key} must be set for CUSTOM database type")
     })
   }
 }

@@ -23,6 +23,7 @@ import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.engine.jdbc.util.SupportServiceLoader
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 abstract class JdbcConnectionProvider extends SupportServiceLoader with Logging {
 
@@ -42,7 +43,14 @@ abstract class JdbcConnectionProvider extends SupportServiceLoader with Logging 
       properties.setProperty("user", user.get)
     }
 
-    val password = kyuubiConf.get(ENGINE_JDBC_CONNECTION_PASSWORD)
+    // with propagateCredential the session user's password is written into the conf at runtime
+    // and must not be shadowed by a static credential store alias
+    val password =
+      if (kyuubiConf.get(ENGINE_JDBC_CONNECTION_PROPAGATECREDENTIAL)) {
+        kyuubiConf.get(ENGINE_JDBC_CONNECTION_PASSWORD)
+      } else {
+        KyuubiHadoopUtils.getPassword(kyuubiConf, ENGINE_JDBC_CONNECTION_PASSWORD)
+      }
     if (password.isDefined) {
       properties.setProperty("password", password.get)
     }

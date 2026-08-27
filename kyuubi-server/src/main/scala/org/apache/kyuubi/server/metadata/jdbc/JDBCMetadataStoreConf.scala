@@ -21,7 +21,7 @@ import java.util.Properties
 
 import org.apache.kyuubi.config.{ConfigEntry, KyuubiConf, OptionalConfigEntry}
 import org.apache.kyuubi.config.KyuubiConf.buildConf
-import org.apache.kyuubi.util.JavaUtils
+import org.apache.kyuubi.util.{JavaUtils, KyuubiHadoopUtils}
 
 object JDBCMetadataStoreConf {
   final val METADATA_STORE_JDBC_DATASOURCE_PREFIX = "kyuubi.metadata.store.jdbc.datasource"
@@ -37,6 +37,11 @@ object JDBCMetadataStoreConf {
     } else {
       rawJdbcUrl
     }
+  }
+
+  /** Get the JDBC password, resolving Hadoop credential provider aliases if configured. */
+  def getMetadataStoreJDBCPassword(conf: KyuubiConf): String = {
+    KyuubiHadoopUtils.getPassword(conf, METADATA_STORE_JDBC_PASSWORD)
   }
 
   /** Get metadata store jdbc datasource properties. */

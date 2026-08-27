@@ -33,14 +33,16 @@ import org.apache.kyuubi.engine.chat.ernie.bean.{ChatCompletionRequest, ChatMess
 import org.apache.kyuubi.engine.chat.ernie.enums.ChatMessageRole
 import org.apache.kyuubi.engine.chat.ernie.service.ErnieBotService
 import org.apache.kyuubi.engine.chat.ernie.service.ErnieBotService.{defaultClient, defaultRetrofit}
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 class ErnieBotProvider(conf: KyuubiConf) extends ChatProvider {
 
-  private val accessToken = conf.get(KyuubiConf.ENGINE_ERNIE_BOT_ACCESS_TOKEN).getOrElse {
-    throw new IllegalArgumentException(
-      s"'${KyuubiConf.ENGINE_ERNIE_BOT_ACCESS_TOKEN.key}' must be configured, " +
-        s"which could be got at https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Ilkkrb0i5")
-  }
+  private val accessToken =
+    KyuubiHadoopUtils.getPassword(conf, KyuubiConf.ENGINE_ERNIE_BOT_ACCESS_TOKEN).getOrElse {
+      throw new IllegalArgumentException(
+        s"'${KyuubiConf.ENGINE_ERNIE_BOT_ACCESS_TOKEN.key}' must be configured, " +
+          s"which could be got at https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Ilkkrb0i5")
+    }
 
   private val model = conf.get(KyuubiConf.ENGINE_ERNIE_BOT_MODEL)
 

@@ -31,14 +31,16 @@ import com.theokanning.openai.service.OpenAiService
 import com.theokanning.openai.service.OpenAiService.{defaultClient, defaultObjectMapper, defaultRetrofit}
 
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 class ChatGPTProvider(conf: KyuubiConf) extends ChatProvider {
 
-  private val gptApiKey = conf.get(KyuubiConf.ENGINE_CHAT_GPT_API_KEY).getOrElse {
-    throw new IllegalArgumentException(
-      s"'${KyuubiConf.ENGINE_CHAT_GPT_API_KEY.key}' must be configured, " +
-        s"which could be got at https://platform.openai.com/account/api-keys")
-  }
+  private val gptApiKey =
+    KyuubiHadoopUtils.getPassword(conf, KyuubiConf.ENGINE_CHAT_GPT_API_KEY).getOrElse {
+      throw new IllegalArgumentException(
+        s"'${KyuubiConf.ENGINE_CHAT_GPT_API_KEY.key}' must be configured, " +
+          s"which could be got at https://platform.openai.com/account/api-keys")
+    }
 
   private val openAiService: OpenAiService = {
     val builder = defaultClient(
