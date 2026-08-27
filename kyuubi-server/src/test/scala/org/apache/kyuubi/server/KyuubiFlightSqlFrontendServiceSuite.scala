@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.server
 
+import scala.collection.JavaConverters._
+
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -48,6 +50,26 @@ class KyuubiFlightSqlFrontendServiceSuite extends KyuubiFunSuite {
     assert(server.getServiceState === STOPPED)
     assert(frontend.getServiceState === STOPPED)
     server.stop()
+  }
+
+  test("Flight SQL frontend keeps a non-daemon server thread") {
+    val server = new KyuubiServer
+    val conf = KyuubiConf()
+      .set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
+      .set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
+      .set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
+
+    try {
+      server.initialize(conf)
+      server.start()
+      val keeper = flightSqlServerThread
+      assert(keeper.isDefined, "expected a live non-daemon Flight SQL server thread")
+      assert(!keeper.get.isDaemon)
+      assert(keeper.get.isAlive)
+    } finally {
+      server.stop()
+    }
+    assert(flightSqlServerThread.isEmpty)
   }
 
   test("Flight SQL advertised host") {
@@ -83,4 +105,9 @@ class KyuubiFlightSqlFrontendServiceSuite extends KyuubiFunSuite {
       server.stop()
     }
   }
+
+  private def flightSqlServerThread: Option[Thread] =
+    Thread.getAllStackTraces.keySet.asScala.find { t =>
+      t.isAlive && !t.isDaemon && t.getName.startsWith("KyuubiFlightSqlFrontendService")
+    }
 }
