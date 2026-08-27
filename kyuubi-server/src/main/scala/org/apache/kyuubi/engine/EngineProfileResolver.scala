@@ -19,7 +19,7 @@ package org.apache.kyuubi.engine
 
 import java.util.Locale
 
-import org.apache.kyuubi.{KyuubiSQLException, Logging}
+import org.apache.kyuubi.{KyuubiSQLException, Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 
@@ -57,7 +57,22 @@ object EngineProfileResolver extends Logging {
           handleUndefinedProfile(serverConf, registry, name)
           None
       }
+    }.fold[Option[EngineProfile]] {
+      info(s"No engine profile resolved for user '$user', proceeding without one.")
+      None
+    } { profile =>
+      info(s"Proceeding with engine profile '${profile.name}' for user '$user'.")
+      Some(profile)
     }
+  }
+
+  private def resolveProfilesBlacklist(
+      serverConf: KyuubiConf,
+      user: String,
+      groups: Seq[String]): Set[String] = {
+    userAndGroupConfigs(serverConf, user, groups, ENGINE_PROFILES_BLACKLIST.key)
+      .flatMap(Utils.strToSeq(_))
+      .toSet
   }
 
   private def handleUndefinedProfile(
@@ -69,7 +84,7 @@ object EngineProfileResolver extends Logging {
         s" ${registry.names.toSeq.sorted.mkString("[", ", ", "]")}."
     serverConf.get(ENGINE_PROFILES_UNKNOWN_STRATEGY) match {
       case "LOG" =>
-        warn(s"$message Continuing without applying any engine profile.")
+        warn(message)
       case _ =>
         throw KyuubiSQLException(message)
     }
@@ -95,9 +110,15 @@ object EngineProfileResolver extends Logging {
       user: String,
       groups: Seq[String],
       requestConf: Map[String, String]): Option[String] = {
-    requestConf.get(ENGINE_PROFILE.key).filter(_.nonEmpty)
-      .orElse(userOrGroupDefault(serverConf, user, groups, ENGINE_PROFILE.key))
-      .orElse(defaultProfile(serverConf, resolveEngineType(serverConf, user, groups, requestConf)))
+    val profilesBlacklist = resolveProfilesBlacklist(serverConf, user, groups)
+
+    requestConf.get(ENGINE_PROFILE.key)
+      .filter(_.nonEmpty)
+      .map(requireNotBlacklisted(_, profilesBlacklist, user))
+      .orElse(userAndGroupConfigs(serverConf, user, groups, ENGINE_PROFILE.key)
+        .find(allowedImplicitly(_, profilesBlacklist, user)))
+      .orElse(defaultProfile(serverConf, resolveEngineType(serverConf, user, groups, requestConf))
+        .filter(allowedImplicitly(_, profilesBlacklist, user)))
   }
 
   /** The configured global default profile for an engine type, if any. */
@@ -125,12 +146,46 @@ object EngineProfileResolver extends Logging {
       user: String,
       groups: Seq[String],
       key: String): Option[String] = {
+    userAndGroupConfigs(serverConf, user, groups, key)
+      .find(_.nonEmpty)
+  }
+
+  private def userAndGroupConfigs(
+    serverConf: KyuubiConf,
+    user: String,
+    groups: Seq[String],
+    key: String): Iterator[String] = {
     (user +: groups).iterator
       .flatMap { principal =>
         serverConf.getAllWithPrefix(
           s"$USER_DEFAULTS_CONF_QUOTE$principal$USER_DEFAULTS_CONF_QUOTE",
           "").get(key)
       }
-      .find(_.nonEmpty)
+      .filter(_.nonEmpty)
+      .map(_.trim)
+  }
+
+  private def allowedImplicitly(
+    profile: String,
+    profilesBlacklist: Set[String],
+    user: String): Boolean = {
+    if (profilesBlacklist.contains(profile)) {
+      warn(s"User '$user' is not allowed to implicitly use the engine profile '$profile', " +
+        "skipping it.")
+      false
+    } else {
+      true
+    }
+  }
+
+  private def requireNotBlacklisted(
+    profile: String,
+    profilesBlacklist: Set[String],
+    user: String): String = {
+    if (profilesBlacklist.contains(profile)) {
+      throw KyuubiSQLException(
+        s"Current user '$user' is not allowed to use the engine profile '$profile'")
+    }
+    profile
   }
 }
