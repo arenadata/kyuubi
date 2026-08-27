@@ -218,7 +218,7 @@ class KyuubiSparkConnectFrontendService(override val serverable: Serverable)
     }
     connectSessionManager = createSessionManager()
     val authTypes = conf.get(KyuubiConf.AUTHENTICATION_METHOD)
-      .map[AuthTypes.AuthType](AuthTypes.withName)
+      .map(value => AuthTypes.withName(value))
 
     val kerberosHandler: Option[SparkConnectCredentialHandler] = {
       if (AuthUtils.kerberosEnabled(authTypes) &&

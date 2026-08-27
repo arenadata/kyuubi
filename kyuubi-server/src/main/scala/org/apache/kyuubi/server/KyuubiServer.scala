@@ -203,6 +203,9 @@ class KyuubiServer(name: String) extends Serverable(name) {
       case SPARK_CONNECT =>
         warn("SPARK_CONNECT frontend protocol is experimental.")
         new KyuubiSparkConnectFrontendService(this)
+      case FLIGHT_SQL =>
+        warn("FLIGHT_SQL frontend protocol is experimental.")
+        new KyuubiFlightSqlFrontendService(this)
       case other =>
         throw new UnsupportedOperationException(s"Frontend protocol $other is not supported yet.")
     }

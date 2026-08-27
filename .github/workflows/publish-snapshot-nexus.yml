@@ -56,4 +56,4 @@ jobs:
         env:
           ASF_USERNAME: ${{ secrets.NEXUS_USER }}
           ASF_PASSWORD: ${{ secrets.NEXUS_PW }}
-        run: build/mvn clean deploy -s build/release/asf-settings.xml -DskipTests ${{ matrix.profiles }}
+        run: build/mvn clean deploy -s build/release/asf-settings.xml -DskipTests -Dmaven.scalastyle.skip=true -Dspotless.check.skip=true ${{ matrix.profiles }}

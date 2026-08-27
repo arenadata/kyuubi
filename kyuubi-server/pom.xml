@@ -304,7 +304,7 @@
          -->
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
-            <artifactId>kyuubi-spark-sql-engine_${scala.binary.version}</artifactId>
+            <artifactId>kyuubi-spark-sql-engine-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
             <type>pom</type>
             <scope>test</scope>
@@ -428,7 +428,7 @@
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
             <artifactId>kyuubi-relocated-spark-connect-rpc</artifactId>
-            <version>0.5.0</version>
+            <version>${kyuubi-relocated.version}</version>
         </dependency>
 
         <dependency>
@@ -448,6 +448,16 @@
         </dependency>
 
         <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-sql</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-inprocess</artifactId>
             <scope>test</scope>
@@ -457,9 +467,17 @@
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
+
     </dependencies>
 
     <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
 
         <resources>
             <resource>
@@ -548,7 +566,25 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.kyuubi</groupId>
-                    <artifactId>kyuubi-spark-connect-client_${scala.binary.version}</artifactId>
+                    <artifactId>kyuubi-spark-connect-client-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
+                    <version>${project.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+
+        <profile>
+            <id>spark-4.2</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.spark</groupId>
+                    <artifactId>spark-connect-client-jvm_${scala.binary.version}</artifactId>
+                    <version>${spark.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.kyuubi</groupId>
+                    <artifactId>kyuubi-spark-connect-client-spark-${spark.artifact.version}_${scala.binary.version}</artifactId>
                     <version>${project.version}</version>
                     <scope>test</scope>
                 </dependency>

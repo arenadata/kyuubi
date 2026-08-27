@@ -21,8 +21,8 @@ import io.grpc.{Context, Contexts, Metadata, ServerCall, ServerCallHandler, Serv
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
-import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.{TOKEN_KEY, USER_KEY}
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, ENGINE_PROFILE}
+import org.apache.kyuubi.server.grpc.SparkConnectAuthInterceptor.{ENGINE_PROFILE_HEADER, ENGINE_PROFILE_KEY, TOKEN_KEY, USER_KEY}
 import org.apache.kyuubi.server.grpc.SparkConnectCredentialHandler.BEARER_PREFIX
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 import org.apache.kyuubi.service.authentication.AuthTypes.NONE
@@ -36,7 +36,7 @@ class SparkConnectAuthInterceptor(
     Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER)
 
   private val authTypes =
-    conf.get(AUTHENTICATION_METHOD).map[AuthTypes.AuthType](AuthTypes.withName)
+    conf.get(AUTHENTICATION_METHOD).map(value => AuthTypes.withName(value))
 
   private val saslDisabled = AuthUtils.saslDisabled(authTypes)
 
@@ -44,6 +44,15 @@ class SparkConnectAuthInterceptor(
   // accept any request without an Authorization header, trust x-user-name or OS user.
   private val noAuthRequired =
     saslDisabled || AuthUtils.effectivePlainAuthType(authTypes).contains(NONE)
+
+  // Lets a client pick an engine profile (e.g. Spark version) per connection, e.g.
+  // sc://host:port/;kyuubi.engine.profile=spark42 - same config key JDBC uses. Independent of
+  // authentication, so it's layered onto whichever context each branch below builds.
+  private def withEngineProfile(ctx: Context, headers: Metadata): Context = {
+    Option(headers.get(ENGINE_PROFILE_HEADER))
+      .map(ctx.withValue(ENGINE_PROFILE_KEY, _))
+      .getOrElse(ctx)
+  }
 
   override def interceptCall[Req, Resp](
       call: ServerCall[Req, Resp],
@@ -62,9 +71,11 @@ class SparkConnectAuthInterceptor(
             store.getUser(token) match {
               case Some(user) =>
                 store.renew(token)
-                val ctx = Context.current()
-                  .withValue(USER_KEY, user)
-                  .withValue(TOKEN_KEY, token)
+                val ctx = withEngineProfile(
+                  Context.current()
+                    .withValue(USER_KEY, user)
+                    .withValue(TOKEN_KEY, token),
+                  headers)
                 Contexts.interceptCall(ctx, call, headers, next)
               case None =>
                 call.close(
@@ -83,7 +94,7 @@ class SparkConnectAuthInterceptor(
         val xUserNameKey = Metadata.Key.of("x-user-name", Metadata.ASCII_STRING_MARSHALLER)
         val user = Option(headers.get(xUserNameKey))
           .getOrElse(System.getProperty("user.name", "anonymous"))
-        val ctx = Context.current().withValue(USER_KEY, user)
+        val ctx = withEngineProfile(Context.current().withValue(USER_KEY, user), headers)
         Contexts.interceptCall(ctx, call, headers, next)
       case None =>
         call.close(
@@ -97,4 +108,8 @@ class SparkConnectAuthInterceptor(
 object SparkConnectAuthInterceptor {
   val USER_KEY: Context.Key[String] = Context.key("kyuubi.connect.user")
   val TOKEN_KEY: Context.Key[String] = Context.key("kyuubi.connect.token")
+  val ENGINE_PROFILE_KEY: Context.Key[String] = Context.key("kyuubi.connect.engine.profile")
+
+  private val ENGINE_PROFILE_HEADER: Metadata.Key[String] =
+    Metadata.Key.of(ENGINE_PROFILE.key, Metadata.ASCII_STRING_MARSHALLER)
 }

@@ -81,15 +81,15 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # The build above is Spark 3.5 only. The authz extension is Spark-version
-    # specific and its artifactId carries ${spark.artifact.version}, so a second,
-    # module-scoped build publishes the Spark 4 flavour under distinct
-    # coordinates. Non-Spark modules it depends on are already in the local
-    # repository from the step above, hence no -am.
-    - name: Build and Deploy Spark 4 Authz to GitHub Packages
+    # The build above is Spark 3.5 only. The authz extension, the engine jar, and the
+    # Spark Connect JVM client are all Spark-version specific and their artifactIds carry
+    # ${spark.artifact.version}, so a second, module-scoped build publishes the Spark 4
+    # flavours under distinct coordinates. Non-Spark modules they depend on are already
+    # in the local repository from the step above, hence no -am.
+    - name: Build and Deploy Spark 4 Artifacts to GitHub Packages
       run: >-
         build/mvn -B -V -ntp clean deploy
-        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine,extensions/spark/kyuubi-spark-connect-client,extensions/spark/kyuubi-spark-connect-client-standalone
         -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9 -Pspark-provided,flink-provided,hive-provided
         -DskipTests -Drat.skip=true
       env:
@@ -104,15 +104,15 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # The BOM above covers the Spark 3.5 reactor. The Spark 4 authz artifacts are
+    # The BOM above covers the Spark 3.5 reactor. The Spark 4 artifacts are
     # built from a separate reactor, so they need their own BOM. `outputDirectory`
     # is pinned because the aggregate goal otherwise writes into the first module
     # of the reactor rather than the workspace root.
-    - name: Generate SBOM for Spark 4 Authz
+    - name: Generate SBOM for Spark 4 Artifacts
       run: >-
         build/mvn -B -ntp
         org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
-        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded
+        -pl extensions/spark/kyuubi-spark-authz,extensions/spark/kyuubi-spark-authz-shaded,externals/kyuubi-spark-sql-engine,extensions/spark/kyuubi-spark-connect-client,extensions/spark/kyuubi-spark-connect-client-standalone
         -Pscala-2.13 -Pspark-4.2 -Pzookeeper-3.9
         -DoutputFormat=json -DoutputName=bom-spark-4-authz
         -DoutputDirectory=${{ github.workspace }}/target

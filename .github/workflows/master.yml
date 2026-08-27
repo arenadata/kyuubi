@@ -40,7 +40,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MAVEN_ARGS: -U -Dmaven.javadoc.skip=true -Drat.skip=true -Dscalastyle.skip=true -Dspotless.check.skip -Dorg.slf4j.simpleLogger.defaultLogLevel=info -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
+  MAVEN_ARGS: -U -Dmaven.javadoc.skip=true -Drat.skip=true -Dmaven.scalastyle.skip=true -Dspotless.check.skip=true -Dorg.slf4j.simpleLogger.defaultLogLevel=info -Pjdbc-shaded,gen-policy -Dmaven.plugin.download.cache.path=/tmp/engine-archives
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
   JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it"
@@ -61,8 +61,13 @@ jobs:
           - '3.10'
         spark:
           - '3.5'
+          - '4.2'
         spark-archive: ["-Pscala-2.13"]
         exclude-tags: [""]
+        exclude:
+          # PySpark 4 does not support Python 3.9
+          - python: '3.9'
+            spark: '4.2'
     env:
       SPARK_LOCAL_IP: localhost
     steps:
@@ -168,12 +173,6 @@ jobs:
             - '3.4'
             - '3.3'
         comment: [ "normal" ]
-        include:
-          - java: 17
-            scala: "2.13"
-            spark-compile: "3.5"
-            spark-runtime: "4.0"
-            comment: "normal"
     env:
       SPARK_LOCAL_IP: localhost
       TEST_MODULES: "extensions/spark/kyuubi-spark-connector-hive,\

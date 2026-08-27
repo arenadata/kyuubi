@@ -26,12 +26,19 @@ class _ChannelBuilder:
         self.port = int(host_port[colon + 1:]) if colon != -1 else 10199
         self.secure = "use_ssl=true" in url
 
+    @property
+    def endpoint(self):
+        return f"{self.host}:{self.port}"
+
     def metadata(self):
         return []
 
 
 _mock_pyspark_client = MagicMock()
 _mock_pyspark_client.ChannelBuilder = _ChannelBuilder
+# Production code imports DefaultChannelBuilder (Spark 4.x moved URL parsing there;
+# see spark_connect.py for why plain ChannelBuilder isn't used).
+_mock_pyspark_client.DefaultChannelBuilder = _ChannelBuilder
 
 sys.modules.setdefault("pyspark", MagicMock())
 sys.modules.setdefault("pyspark.sql", MagicMock())
@@ -291,6 +298,7 @@ class TestFailoverChannel(unittest.TestCase):
         def _side_effect(failed_server, exclude=None):
             builder.host = "host2"
             builder.port = 10200
+            builder.endpoint = "host2:10200"
             return channel2
 
         builder._failover.side_effect = _side_effect
@@ -467,6 +475,7 @@ def _make_builder(host: str, port: int, channel: MagicMock = None) -> MagicMock:
     builder = MagicMock(spec=KyuubiSessionBuilder)
     builder.host = host
     builder.port = port
+    builder.endpoint = f"{host}:{port}"
     builder._raw_channel.return_value = channel or MagicMock()
     return builder
 

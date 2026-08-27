@@ -30,4 +30,11 @@ class HighAvailabilityConfSuite extends KyuubiFunSuite {
     conf.set(HA_ZK_NODE_TIMEOUT.key, "PT1M")
     assert(conf.get(HA_ZK_NODE_TIMEOUT) == 60000)
   }
+
+  test(HA_FLIGHT_SQL_NAMESPACE.key) {
+    val conf = new KyuubiConf()
+    assert(conf.get(HA_FLIGHT_SQL_NAMESPACE) === "kyuubi_flight")
+    conf.set(HA_FLIGHT_SQL_NAMESPACE, "custom_flight")
+    assert(conf.get(HA_FLIGHT_SQL_NAMESPACE) === "custom_flight")
+  }
 }
