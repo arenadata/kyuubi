@@ -31,10 +31,10 @@ import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.server.flight.{KyuubiFlightAuthHandler, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
-import org.apache.kyuubi.util.JavaUtils
+import org.apache.kyuubi.util.{JavaUtils, NamedThreadFactory}
 
 class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
-  extends AbstractFrontendService("KyuubiFlightSqlFrontendService") with Logging {
+  extends AbstractFrontendService("KyuubiFlightSqlFrontendService") with Logging with Runnable {
 
   private var allocator: BufferAllocator = _
   private var producer: KyuubiFlightSqlProducer = _
@@ -43,6 +43,9 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   private var tlsMaterial: Option[KyuubiFlightTlsUtils.TlsMaterial] = None
 
   private val started = new AtomicBoolean(false)
+  // Non-daemon thread so the JVM stays alive when FLIGHT_SQL is the only frontend.
+  // Arrow Flight / gRPC Netty workers are daemon; TFrontendService uses the same pattern.
+  private lazy val serverThread = new NamedThreadFactory(getName, false).newThread(this)
 
   private lazy val host: String = conf.get(FRONTEND_FLIGHT_SQL_BIND_HOST).getOrElse {
     if (conf.get(FRONTEND_CONNECTION_URL_USE_HOSTNAME)) {
@@ -97,6 +100,7 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
         }
 
         flightServer = builder.build().start()
+        serverThread.start()
         started.set(true)
         info(s"Flight SQL frontend service started at $connectionUrl" +
           s" (tls=$sslEnabled)")
@@ -119,8 +123,21 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
     super.start()
   }
 
+  override def run(): Unit =
+    try {
+      if (flightServer != null) {
+        flightServer.awaitTermination()
+      }
+    } catch {
+      case _: InterruptedException => info(s"$getName is interrupted")
+      case t: Throwable =>
+        error(s"Error running $getName", t)
+        System.exit(-1)
+    }
+
   override def stop(): Unit = synchronized {
     if (started.getAndSet(false)) {
+      serverThread.interrupt()
       if (producer != null) {
         try producer.close()
         catch {
