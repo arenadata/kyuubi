@@ -35,11 +35,11 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Verify tag is on release branch
+    - name: Verify tag is on release or develop branch
       run: |
-        BRANCHES=$(git branch -r --contains ${{ github.sha }} | grep 'origin/release/' || true)
+        BRANCHES=$(git branch -r --contains ${{ github.sha }} | grep -E 'origin/(release|develop)/' || true)
         if [ -z "$BRANCHES" ]; then
-          echo "Tag must be on a release/** branch. Found on:"
+          echo "Tag must be on a release/** or develop/** branch. Found on:"
           git branch -r --contains ${{ github.sha }}
           exit 1
         fi
@@ -49,7 +49,7 @@ jobs:
       run: |
         CONCLUSION=$(gh run list --commit ${{ github.sha }} --workflow CI --json conclusion -q '.[0].conclusion')
         if [ -z "$CONCLUSION" ]; then
-          echo "No CI run found for this commit. Push to release/** branch first."
+          echo "No CI run found for this commit. Push to a release/** or develop/** branch first."
           exit 1
         fi
         if [ "$CONCLUSION" != "success" ]; then
