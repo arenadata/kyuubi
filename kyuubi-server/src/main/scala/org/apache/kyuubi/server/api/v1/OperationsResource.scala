@@ -202,13 +202,13 @@ private[v1] class OperationsResource extends ApiRequestContext with Logging {
           tRowSet.getRows.get(0).getColVals.asScala.map(c => c.getSetField.name()).toArray
       }
 
-      val rows = rowSet.iterator().asScala.toSeq.map { r =>
+      val rows = rowSet.iterator().asScala.map { r =>
         new Row(
           (0 until columnSize).map(i => {
             val columnValue = r(i)
             new Field(columnTypes(i), columnValue)
           }).asJava)
-      }
+      }.toList
       new ResultRowSet(rows.asJava, rows.size)
     } catch {
       case e: IllegalArgumentException =>
