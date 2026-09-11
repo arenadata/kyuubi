@@ -26,6 +26,8 @@ import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.cluster.ClusterResolver
 import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
 import org.apache.kyuubi.gateway.cluster.StaticClusterResolver
+import org.apache.kyuubi.gateway.scaling.ClusterScaler
+import org.apache.kyuubi.gateway.scaling.KubernetesClusterScaler
 import org.apache.kyuubi.gateway.session.JdbcRoutingSessionManager
 import org.apache.kyuubi.gateway.session.RoutingSessionManager
 import org.apache.kyuubi.gateway.session.TrinoRoutingSessionManager
@@ -33,6 +35,7 @@ import org.apache.kyuubi.gateway.sizing.QuerySizer
 import org.apache.kyuubi.gateway.sizing.SizingPolicy
 import org.apache.kyuubi.service.{AbstractBackendService, Service}
 import org.apache.kyuubi.session.SessionManager
+import org.apache.kyuubi.util.KubernetesUtils
 
 /**
  * Backend service of the gateway. Unlike the Kyuubi server it launches nothing:
@@ -82,6 +85,7 @@ object RoutingBackendService {
 
   val ADMISSION_ENABLED_KEY = "kyuubi.gateway.admission.enabled"
   val ADMISSION_POLICY_KEY = "kyuubi.gateway.admission.policy"
+  val SCALING_ENABLED_KEY = "kyuubi.gateway.scaling.enabled"
   val MEMORY_FACTOR_KEY = "kyuubi.gateway.sizing.memoryFactor"
   val DEFAULT_WORKERS_KEY = "kyuubi.gateway.sizing.defaultWorkers"
 
@@ -106,7 +110,25 @@ object RoutingBackendService {
     Some(new AdmissionGate(
       new CapacityAccountant(policy),
       new QuerySizer(sizing),
-      capacityOf))
+      capacityOf,
+      scalerFor(conf)))
+  }
+
+  /**
+   * Builds the scaler, or none.
+   *
+   * Off by default and separately from admission: admission only refuses, while
+   * scaling writes to Kubernetes and costs money. A cluster that is sized by
+   * hand or by something else entirely must not start growing because the gate
+   * was switched on.
+   */
+  def scalerFor(conf: KyuubiConf): Option[ClusterScaler] = {
+    if (!conf.getOption(SCALING_ENABLED_KEY).exists(_.toBoolean)) return None
+    val client = KubernetesUtils.buildKubernetesClient(conf).getOrElse {
+      throw new IllegalStateException(
+        s"$SCALING_ENABLED_KEY is on but no Kubernetes client could be built")
+    }
+    Some(new KubernetesClusterScaler(client))
   }
 
   private def capacityOf(cluster: ClusterRef): Option[ClusterCapacity] =

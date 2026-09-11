@@ -19,6 +19,8 @@ package org.apache.kyuubi.gateway.capacity
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.gateway.cluster.ClusterRef
+import org.apache.kyuubi.gateway.cluster.ScaleTarget
+import org.apache.kyuubi.gateway.scaling.ClusterScaler
 import org.apache.kyuubi.gateway.sizing.{QueryPlanner, QuerySizer, SizingPolicy}
 
 class AdmissionGateSuite extends KyuubiFunSuite {
@@ -96,5 +98,78 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     assert(g.admit(cluster, "q2", "SELECT 1", big).isLeft)
     g.release("c", "q1")
     assert(g.admit(cluster, "q2", "SELECT 1", big).isRight)
+  }
+
+  private val target = ScaleTarget(
+    "ns",
+    "trino-a",
+    "trino.arenadata.io",
+    "v1alpha1",
+    "clusters",
+    Seq("spec", "worker", "replicas"))
+
+  /** Grants whatever is asked for, and remembers what that was. */
+  private class RecordingScaler(grant: Int => Int = identity) extends ClusterScaler {
+    var asked: Option[(ScaleTarget, Int)] = None
+    override def ensureAtLeast(t: ScaleTarget, workers: Int): Int = {
+      asked = Some((t, workers))
+      grant(workers)
+    }
+  }
+
+  private def scalingGate(scaler: ClusterScaler) =
+    new AdmissionGate(
+      new CapacityAccountant(AdmissionPolicy.PackByMemory),
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
+      _ => Some(capacity),
+      Some(scaler))
+
+  test("a query too big for the cluster grows it and is admitted for that size") {
+    val scaler = new RecordingScaler()
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    val admitted = scalingGate(scaler)
+      .admit(scalable, "q1", "SELECT * FROM t", planner(planWith(60 * GB))).toOption.get
+
+    assert(scaler.asked === Some((target, 6)))
+    assert(
+      admitted.workers === 6,
+      "the query must carry the size it was admitted for, or it starts without those workers")
+  }
+
+  test("the scale request is capped at the cluster's own ceiling") {
+    val scaler = new RecordingScaler()
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    // 150 GB needs 15 workers; the cluster allows 10, so TooLarge comes first
+    // and nothing is asked of the scaler.
+    val denial = scalingGate(scaler)
+      .admit(scalable, "q1", "SELECT * FROM t", planner(planWith(150 * GB))).swap.getOrElse(null)
+    assert(denial === AdmissionDenial.TooLarge(15, 10))
+    assert(scaler.asked.isEmpty, "growing past the declared ceiling is not the gateway's to decide")
+  }
+
+  test("a scale-up that does not happen refuses rather than admitting on absent workers") {
+    val scaler = new RecordingScaler(_ => 0)
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    val denial = scalingGate(scaler)
+      .admit(scalable, "q1", "SELECT * FROM t", planner(planWith(60 * GB))).swap.getOrElse(null)
+    assert(denial === AdmissionDenial.NeedsScaleUp(6))
+  }
+
+  test("a cluster that declares no scale target is refused, not scaled by guesswork") {
+    val scaler = new RecordingScaler()
+    val denial = scalingGate(scaler)
+      .admit(cluster, "q1", "SELECT * FROM t", planner(planWith(60 * GB))).swap.getOrElse(null)
+    assert(denial === AdmissionDenial.NeedsScaleUp(6))
+    assert(scaler.asked.isEmpty)
+  }
+
+  test("a busy cluster is not grown - scaling frees nothing that is in flight") {
+    val scaler = new RecordingScaler()
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    val g = scalingGate(scaler)
+    assert(g.admit(scalable, "q1", "SELECT 1", planner(planWith(40 * GB))).isRight)
+    scaler.asked = None
+    assert(g.admit(scalable, "q2", "SELECT 1", planner(planWith(40 * GB))).isLeft)
+    assert(scaler.asked.isEmpty)
   }
 }

@@ -46,6 +46,10 @@ class KubernetesClusterResolver
   private var namespace: Option[String] = None
   private var labelSelector: String = _
   private var pollInterval: Long = _
+  private var scaleGroup: String = _
+  private var scaleVersion: String = _
+  private var scalePlural: String = _
+  private var scalePath: Seq[String] = Seq.empty
 
   private val snapshot = new AtomicReference[Seq[ClusterRef]](Seq.empty)
 
@@ -59,6 +63,11 @@ class KubernetesClusterResolver
     namespace = conf.getOption(NAMESPACE_KEY).filter(_.nonEmpty)
     labelSelector = conf.getOption(LABEL_SELECTOR_KEY).getOrElse(DEFAULT_LABEL_SELECTOR)
     pollInterval = conf.getOption(POLL_INTERVAL_KEY).map(_.toLong).getOrElse(DEFAULT_POLL_INTERVAL)
+    scaleGroup = conf.getOption(SCALE_GROUP_KEY).getOrElse(DEFAULT_SCALE_GROUP)
+    scaleVersion = conf.getOption(SCALE_VERSION_KEY).getOrElse(DEFAULT_SCALE_VERSION)
+    scalePlural = conf.getOption(SCALE_PLURAL_KEY).getOrElse(DEFAULT_SCALE_PLURAL)
+    scalePath = conf.getOption(SCALE_REPLICAS_PATH_KEY).getOrElse(DEFAULT_SCALE_REPLICAS_PATH)
+      .split("\\.").map(_.trim).filter(_.nonEmpty).toSeq
     client = KubernetesUtils.buildKubernetesClient(conf).getOrElse {
       throw new IllegalStateException(
         "Cannot build a Kubernetes client - the gateway cannot discover clusters")
@@ -140,6 +149,7 @@ class KubernetesClusterResolver
         users = ann.get(USERS_ANNOTATION).map(csv).getOrElse(Set.empty),
         isDefault = ann.get(DEFAULT_ANNOTATION).exists(_.toBoolean),
         capacity = declaredCapacity(ann),
+        scaleTarget = scaleTarget(meta.getNamespace, ann),
         sessionConf = ann.collect {
           case (k, v) if k.startsWith(SESSION_ANNOTATION_PREFIX) =>
             k.substring(SESSION_ANNOTATION_PREFIX.length) -> v
@@ -172,6 +182,24 @@ class KubernetesClusterResolver
       maxWorkers <- ann.get(MAX_WORKERS_ANNOTATION).flatMap(parsePositiveLong).map(_.toInt)
       if maxWorkers >= workers
     } yield DeclaredCapacity(memory, workers, maxWorkers)
+
+  /**
+   * The resource whose replica count stands for this cluster's size.
+   *
+   * Named by annotation rather than derived from an owner reference: the
+   * gateway is told what it may scale, so a Service it happens to reach cannot
+   * hand it write access to an object nobody meant to expose.
+   */
+  private def scaleTarget(namespace: String, ann: Map[String, String]): Option[ScaleTarget] =
+    ann.get(SCALE_TARGET_ANNOTATION).map(_.trim).filter(_.nonEmpty).map { name =>
+      ScaleTarget(
+        namespace = namespace,
+        name = name,
+        group = ann.getOrElse(SCALE_GROUP_ANNOTATION, scaleGroup),
+        version = ann.getOrElse(SCALE_VERSION_ANNOTATION, scaleVersion),
+        plural = ann.getOrElse(SCALE_PLURAL_ANNOTATION, scalePlural),
+        replicasPath = scalePath)
+    }
 
   private def parsePositiveLong(s: String): Option[Long] =
     try {
@@ -206,4 +234,22 @@ object KubernetesClusterResolver {
   val MAX_MEMORY_PER_NODE_ANNOTATION = "kyuubi.gateway/max-memory-per-node-bytes"
   val WORKERS_ANNOTATION = "kyuubi.gateway/workers"
   val MAX_WORKERS_ANNOTATION = "kyuubi.gateway/max-workers"
+
+  /** Name of the custom resource holding this cluster's worker count. */
+  val SCALE_TARGET_ANNOTATION = "kyuubi.gateway/scale-target"
+  val SCALE_GROUP_ANNOTATION = "kyuubi.gateway/scale-group"
+  val SCALE_VERSION_ANNOTATION = "kyuubi.gateway/scale-version"
+  val SCALE_PLURAL_ANNOTATION = "kyuubi.gateway/scale-plural"
+
+  val SCALE_GROUP_KEY = "kyuubi.gateway.kubernetes.scale.group"
+  val SCALE_VERSION_KEY = "kyuubi.gateway.kubernetes.scale.version"
+  val SCALE_PLURAL_KEY = "kyuubi.gateway.kubernetes.scale.plural"
+  val SCALE_REPLICAS_PATH_KEY = "kyuubi.gateway.kubernetes.scale.replicasPath"
+
+  // Defaults describe the Trino operator's Cluster CRD, which keeps the worker
+  // count at spec.worker.replicas and declares no scale subresource.
+  val DEFAULT_SCALE_GROUP = "trino.arenadata.io"
+  val DEFAULT_SCALE_VERSION = "v1alpha1"
+  val DEFAULT_SCALE_PLURAL = "clusters"
+  val DEFAULT_SCALE_REPLICAS_PATH = "spec.worker.replicas"
 }

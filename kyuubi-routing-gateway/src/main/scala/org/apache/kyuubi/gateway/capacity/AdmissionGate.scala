@@ -19,6 +19,7 @@ package org.apache.kyuubi.gateway.capacity
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ClusterRef
+import org.apache.kyuubi.gateway.scaling.ClusterScaler
 import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QueryPlanner, QuerySizer}
 
 /**
@@ -36,7 +37,8 @@ import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QueryPlan
 class AdmissionGate(
     accountant: CapacityAccountant,
     sizer: QuerySizer,
-    capacityOf: ClusterRef => Option[ClusterCapacity])
+    capacityOf: ClusterRef => Option[ClusterCapacity],
+    scaler: Option[ClusterScaler] = None)
   extends Logging {
 
   import AdmissionGate._
@@ -80,9 +82,52 @@ class AdmissionGate(
       case Right(reservation) =>
         info(s"Admitted $queryId to ${cluster.name}: ${decision.reason}")
         Right(Admitted(Some(reservation), decision.workers))
+      case Left(AdmissionDenial.NeedsScaleUp(needed)) =>
+        growAndAdmit(cluster, capacity, queryId, decision.queryMemoryBytes, needed)
       case Left(denial) =>
         info(s"Denied $queryId on ${cluster.name}: $denial")
         Left(denial)
+    }
+  }
+
+  /**
+   * Grows the cluster for a query that does not fit it as it stands.
+   *
+   * The query is then admitted against the size that was asked for, not the
+   * size that exists - the workers are not there yet. That is safe only because
+   * the caller sends the worker count with the query: Trino holds it in
+   * WAITING_FOR_RESOURCES until they register, so a reservation made ahead of
+   * the workers cannot turn into a query running without them. A scale-up that
+   * never lands shows as a query that waited and failed, which is visible,
+   * rather than as one that quietly ran on too few workers.
+   */
+  private def growAndAdmit(
+      cluster: ClusterRef,
+      capacity: ClusterCapacity,
+      queryId: String,
+      memoryBytes: Long,
+      needed: Int): Either[AdmissionDenial, Admitted] = {
+    val target = for {
+      s <- scaler
+      t <- cluster.scaleTarget
+    } yield (s, t)
+
+    target match {
+      case None =>
+        info(s"Denied $queryId on ${cluster.name}: needs $needed workers and nothing can scale it")
+        Left(AdmissionDenial.NeedsScaleUp(needed))
+      case Some((clusterScaler, scaleTarget)) =>
+        val grown = clusterScaler.ensureAtLeast(scaleTarget, math.min(needed, capacity.maxWorkers))
+        if (grown < needed) {
+          info(s"Denied $queryId on ${cluster.name}: asked for $needed workers, got $grown")
+          Left(AdmissionDenial.NeedsScaleUp(needed))
+        } else {
+          accountant.admit(cluster.name, capacity.copy(workers = grown), queryId, memoryBytes)
+            .map { reservation =>
+              info(s"Admitted $queryId to ${cluster.name} after scaling to $grown workers")
+              Admitted(Some(reservation), grown)
+            }
+        }
     }
   }
 

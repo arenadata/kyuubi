@@ -27,6 +27,7 @@ package org.apache.kyuubi.gateway.cluster
  * @param isDefault   whether users with no explicit mapping land here
  * @param sessionConf extra session configuration applied to sessions routed here
  * @param capacity    what the cluster can hold, when the operator declared it
+ * @param scaleTarget the object whose worker count the gateway may raise
  */
 case class ClusterRef(
     name: String,
@@ -35,7 +36,33 @@ case class ClusterRef(
     users: Set[String] = Set.empty,
     isDefault: Boolean = false,
     sessionConf: Map[String, String] = Map.empty,
-    capacity: Option[DeclaredCapacity] = None)
+    capacity: Option[DeclaredCapacity] = None,
+    scaleTarget: Option[ScaleTarget] = None)
+
+/**
+ * The custom resource whose worker count a cluster's size is held in.
+ *
+ * Addressed by group, version and plural rather than by a typed client so the
+ * gateway carries no operator types and works against any CRD that keeps a
+ * replica count somewhere in its spec - the path is data, not code.
+ *
+ * There is deliberately no scale subresource here. The Trino operator's Cluster
+ * CRD declares only `status`, so `autoscaling/v1.Scale` does not exist on it and
+ * a merge patch of the spec is the only way in. If the CRD later declares
+ * `+kubebuilder:subresource:scale`, this is where that would be switched.
+ *
+ * @param replicasPath path to the replica count, e.g. spec / worker / replicas
+ */
+case class ScaleTarget(
+    namespace: String,
+    name: String,
+    group: String,
+    version: String,
+    plural: String,
+    replicasPath: Seq[String]) {
+
+  override def toString: String = s"$plural.$group/$namespace/$name"
+}
 
 /**
  * Capacity as declared alongside the cluster, not measured.
