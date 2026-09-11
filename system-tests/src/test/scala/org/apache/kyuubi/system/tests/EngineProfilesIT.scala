@@ -19,11 +19,13 @@ package org.apache.kyuubi.system.tests
 
 import java.util.UUID
 
+import io.qameta.allure.Feature
 import org.junit.jupiter.api.{AfterEach, Test}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse}
 
 import org.apache.kyuubi.system.tests.model.EngineProfile
 
+@Feature("Engine profiles end-to-end")
 class EngineProfilesIT extends KyuubiSystemContainerizedIT {
 
   private var warehouseTable: String = _

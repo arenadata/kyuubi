@@ -17,19 +17,29 @@ Run following commands from root dir.
 
 ### Build kyuubi project
 
-Example with java-17
+Example with java-21
 
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ./build/dist --tgz --spark-provided --flink-provided --hive-provided \
-  --extra-spark-profiles spark-4.0 \
-  -Pscala-2.13,spark-3.5,fast,web-ui -s settings.xml
+  --extra-spark-profiles spark-4.2 \
+  -Pscala-2.13,spark-3.5,fast,web-ui
 ```
 
 ### Start Arenadata system tests
 
 ```bash
-mvn -Psystem-tests -pl system-tests -am verify -s settings.xml
+mvn -Psystem-tests -pl system-tests -am verify
 ```
 
 Maven copies `dist/` into the Kyuubi Docker build context; Testcontainers starts the Compose stack.
+
+### Allure report
+
+After tests:
+
+```bash
+mvn -Psystem-tests -pl system-tests allure:report
+```
+
+HTML report: `system-tests/target/allure-report/`. CI uploads it as the `system-tests-allure-report` artifact.

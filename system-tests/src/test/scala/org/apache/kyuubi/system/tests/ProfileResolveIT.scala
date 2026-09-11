@@ -17,13 +17,17 @@
 
 package org.apache.kyuubi.system.tests
 
+import io.qameta.allure.Feature
 import org.junit.jupiter.api.Assertions.{assertTrue, fail}
 import org.junit.jupiter.api.Test
 
 import org.apache.kyuubi.system.tests.model.EngineProfile
 import org.apache.kyuubi.system.tests.util.constant.ConfConstants._
 
+@Feature("Engine profile resolve")
 class ProfileResolveIT extends KyuubiSystemContainerizedIT {
+
+  private val ALICE = "alice"
 
   @Test
   def explicitProfileSelectsSpark4(): Unit = {
@@ -41,11 +45,38 @@ class ProfileResolveIT extends KyuubiSystemContainerizedIT {
   @Test
   def userDefaultProfileViaConfOverlay(): Unit = {
     confController.withOverlay(Map(
-      userDefaultProfileKey("alice") -> EngineProfile.SPARK4.profileName)) {
-      val version = sparkVersion(Map.empty, user = "alice")
+      userDefaultProfileKey(ALICE) -> EngineProfile.SPARK4.profileName)) {
+      val version = sparkVersion(Map.empty, user = ALICE)
       assertTrue(
         version.startsWith("4."),
-        s"Expected user-default ${EngineProfile.SPARK4.profileName} for alice, got: $version")
+        s"Expected user-default ${EngineProfile.SPARK4.profileName} for $ALICE, got: $version")
+    }
+  }
+
+  @Test
+  def groupDefaultProfileViaConfOverlay(): Unit = {
+    confController.withOverlay(Map(
+      HADOOP_USER_GROUP_STATIC_MAPPING -> s"$ALICE=$TEST_GROUP_ANALYSTS",
+      groupDefaultProfileKey(TEST_GROUP_ANALYSTS) -> EngineProfile.SPARK4.profileName)) {
+      val version = sparkVersion(Map.empty, user = ALICE)
+      assertTrue(
+        version.startsWith("4."),
+        s"Expected group-default ${EngineProfile.SPARK4.profileName} for " +
+          s"$ALICE in $TEST_GROUP_ANALYSTS, got: $version")
+    }
+  }
+
+  @Test
+  def userDefaultWinsOverGroupDefault(): Unit = {
+    confController.withOverlay(Map(
+      HADOOP_USER_GROUP_STATIC_MAPPING -> s"$ALICE=$TEST_GROUP_ANALYSTS",
+      groupDefaultProfileKey(TEST_GROUP_ANALYSTS) -> EngineProfile.SPARK4.profileName,
+      userDefaultProfileKey(ALICE) -> EngineProfile.SPARK3.profileName)) {
+      val version = sparkVersion(Map.empty, user = ALICE)
+      assertTrue(
+        version.startsWith("3."),
+        s"Expected user-default ${EngineProfile.SPARK3.profileName} to win over " +
+          s"group-default ${EngineProfile.SPARK4.profileName}, got: $version")
     }
   }
 

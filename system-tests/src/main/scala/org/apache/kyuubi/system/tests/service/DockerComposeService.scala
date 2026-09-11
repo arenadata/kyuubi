@@ -22,8 +22,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 import java.time.Duration
 
-import scala.collection.mutable
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.util.control.NonFatal
 
 import org.slf4j.LoggerFactory
@@ -40,7 +40,7 @@ class DockerComposeService(components: Seq[Component]) {
   private val startupTimeout: Duration = Duration.ofMinutes(10)
 
   private val moduleRoot: Path = DockerComposeService.resolveModuleRoot()
-  private val composeFile: File = moduleRoot.resolve("env/docker-compose-test.yml").toFile
+  private val composeFile: File = moduleRoot.resolve(DockerComposeService.COMPOSE_FILE).toFile
   private val envFile: File = moduleRoot.resolve("env/.env").toFile
 
   @volatile private var compose: ComposeContainer = _
@@ -72,7 +72,6 @@ class DockerComposeService(components: Seq[Component]) {
     }
 
     container.withLocalCompose(true)
-    container.withPull(false)
     container.start()
     compose = container
     log.info(
@@ -110,7 +109,8 @@ class DockerComposeService(components: Seq[Component]) {
   }
 
   def writeFile(component: Component, remotePath: String, content: String): Unit = {
-    val encoded = java.util.Base64.getEncoder.encodeToString(content.getBytes(StandardCharsets.UTF_8))
+    val encoded = java.util.Base64.getEncoder
+      .encodeToString(content.getBytes(StandardCharsets.UTF_8))
     executeCommand(
       component,
       s"mkdir -p $$(dirname '$remotePath') && echo '$encoded' | base64 -d > '$remotePath'")
@@ -143,17 +143,6 @@ class DockerComposeService(components: Seq[Component]) {
       .exec()
     waitUntilHealthy(containerState, waitParams)
     log.info(s"Container ${component.serviceName} is healthy after restart")
-  }
-
-  def restartWithEnv(
-      component: Component,
-      env: Map[String, String],
-      waitParams: WaitParams = TimeoutConstants.EXTENDED_WAIT_PARAMS): Unit = {
-    executeCommand(component, "echo '' > /tmp/dynamic_env.sh")
-    env.foreach { case (key, value) =>
-      executeCommand(component, s"echo 'export $key=$value' >> /tmp/dynamic_env.sh")
-    }
-    restart(component, waitParams)
   }
 
   def getContainerLogs(component: Component): String = {
@@ -199,6 +188,8 @@ object DockerComposeService {
   private val SINGLE_CONTAINER_SUFFIX = "-1"
   private val NUMBERED_CONTAINER_REGEX = ".*-[0-9]+".r
 
+  private[service] val COMPOSE_FILE =
+    Paths.get("env/docker-compose-test.yml")
   private[service] val KYUUBI_DEFAULTS_BASELINE =
     Paths.get("env/conf/kyuubi-defaults.conf")
   private[service] val KYUUBI_DEFAULTS_RUNTIME =
@@ -206,15 +197,15 @@ object DockerComposeService {
 
   def resolveModuleRoot(): Path = {
     val cwd = Paths.get("").toAbsolutePath.normalize()
-    if (Files.isRegularFile(cwd.resolve("env/docker-compose-test.yml"))) {
+    if (Files.isRegularFile(cwd.resolve(COMPOSE_FILE))) {
       cwd
     } else {
       val nested = cwd.resolve("system-tests")
-      if (Files.isRegularFile(nested.resolve("env/docker-compose-test.yml"))) {
+      if (Files.isRegularFile(nested.resolve(COMPOSE_FILE))) {
         nested
       } else {
         throw new IllegalStateException(
-          s"Cannot locate system-tests/env/docker-compose-test.yml from working directory: $cwd")
+          s"Cannot locate system-tests/$COMPOSE_FILE from working directory: $cwd")
       }
     }
   }

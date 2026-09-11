@@ -17,12 +17,14 @@
 
 package org.apache.kyuubi.system.tests
 
+import io.qameta.allure.Feature
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 import org.apache.kyuubi.system.tests.model.EngineProfile
 import org.apache.kyuubi.system.tests.util.constant.ConfConstants._
 
+@Feature("Engine isolation")
 class EngineIsolationIT extends KyuubiSystemContainerizedIT {
 
   private val VERSION_COMMAND: String = "SELECT version()"

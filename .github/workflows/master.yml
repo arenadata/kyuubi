@@ -44,7 +44,7 @@ env:
   KUBERNETES_VERSION: v1.30.0
   MINIKUBE_VERSION: v1.33.1
   JDBC_TRINO_TPC_EXCLUDE_MODULES: "!externals/kyuubi-jdbc-engine,!integration-tests/kyuubi-jdbc-it,!externals/kyuubi-trino-engine,!integration-tests/kyuubi-trino-it"
-  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it,!integration-tests/kyuubi-zookeeper-it"
+  TEST_MODULES: "!externals/kyuubi-flink-sql-engine,!integration-tests/kyuubi-flink-it,!externals/kyuubi-hive-sql-engine,!integration-tests/kyuubi-hive-it,!integration-tests/kyuubi-zookeeper-it,!system-tests"
 
 jobs:
   default:
@@ -480,3 +480,55 @@ jobs:
           name: unit-tests-log-java-${{ matrix.java }}-zookeeper-${{ matrix.comment }}
           path: |
             **/target/unit-tests.log
+
+  system-tests:
+    name: System Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free up disk space
+        run: ./.github/scripts/free_disk_space.sh
+      - name: Tune Runner VM
+        uses: ./.github/actions/tune-runner-vm
+      - name: Cache Engine Archives
+        uses: ./.github/actions/cache-engine-archives
+      - name: Setup Maven
+        uses: ./.github/actions/setup-maven
+        with:
+          java-version: 17
+      - name: Build Kyuubi distribution
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ./build/dist --tgz --spark-provided --flink-provided --hive-provided
+          --extra-spark-profiles spark-4.0
+          -Pscala-2.13,spark-3.5,fast,web-ui
+      - name: Install system-tests dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build/mvn -pl system-tests -am install -DskipTests
+      - name: Run system tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build/mvn -Psystem-tests -pl system-tests verify
+      - name: Generate Allure report
+        if: always()
+        run: ./build/mvn -Psystem-tests -pl system-tests allure:report
+      - name: Upload Allure report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-tests-allure-report
+          path: |
+            system-tests/target/allure-report/**
+            system-tests/target/allure-results/**
+          if-no-files-found: ignore
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-tests-failsafe-reports
+          path: |
+            system-tests/target/failsafe-reports/**
+            **/unit-tests.log
+          if-no-files-found: ignore

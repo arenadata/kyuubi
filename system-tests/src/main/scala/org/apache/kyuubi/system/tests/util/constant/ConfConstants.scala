@@ -34,7 +34,12 @@ object ConfConstants {
   val ENGINE_TYPE_SPARK_SQL = "SPARK_SQL"
   val UNKNOWN_STRATEGY_LOG = "LOG"
   val UNKNOWN_PROFILE = "does-not-exist"
+  val HADOOP_USER_GROUP_STATIC_MAPPING = "hadoop.user.group.static.mapping.overrides"
+  val TEST_GROUP_ANALYSTS = "analysts"
 
   def userDefaultProfileKey(user: String): String =
     s"___${user}___.$ENGINE_PROFILE"
+
+  def groupDefaultProfileKey(group: String): String =
+    s"___${group}___.$ENGINE_PROFILE"
 }
