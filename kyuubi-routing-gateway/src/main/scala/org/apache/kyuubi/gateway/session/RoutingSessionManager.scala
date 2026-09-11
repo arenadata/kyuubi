@@ -18,6 +18,7 @@
 package org.apache.kyuubi.gateway.session
 
 import org.apache.kyuubi.KyuubiSQLException
+import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY
 import org.apache.kyuubi.gateway.cluster.{ClusterRef, ClusterResolver}
 import org.apache.kyuubi.session.{Session, SessionManager}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
@@ -64,7 +65,15 @@ abstract class RoutingSessionManager(name: String, resolver: ClusterResolver)
       throw KyuubiSQLException(
         s"Cluster ${cluster.name} runs ${cluster.engine}, this gateway serves $engine")
     }
-    val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster)
+    // The engine session layers read the identity to present to the cluster from
+    // this key, and fall back to the OS user of the current process when it is
+    // absent. In stock Kyuubi the process builders set it when launching a
+    // per-user engine; the gateway has no such launch, so setting it here is
+    // what keeps a query arriving at the cluster as its caller instead of as the
+    // gateway's own service account. Placed after the cluster conf so that no
+    // per-cluster setting can override the authenticated user.
+    val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster) +
+      (KYUUBI_SESSION_USER_KEY -> user)
     info(s"Opening $engine session for $user on ${cluster.name} at ${cluster.url}")
     createEngineSession(protocol, user, password, ipAddress, routed, cluster)
   }
