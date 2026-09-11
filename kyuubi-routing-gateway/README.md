@@ -13,6 +13,90 @@ override lazy val frontendServices = ...                    // stock Kyuubi fron
 Because no engine is launched, query results traverse one intermediary rather
 than two. That matters when the gateway also carries bulk traffic.
 
+## How it differs from the Kyuubi server
+
+Same frontends, same session and operation layer, different everything in
+between. The Kyuubi server finds or starts an engine and proxies to it; this
+gateway resolves a cluster that already exists and talks to it directly.
+
+**Kyuubi server**
+
+```mermaid
+flowchart LR
+    client["JDBC client"]
+
+    subgraph server["Kyuubi server"]
+        direction TB
+        fe["Thrift frontend"]
+        be["KyuubiBackendService"]
+        sm["KyuubiSessionManager"]
+        ks["KyuubiSessionImpl<br/>launchEngineOp"]
+        fe --> be --> sm --> ks
+    end
+
+    zk[("ZooKeeper<br/>engine registry")]
+
+    subgraph eng["Engine process, one per share level scope"]
+        direction TB
+        efe["Engine thrift frontend"]
+        ee["Engine session and operations"]
+        efe --> ee
+    end
+
+    data[("Data source")]
+
+    client -->|HS2| fe
+    ks -->|EngineRef.getOrCreate| zk
+    ks -.->|launch when none is registered| eng
+    eng -->|registers itself| zk
+    ks ==>|hop 1| efe
+    ee ==>|hop 2| data
+```
+
+**Routing gateway**
+
+```mermaid
+flowchart LR
+    client["JDBC client"]
+
+    subgraph gw["Routing gateway"]
+        direction TB
+        fe["Thrift frontend<br/>the same one"]
+        be["RoutingBackendService"]
+        sm["RoutingSessionManager<br/>resolves by identity"]
+        ks["TrinoSessionImpl<br/>the engine's own, in process"]
+        gate["AdmissionGate<br/>size, admit, hold"]
+        fe --> be --> sm --> ks
+        ks --> gate
+    end
+
+    k8s[("Kubernetes<br/>Services and annotations")]
+
+    trino[("Trino cluster<br/>already running")]
+
+    client -->|HS2, identity from SASL| fe
+    sm -->|poll by label| k8s
+    gate -->|EXPLAIN| trino
+    gate -->|patch clusters/scale| k8s
+    ks ==>|hop 1, the only one| trino
+```
+
+What the pictures are saying:
+
+| | Kyuubi server | Routing gateway |
+|---|---|---|
+| Hops a result crosses | two - server, then engine | one |
+| Where backends come from | ZooKeeper, written by the engines | Kubernetes Services, annotated by whoever owns the cluster |
+| Engine processes | launched when none is registered | none, ever |
+| What decides the backend | share level and engine type | the authenticated identity |
+| Capacity | the engine's own | sized before admission, held in a ledger |
+| Cluster size | fixed | grown for a query, given back when idle |
+
+The frontends and the engine session layer are shared, not reimplemented:
+`TrinoSessionImpl` and `TrinoOperationManager` are the engine's own classes
+running inside the gateway, which is what removes the second hop. The pieces
+this module actually adds are the resolver, the gate and the scaler.
+
 ## Engines
 
 | Engine | |
