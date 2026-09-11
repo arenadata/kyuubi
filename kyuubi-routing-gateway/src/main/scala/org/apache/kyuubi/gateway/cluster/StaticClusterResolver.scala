@@ -38,19 +38,15 @@ class StaticClusterResolver(conf: Map[String, String]) extends ClusterResolver w
 
   import StaticClusterResolver._
 
-  private val parsed: Seq[ParsedCluster] = parse(conf)
-
-  override val clusters: Seq[ClusterRef] = parsed.map(_.ref)
+  override val clusters: Seq[ClusterRef] = parse(conf)
 
   override def resolve(user: String, sessionConf: Map[String, String]): Option[ClusterRef] = {
-    val explicit = parsed.find(_.users.contains(user))
-    val fallback = parsed.find(_.isDefault)
-    val chosen = explicit.orElse(fallback)
+    val chosen = clusters.find(_.users.contains(user)).orElse(clusters.find(_.isDefault))
     chosen match {
-      case Some(c) => debug(s"Routing user $user to cluster ${c.ref.name}")
+      case Some(c) => debug(s"Routing user $user to cluster ${c.name}")
       case None => warn(s"No cluster allowed for user $user")
     }
-    chosen.map(_.ref)
+    chosen
   }
 }
 
@@ -58,9 +54,7 @@ object StaticClusterResolver {
 
   val PREFIX = "kyuubi.gateway.cluster."
 
-  private case class ParsedCluster(ref: ClusterRef, users: Set[String], isDefault: Boolean)
-
-  private def parse(conf: Map[String, String]): Seq[ParsedCluster] = {
+  private def parse(conf: Map[String, String]): Seq[ClusterRef] = {
     val names = conf.keys.filter(_.startsWith(PREFIX)).flatMap { key =>
       val rest = key.substring(PREFIX.length)
       val dot = rest.indexOf('.')
@@ -74,16 +68,15 @@ object StaticClusterResolver {
         val sessionConf = conf.collect {
           case (k, v) if k.startsWith(sessionPrefix) => k.substring(sessionPrefix.length) -> v
         }
-        ParsedCluster(
-          ClusterRef(
-            name = name,
-            engine = conf.getOrElse(base + "engine", "trino"),
-            url = url,
-            sessionConf = sessionConf),
+        ClusterRef(
+          name = name,
+          engine = conf.getOrElse(base + "engine", "trino"),
+          url = url,
           users = conf.get(base + "users")
             .map(_.split(",").map(_.trim).filter(_.nonEmpty).toSet)
             .getOrElse(Set.empty),
-          isDefault = conf.get(base + "default").exists(_.toBoolean))
+          isDefault = conf.get(base + "default").exists(_.toBoolean),
+          sessionConf = sessionConf)
       }
     }
   }

@@ -20,15 +20,19 @@ package org.apache.kyuubi.gateway.cluster
 /**
  * A backend cluster the gateway can route a session to.
  *
- * @param name     cluster identity, unique within the gateway
- * @param engine   engine type, currently only "trino"
- * @param url      address the engine client connects to
+ * @param name        cluster identity, unique within the gateway
+ * @param engine      engine type, currently only "trino"
+ * @param url         address the engine client connects to
+ * @param users       users allowed here; empty means "only reachable as default"
+ * @param isDefault   whether users with no explicit mapping land here
  * @param sessionConf extra session configuration applied to sessions routed here
  */
 case class ClusterRef(
     name: String,
     engine: String,
     url: String,
+    users: Set[String] = Set.empty,
+    isDefault: Boolean = false,
     sessionConf: Map[String, String] = Map.empty)
 
 /**

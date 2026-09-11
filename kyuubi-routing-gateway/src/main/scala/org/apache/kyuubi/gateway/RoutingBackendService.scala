@@ -18,9 +18,9 @@
 package org.apache.kyuubi.gateway
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.gateway.cluster.{ClusterResolver, StaticClusterResolver}
+import org.apache.kyuubi.gateway.cluster.{ClusterResolver, KubernetesClusterResolver, StaticClusterResolver}
 import org.apache.kyuubi.gateway.session.RoutingSessionManager
-import org.apache.kyuubi.service.AbstractBackendService
+import org.apache.kyuubi.service.{AbstractBackendService, Service}
 import org.apache.kyuubi.session.SessionManager
 
 /**
@@ -31,7 +31,7 @@ import org.apache.kyuubi.session.SessionManager
 class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
   extends AbstractBackendService("RoutingBackendService") {
 
-  def this() = this(conf => new StaticClusterResolver(conf.getAll))
+  def this() = this(RoutingBackendService.resolverFor)
 
   @volatile private var _sessionManager: RoutingSessionManager = _
 
@@ -39,11 +39,30 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
 
   override def initialize(conf: KyuubiConf): Unit = {
     val resolver = resolverFactory(conf)
-    info(s"Gateway knows ${resolver.clusters.size} cluster(s): " +
-      resolver.clusters.map(c => s"${c.name}=${c.url}").mkString(", "))
+    // A resolver may have its own lifecycle - the Kubernetes one polls - so it
+    // is registered as a child service when it has one.
+    resolver match {
+      case service: Service => addService(service)
+      case _ =>
+    }
     // The session manager must exist before super.initialize, which registers
     // it as a child service itself - registering it here too would double-add.
     _sessionManager = new RoutingSessionManager(resolver)
     super.initialize(conf)
+  }
+}
+
+object RoutingBackendService {
+
+  val RESOLVER_KEY = "kyuubi.gateway.cluster.resolver"
+
+  def resolverFor(conf: KyuubiConf): ClusterResolver = {
+    conf.getOption(RESOLVER_KEY).getOrElse("static").toLowerCase match {
+      case "static" => new StaticClusterResolver(conf.getAll)
+      case "kubernetes" | "k8s" => new KubernetesClusterResolver()
+      case other =>
+        throw new IllegalArgumentException(
+          s"Unknown $RESOLVER_KEY value '$other', expected 'static' or 'kubernetes'")
+    }
   }
 }
