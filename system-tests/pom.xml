@@ -104,6 +104,31 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-bytecode-version</id>
+                        <configuration>
+                            <rules>
+                                <enforceBytecodeVersion>
+                                    <maxJdkVersion>${enforcer.maxJdkVersion}</maxJdkVersion>
+                                    <ignoredScopes>provided</ignoredScopes>
+                                    <ignoredScopes>test</ignoredScopes>
+                                    <ignoreClasses>
+                                        <ignoreClass>com.thoughtworks.paranamer.DefaultParanamer</ignoreClass>
+                                        <ignoreClass>org.jline.terminal.impl.ffm.*</ignoreClass>
+                                        <ignoreClass>io.netty.channel.uring.*</ignoreClass>
+                                        <!-- trino-jdbc 481 ships optional aircompressor v3 (JDK 25); unused on JDK 17 -->
+                                        <ignoreClass>io.trino.jdbc.$internal.airlift.compress.v3.*</ignoreClass>
+                                    </ignoreClasses>
+                                </enforceBytecodeVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>io.qameta.allure</groupId>
                 <artifactId>allure-maven</artifactId>
                 <version>${allure-maven.version}</version>
