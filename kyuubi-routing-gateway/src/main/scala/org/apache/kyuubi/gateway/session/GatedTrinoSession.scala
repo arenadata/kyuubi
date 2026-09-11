@@ -17,10 +17,12 @@
 
 package org.apache.kyuubi.gateway.session
 
+import scala.collection.JavaConverters._
+
 import io.trino.client.ClientSession
 
 import org.apache.kyuubi.engine.trino.session.TrinoSessionImpl
-import org.apache.kyuubi.gateway.capacity.{AdmissionGate, SessionAdmission}
+import org.apache.kyuubi.gateway.capacity.{AdmissionGate, AdmissionTicket, SessionAdmission}
 import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.sizing.TrinoQueryPlanner
 import org.apache.kyuubi.operation.OperationHandle
@@ -58,8 +60,8 @@ class GatedTrinoSession(
       confOverlay: Map[String, String],
       runAsync: Boolean,
       queryTimeout: Long): OperationHandle =
-    admission.admitAndRun(statement) { workers =>
-      requireWorkers(workers)
+    admission.admitAndRun(statement) { ticket =>
+      declare(ticket)
       super.executeStatement(statement, confOverlay, runAsync, queryTimeout)
     }
 
@@ -67,17 +69,22 @@ class GatedTrinoSession(
     sessionConf.getOption(GatedTrinoSession.REQUIRED_WORKERS_MAX_WAIT_KEY).filter(_.nonEmpty)
 
   /**
-   * Tells the cluster how many workers this query was admitted for.
+   * Tells the cluster what this query was admitted for.
    *
-   * Trino holds a query in WAITING_FOR_RESOURCES until this many workers are
-   * registered, which is what makes the reservation mean anything: without it
-   * a query admitted on the assumption of a scale-up would start immediately
-   * on whichever workers happen to exist and get the resources of neither.
+   * Two things travel: the worker count, because Trino holds a query in
+   * WAITING_FOR_RESOURCES until that many are registered - which is what makes
+   * a reservation made ahead of a scale-up mean anything - and the reservation
+   * id as a client tag, so the coordinator's own list of running queries can be
+   * matched back to what the gateway believes it is holding.
    */
-  private def requireWorkers(workers: Int): Unit =
-    if (workers > 0) {
-      trinoContext.clientSession.updateAndGet(
-        GatedTrinoSession.withRequiredWorkers(_, workers, maxWait))
+  private def declare(ticket: AdmissionTicket): Unit =
+    trinoContext.clientSession.updateAndGet { session =>
+      val withTag = GatedTrinoSession.taggedWith(session, ticket.reservationId)
+      if (ticket.workers > 0) {
+        GatedTrinoSession.withRequiredWorkers(withTag, ticket.workers, maxWait)
+      } else {
+        withTag
+      }
     }
 
   override def closeOperation(operationHandle: OperationHandle): Unit = {
@@ -114,6 +121,26 @@ object GatedTrinoSession {
    * client reads them from. Copying the existing properties rather than
    * replacing them keeps whatever the cluster declaration or the client set.
    */
+  /** Prefix that marks a client tag as the gateway's, not the client's own. */
+  val RESERVATION_TAG_PREFIX = "kyuubi-reservation:"
+
+  /** Reads the reservation id out of a query's client tags, if it carries one. */
+  def reservationOf(tags: Iterable[String]): Option[String] =
+    tags.find(_.startsWith(RESERVATION_TAG_PREFIX)).map(_.substring(RESERVATION_TAG_PREFIX.length))
+
+  /**
+   * Returns the session tagged with the reservation this statement holds.
+   *
+   * The gateway's own tag replaces the previous one rather than accumulating:
+   * a session runs many statements, and a query carrying the tags of every
+   * statement before it would match every one of those reservations.
+   */
+  def taggedWith(session: ClientSession, reservationId: String): ClientSession = {
+    val kept = session.getClientTags.asScala.filterNot(_.startsWith(RESERVATION_TAG_PREFIX))
+    val tags = (kept + (RESERVATION_TAG_PREFIX + reservationId)).asJava
+    ClientSession.builder(session).clientTags(tags).build()
+  }
+
   def withRequiredWorkers(
       session: ClientSession,
       workers: Int,

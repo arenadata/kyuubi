@@ -17,11 +17,16 @@
 
 package org.apache.kyuubi.gateway
 
+import okhttp3.OkHttpClient
+
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.gateway.capacity.AdmissionGate
 import org.apache.kyuubi.gateway.capacity.AdmissionPolicy
 import org.apache.kyuubi.gateway.capacity.CapacityAccountant
 import org.apache.kyuubi.gateway.capacity.ClusterCapacity
+import org.apache.kyuubi.gateway.capacity.MemoryCalibration
+import org.apache.kyuubi.gateway.capacity.ReservationReconciler
+import org.apache.kyuubi.gateway.capacity.TrinoClusterQueries
 import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.cluster.ClusterResolver
 import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
@@ -59,9 +64,13 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
       case service: Service => addService(service)
       case _ =>
     }
+    val accountant = RoutingBackendService.accountantFor(conf)
     // The session manager must exist before super.initialize, which registers
     // it as a child service itself - registering it here too would double-add.
-    _sessionManager = RoutingBackendService.sessionManagerFor(conf, resolver)
+    _sessionManager = RoutingBackendService.sessionManagerFor(conf, resolver, accountant)
+    accountant.foreach { a =>
+      RoutingBackendService.reconcilerFor(conf, a, resolver).foreach(addService)
+    }
     super.initialize(conf)
   }
 }
@@ -76,11 +85,53 @@ object RoutingBackendService {
    * a single instance cannot dispatch between engine-specific operation
    * managers.
    */
-  def sessionManagerFor(conf: KyuubiConf, resolver: ClusterResolver): RoutingSessionManager = {
+  def sessionManagerFor(
+      conf: KyuubiConf,
+      resolver: ClusterResolver,
+      accountant: Option[CapacityAccountant]): RoutingSessionManager = {
     conf.getOption(ENGINE_KEY).getOrElse("trino").toLowerCase match {
-      case "trino" => new TrinoRoutingSessionManager(resolver, gateFor(conf))
+      case "trino" => new TrinoRoutingSessionManager(resolver, gateFor(conf, accountant))
       case jdbcEngine => new JdbcRoutingSessionManager(resolver, jdbcEngine)
     }
+  }
+
+  /**
+   * The one accountant, or none when admission is off.
+   *
+   * Built here rather than inside the gate because the reconciler has to
+   * release from the same ledger the gate admits into - two instances would
+   * agree on nothing.
+   */
+  def accountantFor(conf: KyuubiConf): Option[CapacityAccountant] = {
+    if (!conf.getOption(ADMISSION_ENABLED_KEY).exists(_.toBoolean)) return None
+    val policy = conf.getOption(ADMISSION_POLICY_KEY).getOrElse("PackByMemory") match {
+      case p if p.equalsIgnoreCase("Exclusive") => AdmissionPolicy.Exclusive
+      case _ => AdmissionPolicy.PackByMemory
+    }
+    Some(new CapacityAccountant(policy))
+  }
+
+  /**
+   * Builds the reconciler, or none.
+   *
+   * Separate from admission because it talks to the coordinator's REST endpoint
+   * as a particular user, which a secured cluster may not allow - and a gateway
+   * that cannot ask should say so rather than half-work.
+   */
+  def reconcilerFor(
+      conf: KyuubiConf,
+      accountant: CapacityAccountant,
+      resolver: ClusterResolver): Option[ReservationReconciler] = {
+    if (!conf.getOption(ReservationReconciler.ENABLED_KEY).exists(_.toBoolean)) return None
+    val user = conf.getOption(ReservationReconciler.USER_KEY)
+      .getOrElse(org.apache.kyuubi.Utils.currentUser)
+    Some(new ReservationReconciler(
+      accountant,
+      resolver,
+      new TrinoClusterQueries(new OkHttpClient.Builder().build(), user),
+      Some(new MemoryCalibration),
+      ReservationReconciler.graceFrom(conf),
+      ReservationReconciler.intervalFrom(conf)))
   }
 
   val ADMISSION_ENABLED_KEY = "kyuubi.gateway.admission.enabled"
@@ -97,19 +148,15 @@ object RoutingBackendService {
    * clients see - a query that used to run can now be refused. Turning it on
    * should be a decision, not something that arrives with an upgrade.
    */
-  def gateFor(conf: KyuubiConf): Option[AdmissionGate] = {
-    if (!conf.getOption(ADMISSION_ENABLED_KEY).exists(_.toBoolean)) return None
+  def gateFor(conf: KyuubiConf, accountant: Option[CapacityAccountant]): Option[AdmissionGate] = {
+    val ledger = accountant.getOrElse(return None)
 
-    val policy = conf.getOption(ADMISSION_POLICY_KEY).getOrElse("PackByMemory") match {
-      case p if p.equalsIgnoreCase("Exclusive") => AdmissionPolicy.Exclusive
-      case _ => AdmissionPolicy.PackByMemory
-    }
     val sizing = SizingPolicy(
       memoryFactor = conf.getOption(MEMORY_FACTOR_KEY).map(_.toDouble).getOrElse(1.5),
       defaultWorkers = conf.getOption(DEFAULT_WORKERS_KEY).map(_.toInt).getOrElse(2))
 
     Some(new AdmissionGate(
-      new CapacityAccountant(policy),
+      ledger,
       new QuerySizer(sizing),
       capacityOf,
       scalerFor(conf),

@@ -29,8 +29,11 @@ import org.apache.kyuubi.KyuubiFunSuite
 
 class GatedTrinoSessionSuite extends KyuubiFunSuite {
 
-  private def session(properties: Map[String, String] = Map.empty): ClientSession =
+  private def session(
+      properties: Map[String, String] = Map.empty,
+      tags: Set[String] = Set.empty): ClientSession =
     ClientSession.builder()
+      .clientTags(tags.asJava)
       .server(URI.create("http://trino:8080"))
       .principal(Optional.of("alice"))
       .source("kyuubi")
@@ -63,5 +66,29 @@ class GatedTrinoSessionSuite extends KyuubiFunSuite {
     assert(
       second.getProperties.get("required_workers_count") === "2",
       "a stale requirement would hold a small query waiting for workers it does not need")
+  }
+
+  test("the reservation id travels to the cluster as a client tag") {
+    val tagged = GatedTrinoSession.taggedWith(session(), "r1")
+    assert(tagged.getClientTags.contains("kyuubi-reservation:r1"))
+    assert(GatedTrinoSession.reservationOf(tagged.getClientTags.asScala) === Some("r1"))
+  }
+
+  test("the client's own tags are kept") {
+    val tagged = GatedTrinoSession.taggedWith(session(tags = Set("team:analytics")), "r1")
+    assert(tagged.getClientTags.asScala === Set("team:analytics", "kyuubi-reservation:r1"))
+  }
+
+  test("a statement's tag replaces the previous statement's, it does not pile up") {
+    val first = GatedTrinoSession.taggedWith(session(), "r1")
+    val second = GatedTrinoSession.taggedWith(first, "r2")
+    assert(
+      second.getClientTags.asScala === Set("kyuubi-reservation:r2"),
+      "a query carrying every earlier reservation would match every one of them")
+  }
+
+  test("a query with no gateway tag reports no reservation") {
+    assert(GatedTrinoSession.reservationOf(Seq("team:analytics")).isEmpty)
+    assert(GatedTrinoSession.reservationOf(Seq.empty).isEmpty)
   }
 }

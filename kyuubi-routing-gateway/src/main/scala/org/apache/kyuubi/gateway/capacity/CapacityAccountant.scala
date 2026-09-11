@@ -130,6 +130,13 @@ class CapacityAccountant(
   def reservationCount(cluster: String): Int =
     reservations.getOrDefault(cluster, Map.empty).size
 
+  /** What is held on a cluster right now, by reservation id. */
+  def reservationsOn(cluster: String): Map[String, Reservation] =
+    reservations.getOrDefault(cluster, Map.empty)
+
+  /** Clusters with something reserved. Only these are worth reconciling. */
+  def clustersWithReservations: Seq[String] = reservations.keySet().asScala.toSeq
+
   /**
    * Reservations admitted before the given time.
    *

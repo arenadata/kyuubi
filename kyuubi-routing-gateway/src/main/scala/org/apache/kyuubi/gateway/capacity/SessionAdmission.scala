@@ -45,16 +45,17 @@ class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef, planner: QueryP
    * outlive a failed start: there is no window in which a caller holds a
    * reservation it has not yet bound to an operation.
    */
-  def admitAndRun(statement: String)(run: Int => OperationHandle): OperationHandle = {
+  def admitAndRun(statement: String)(run: AdmissionTicket => OperationHandle): OperationHandle = {
     val queryId = UUID.randomUUID().toString
     gate.admit(cluster, queryId, statement, planner) match {
       case Left(denial) => throw AdmissionRefused(cluster.name, denial)
       case Right(admitted) =>
         try {
-          // The worker count reaches `run` rather than being applied here: how
-          // a cluster is told to hold a query for its workers is the engine's
-          // business, and this bookkeeping serves both engines.
-          val handle = run(admitted.workers)
+          // The ticket reaches `run` rather than being applied here: how a
+          // cluster is told to hold a query for its workers, and how it is
+          // asked to carry the reservation id back, are the engine's business,
+          // and this bookkeeping serves both engines.
+          val handle = run(AdmissionTicket(queryId, admitted.workers))
           held.put(handle, queryId)
           handle
         } catch {
@@ -82,6 +83,16 @@ class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef, planner: QueryP
 
   def outstanding: Int = held.size()
 }
+
+/**
+ * What an admitted statement needs to tell the cluster.
+ *
+ * The reservation id travels with the query so the cluster's own view of what
+ * is running can be matched back to what the gateway thinks it reserved -
+ * without it, a reservation whose operation is never closed can only be
+ * reclaimed by age, which is a guess.
+ */
+case class AdmissionTicket(reservationId: String, workers: Int)
 
 /** Refusal carrying the reason, so the client is told what would help. */
 case class AdmissionRefused(cluster: String, denial: AdmissionDenial)
