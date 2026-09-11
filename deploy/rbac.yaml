@@ -53,6 +53,14 @@ rules:
   - apiGroups: ["trino.arenadata.io"]
     resources: ["clusters"]
     verbs: ["get"]
+
+  # Shrinking only. The worker to drain is named from the StatefulSet - which
+  # ordinal is highest, and which Service gives the pods their DNS names - and
+  # nothing is written here: the size still changes through clusters/scale.
+  # Only needed when kyuubi.gateway.scaling.shrink.enabled is on.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

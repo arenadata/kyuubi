@@ -36,8 +36,11 @@ import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
 import org.apache.kyuubi.gateway.cluster.StaticClusterResolver
 import org.apache.kyuubi.gateway.metrics.GatewayMetrics
 import org.apache.kyuubi.gateway.scaling.ClusterScaler
+import org.apache.kyuubi.gateway.scaling.ClusterShrinker
 import org.apache.kyuubi.gateway.scaling.FabricScaleApi
 import org.apache.kyuubi.gateway.scaling.KubernetesClusterScaler
+import org.apache.kyuubi.gateway.scaling.KubernetesWorkerPool
+import org.apache.kyuubi.gateway.scaling.TrinoWorkerDrain
 import org.apache.kyuubi.gateway.session.JdbcRoutingSessionManager
 import org.apache.kyuubi.gateway.session.RoutingSessionManager
 import org.apache.kyuubi.gateway.session.TrinoRoutingSessionManager
@@ -76,6 +79,7 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
     _sessionManager = RoutingBackendService.sessionManagerFor(conf, resolver, accountant)
     accountant.foreach { a =>
       RoutingBackendService.reconcilerFor(conf, a, resolver).foreach(addService)
+      RoutingBackendService.shrinkerFor(conf, a, resolver).foreach(addService)
     }
     _resolver = resolver
     super.initialize(conf)
@@ -223,6 +227,36 @@ object RoutingBackendService {
         s"$SCALING_ENABLED_KEY is on but no Kubernetes client could be built")
     }
     Some(new KubernetesClusterScaler(new FabricScaleApi(client)))
+  }
+
+  /**
+   * Builds the shrinker, or none.
+   *
+   * Separate from scaling up, and off by default even when that is on: growing
+   * a cluster costs money and shrinking one can cost a query. It also needs
+   * more than scaling does - the worker StatefulSet named on each cluster, and
+   * read access to StatefulSets - so a deployment that has not arranged those
+   * should not find itself shrinking.
+   */
+  def shrinkerFor(
+      conf: KyuubiConf,
+      accountant: CapacityAccountant,
+      resolver: ClusterResolver): Option[ClusterShrinker] = {
+    if (!conf.getOption(ClusterShrinker.ENABLED_KEY).exists(_.toBoolean)) return None
+    val client = KubernetesUtils.buildKubernetesClient(conf).getOrElse {
+      throw new IllegalStateException(
+        s"${ClusterShrinker.ENABLED_KEY} is on but no Kubernetes client could be built")
+    }
+    Some(new ClusterShrinker(
+      accountant,
+      resolver,
+      new KubernetesWorkerPool(client),
+      new TrinoWorkerDrain(new OkHttpClient.Builder().build()),
+      new FabricScaleApi(client),
+      capacityOf,
+      ClusterShrinker.idleAfterFrom(conf),
+      ClusterShrinker.intervalFrom(conf),
+      ClusterShrinker.drainTimeoutFrom(conf)))
   }
 
   private def capacityOf(cluster: ClusterRef): Option[ClusterCapacity] =

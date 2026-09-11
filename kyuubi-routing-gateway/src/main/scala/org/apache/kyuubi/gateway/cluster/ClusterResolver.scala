@@ -53,7 +53,15 @@ case class ScaleTarget(
     name: String,
     group: String,
     version: String,
-    plural: String) {
+    plural: String,
+    /**
+     * The StatefulSet the workers run as, when shrinking is wanted.
+     *
+     * Named rather than discovered for the same reason as the scale target
+     * itself, and absent when the pool is a Deployment - which cannot be shrunk
+     * safely, because Kubernetes rather than the gateway chooses which pod goes.
+     */
+    workerStatefulSet: Option[String] = None) {
 
   override def toString: String = s"$plural.$group/$namespace/$name"
 }
@@ -70,7 +78,12 @@ case class ScaleTarget(
 case class DeclaredCapacity(
     maxMemoryPerNodeBytes: Long,
     workers: Int,
-    maxWorkers: Int)
+    maxWorkers: Int,
+    /**
+     * The floor a scale-down will not go below. Never zero: a cluster with no
+     * workers cannot answer the query that would bring it back.
+     */
+    minWorkers: Int = 1)
 
 /**
  * Resolves the cluster a session belongs to.

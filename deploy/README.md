@@ -193,6 +193,8 @@ a query needs something behind it.
 | `kyuubi.gateway/workers` | capacity: workers the cluster has now |
 | `kyuubi.gateway/max-workers` | capacity: the ceiling it may be scaled to |
 | `kyuubi.gateway/scale-target` | the custom resource the gateway may resize |
+| `kyuubi.gateway/worker-statefulset` | the workers' StatefulSet; without it the cluster is never shrunk |
+| `kyuubi.gateway/min-workers` | floor for shrinking; 1 by default, never 0 |
 | `kyuubi.gateway/scale-group` | `trino.arenadata.io` by default |
 | `kyuubi.gateway/scale-version` | `v1alpha1` by default |
 | `kyuubi.gateway/scale-plural` | `clusters` by default |
@@ -220,6 +222,7 @@ enabled features need:
 | `secrets` | core (`""`) | `get`, `list`, `create`, `update`, `delete` | the shared reservation ledger | only with `admission.shared` |
 | `clusters/scale` | `trino.arenadata.io` | `get`, `update`, `patch` | resizing a cluster | only with `scaling.enabled` |
 | `clusters` | `trino.arenadata.io` | `get` | reaching the scale subresource | only with `scaling.enabled` |
+| `statefulsets` | `apps` | `get` | naming the worker to drain | only with `scaling.shrink.enabled` |
 
 A Role, not a ClusterRole: the gateway discovers clusters in its own namespace,
 and watching every namespace would mean reading every Secret in the cluster. The
@@ -339,8 +342,50 @@ resized. **It also needs the CRD `clusters.trino.arenadata.io` to declare
 `subresource:scale`** - without it the subresource does not exist and every
 scale-up fails, which shows as queries refused with `NeedsScaleUp`.
 
-Only upwards. Lowering a replica count deletes pods, and a Trino worker that
-disappears takes its query fragments with it.
+### Shrinking
+
+```properties
+kyuubi.gateway.scaling.shrink.enabled       true
+kyuubi.gateway.scaling.shrink.idleAfter     600000   # ms with nothing reserved
+kyuubi.gateway.scaling.shrink.interval      60000
+kyuubi.gateway.scaling.shrink.drainTimeout  300000
+```
+
+Off even when scaling up is on: growing a cluster costs money and shrinking one
+can cost a query. It also needs two things scaling up does not - the
+`kyuubi.gateway/worker-statefulset` annotation on each cluster, and `get` on
+`statefulsets` - so a deployment that has not arranged those will not find
+itself shrinking.
+
+A worker goes back only when the cluster has had **nothing reserved on it** for
+`idleAfter`, and never below `kyuubi.gateway/min-workers` (default 1, never 0).
+One worker per pass.
+
+Three things make it safe:
+
+*The worker is named before it is removed.* Only a StatefulSet allows that: it
+removes the highest ordinal, and the pod keeps a stable DNS name. A Deployment
+cannot - its ReplicaSet controller picks the victim and
+`controller.kubernetes.io/pod-deletion-cost` only biases the choice, which the
+specification calls best-effort. Draining one pod while Kubernetes removes
+another kills the queries on the other, so a pool that is not a StatefulSet is
+refused rather than shrunk on a guess.
+
+*The worker is drained first.* `PUT /v1/info/state` with `DRAINING` is announced
+to the coordinator, which stops assigning it tasks; `DRAINED` means the tasks it
+had have finished. A worker that does not reach `DRAINED` within `drainTimeout`
+is put back to `ACTIVE` rather than removed anyway - Trino's draining state is
+reversible for exactly this.
+
+*The capacity being removed is reserved for the duration.* A query admitted
+while the drain is in flight would otherwise be sized for a cluster about to be
+smaller. Holding the departing worker's memory in the same ledger the gate
+admits from means such a query is refused or waits, with no special case
+anywhere.
+
+The declared `workers` annotation lags a shrink until whatever maintains it
+catches up, so for a poll interval the gate may size against one worker more
+than exists.
 
 ### Reconciliation
 

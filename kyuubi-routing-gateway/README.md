@@ -132,6 +132,10 @@ crowd of small queries outvote the large ones. It reports and does not act.
 | `kyuubi.gateway.admission.sharedNamespace` | the gateway's own | where the ledgers live |
 | `kyuubi.gateway.admission.sharedPollInterval` | `1000` | ms between checks while holding, when shared |
 | `kyuubi.gateway.scaling.enabled` | `false` | let the gateway raise a cluster's worker count |
+| `kyuubi.gateway.scaling.shrink.enabled` | `false` | let it give workers back when a cluster is idle |
+| `kyuubi.gateway.scaling.shrink.idleAfter` | `600000` | ms with nothing reserved before a worker goes |
+| `kyuubi.gateway.scaling.shrink.interval` | `60000` | ms between passes |
+| `kyuubi.gateway.scaling.shrink.drainTimeout` | `300000` | ms a worker is given to finish its tasks |
 | `kyuubi.gateway.kubernetes.scale.group` | `trino.arenadata.io` | CRD group holding the worker count |
 | `kyuubi.gateway.kubernetes.scale.version` | `v1alpha1` | CRD version |
 | `kyuubi.gateway.kubernetes.scale.plural` | `clusters` | CRD plural |
@@ -193,10 +197,10 @@ annotated.
   can be passed by smaller ones that keep fitting. Ordering them would mean
   holding capacity empty while the big query waits, which idles the cluster for
   as long as the query is large.
-* Scaling is one-way. Lowering a replica count deletes pods, and a Trino worker
-  that disappears takes its query fragments with it; shrinking safely means
-  draining first, which is not expressible through a replica count and belongs
-  to whatever owns the cluster's lifecycle.
+* Shrinking needs the workers to be a StatefulSet. A Deployment does not let the
+  departing pod be named - `pod-deletion-cost` only biases the choice, and the
+  specification calls that best-effort - so draining one pod could be followed
+  by Kubernetes removing another, taking its queries with it.
 * Scaling needs the `Cluster` CRD to declare `subresource:scale`. Without it
   the subresource does not exist and every scale-up fails, which shows as
   queries refused with `NeedsScaleUp`.

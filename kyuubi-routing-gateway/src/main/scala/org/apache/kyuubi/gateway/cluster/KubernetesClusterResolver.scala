@@ -185,7 +185,13 @@ class KubernetesClusterResolver
       workers <- ann.get(WORKERS_ANNOTATION).flatMap(parsePositiveLong).map(_.toInt)
       maxWorkers <- ann.get(MAX_WORKERS_ANNOTATION).flatMap(parsePositiveLong).map(_.toInt)
       if maxWorkers >= workers
-    } yield DeclaredCapacity(memory, workers, maxWorkers)
+    } yield DeclaredCapacity(
+      memory,
+      workers,
+      maxWorkers,
+      // Defaults to one, never to zero, and never above what the cluster has.
+      minWorkers = ann.get(MIN_WORKERS_ANNOTATION)
+        .flatMap(parsePositiveLong).map(_.toInt).getOrElse(1).min(workers))
 
   /**
    * The resource whose replica count stands for this cluster's size.
@@ -201,7 +207,8 @@ class KubernetesClusterResolver
         name = name,
         group = ann.getOrElse(SCALE_GROUP_ANNOTATION, scaleGroup),
         version = ann.getOrElse(SCALE_VERSION_ANNOTATION, scaleVersion),
-        plural = ann.getOrElse(SCALE_PLURAL_ANNOTATION, scalePlural))
+        plural = ann.getOrElse(SCALE_PLURAL_ANNOTATION, scalePlural),
+        workerStatefulSet = ann.get(WORKER_STATEFULSET_ANNOTATION).map(_.trim).filter(_.nonEmpty))
     }
 
   private def parsePositiveLong(s: String): Option[Long] =
@@ -243,6 +250,10 @@ object KubernetesClusterResolver {
   val SCALE_GROUP_ANNOTATION = "kyuubi.gateway/scale-group"
   val SCALE_VERSION_ANNOTATION = "kyuubi.gateway/scale-version"
   val SCALE_PLURAL_ANNOTATION = "kyuubi.gateway/scale-plural"
+
+  /** The StatefulSet the workers run as; without it the cluster is not shrunk. */
+  val WORKER_STATEFULSET_ANNOTATION = "kyuubi.gateway/worker-statefulset"
+  val MIN_WORKERS_ANNOTATION = "kyuubi.gateway/min-workers"
 
   val SCALE_GROUP_KEY = "kyuubi.gateway.kubernetes.scale.group"
   val SCALE_VERSION_KEY = "kyuubi.gateway.kubernetes.scale.version"
