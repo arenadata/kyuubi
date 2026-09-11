@@ -163,7 +163,10 @@ class AdmissionGate(
           accountant.admit(cluster.name, capacity.copy(workers = grown), queryId, memoryBytes)
             .map { reservation =>
               info(s"Admitted $queryId to ${cluster.name} after scaling to $grown workers")
-              Admitted(Some(reservation), grown)
+              // The query waits for what it needs, not for the whole cluster.
+              // Requiring every worker would hold it until the last one is up,
+              // and leave it waiting indefinitely whenever one is down.
+              Admitted(Some(reservation), needed)
             }
         }
     }

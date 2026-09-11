@@ -40,26 +40,20 @@ case class ClusterRef(
     scaleTarget: Option[ScaleTarget] = None)
 
 /**
- * The custom resource whose worker count a cluster's size is held in.
+ * The custom resource whose `scale` subresource stands for a cluster's size.
  *
  * Addressed by group, version and plural rather than by a typed client so the
- * gateway carries no operator types and works against any CRD that keeps a
- * replica count somewhere in its spec - the path is data, not code.
- *
- * There is deliberately no scale subresource here. The Trino operator's Cluster
- * CRD declares only `status`, so `autoscaling/v1.Scale` does not exist on it and
- * a merge patch of the spec is the only way in. If the CRD later declares
- * `+kubebuilder:subresource:scale`, this is where that would be switched.
- *
- * @param replicasPath path to the replica count, e.g. spec / worker / replicas
+ * gateway carries no operator types and works against any CRD that declares
+ * `scale`. Where the replica count actually lives in the spec is the CRD's
+ * business, declared once in its `specReplicasPath`, and deliberately not
+ * something the gateway is told or could get wrong.
  */
 case class ScaleTarget(
     namespace: String,
     name: String,
     group: String,
     version: String,
-    plural: String,
-    replicasPath: Seq[String]) {
+    plural: String) {
 
   override def toString: String = s"$plural.$group/$namespace/$name"
 }

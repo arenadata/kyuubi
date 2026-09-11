@@ -105,8 +105,7 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     "trino-a",
     "trino.arenadata.io",
     "v1alpha1",
-    "clusters",
-    Seq("spec", "worker", "replicas"))
+    "clusters")
 
   /** Grants whatever is asked for, and remembers what that was. */
   private class RecordingScaler(grant: Int => Int = identity) extends ClusterScaler {
@@ -134,6 +133,18 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     assert(
       admitted.workers === 6,
       "the query must carry the size it was admitted for, or it starts without those workers")
+  }
+
+  test("the query waits for what it needs, not for every worker in the cluster") {
+    // The scaler grants more than was asked for - a cluster somebody else just
+    // grew, or a minimum the operator enforces.
+    val scaler = new RecordingScaler(_ => 9)
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    val admitted = scalingGate(scaler)
+      .admit(scalable, "q1", "SELECT * FROM t", planner(planWith(60 * GB))).toOption.get
+    assert(
+      admitted.workers === 6,
+      "requiring all nine would hold the query until the last one is up, or forever if one is down")
   }
 
   test("the scale request is capped at the cluster's own ceiling") {

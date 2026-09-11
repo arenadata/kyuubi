@@ -49,7 +49,6 @@ class KubernetesClusterResolver
   private var scaleGroup: String = _
   private var scaleVersion: String = _
   private var scalePlural: String = _
-  private var scalePath: Seq[String] = Seq.empty
 
   private val snapshot = new AtomicReference[Seq[ClusterRef]](Seq.empty)
 
@@ -66,8 +65,6 @@ class KubernetesClusterResolver
     scaleGroup = conf.getOption(SCALE_GROUP_KEY).getOrElse(DEFAULT_SCALE_GROUP)
     scaleVersion = conf.getOption(SCALE_VERSION_KEY).getOrElse(DEFAULT_SCALE_VERSION)
     scalePlural = conf.getOption(SCALE_PLURAL_KEY).getOrElse(DEFAULT_SCALE_PLURAL)
-    scalePath = conf.getOption(SCALE_REPLICAS_PATH_KEY).getOrElse(DEFAULT_SCALE_REPLICAS_PATH)
-      .split("\\.").map(_.trim).filter(_.nonEmpty).toSeq
     client = KubernetesUtils.buildKubernetesClient(conf).getOrElse {
       throw new IllegalStateException(
         "Cannot build a Kubernetes client - the gateway cannot discover clusters")
@@ -197,8 +194,7 @@ class KubernetesClusterResolver
         name = name,
         group = ann.getOrElse(SCALE_GROUP_ANNOTATION, scaleGroup),
         version = ann.getOrElse(SCALE_VERSION_ANNOTATION, scaleVersion),
-        plural = ann.getOrElse(SCALE_PLURAL_ANNOTATION, scalePlural),
-        replicasPath = scalePath)
+        plural = ann.getOrElse(SCALE_PLURAL_ANNOTATION, scalePlural))
     }
 
   private def parsePositiveLong(s: String): Option[Long] =
@@ -244,12 +240,9 @@ object KubernetesClusterResolver {
   val SCALE_GROUP_KEY = "kyuubi.gateway.kubernetes.scale.group"
   val SCALE_VERSION_KEY = "kyuubi.gateway.kubernetes.scale.version"
   val SCALE_PLURAL_KEY = "kyuubi.gateway.kubernetes.scale.plural"
-  val SCALE_REPLICAS_PATH_KEY = "kyuubi.gateway.kubernetes.scale.replicasPath"
 
-  // Defaults describe the Trino operator's Cluster CRD, which keeps the worker
-  // count at spec.worker.replicas and declares no scale subresource.
+  // Defaults describe the Trino operator's Cluster CRD.
   val DEFAULT_SCALE_GROUP = "trino.arenadata.io"
   val DEFAULT_SCALE_VERSION = "v1alpha1"
   val DEFAULT_SCALE_PLURAL = "clusters"
-  val DEFAULT_SCALE_REPLICAS_PATH = "spec.worker.replicas"
 }

@@ -35,6 +35,7 @@ import org.apache.kyuubi.gateway.cluster.ClusterResolver
 import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
 import org.apache.kyuubi.gateway.cluster.StaticClusterResolver
 import org.apache.kyuubi.gateway.scaling.ClusterScaler
+import org.apache.kyuubi.gateway.scaling.FabricScaleApi
 import org.apache.kyuubi.gateway.scaling.KubernetesClusterScaler
 import org.apache.kyuubi.gateway.session.JdbcRoutingSessionManager
 import org.apache.kyuubi.gateway.session.RoutingSessionManager
@@ -210,7 +211,7 @@ object RoutingBackendService {
       throw new IllegalStateException(
         s"$SCALING_ENABLED_KEY is on but no Kubernetes client could be built")
     }
-    Some(new KubernetesClusterScaler(client))
+    Some(new KubernetesClusterScaler(new FabricScaleApi(client)))
   }
 
   private def capacityOf(cluster: ClusterRef): Option[ClusterCapacity] =

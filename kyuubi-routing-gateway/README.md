@@ -124,7 +124,6 @@ crowd of small queries outvote the large ones. It reports and does not act.
 | `kyuubi.gateway.kubernetes.scale.group` | `trino.arenadata.io` | CRD group holding the worker count |
 | `kyuubi.gateway.kubernetes.scale.version` | `v1alpha1` | CRD version |
 | `kyuubi.gateway.kubernetes.scale.plural` | `clusters` | CRD plural |
-| `kyuubi.gateway.kubernetes.scale.replicasPath` | `spec.worker.replicas` | where in the spec the count is |
 | `kyuubi.gateway.reconcile.enabled` | `false` | reclaim reservations from the cluster's own view |
 | `kyuubi.gateway.reconcile.interval` | `30000` | ms between reconciliation passes |
 | `kyuubi.gateway.reconcile.grace` | `60000` | ms before a reservation is judged missing |
@@ -147,8 +146,8 @@ kyuubi.gateway/max-workers: "10"
 kyuubi.gateway/scale-target: trino-analytics
 ```
 
-`scale-target` names the custom resource whose worker count stands for this
-cluster's size. It is an annotation rather than something derived from an owner
+`scale-target` names the custom resource whose `scale` subresource stands for
+this cluster's size. It is an annotation rather than something derived from an owner
 reference on purpose: the gateway is told what it may scale, so a Service it
 happens to reach cannot hand it write access to an object nobody meant to
 expose. Without it a cluster is never scaled, only admitted to.
@@ -187,9 +186,9 @@ annotated.
   that disappears takes its query fragments with it; shrinking safely means
   draining first, which is not expressible through a replica count and belongs
   to whatever owns the cluster's lifecycle.
-* The `Cluster` CRD declares no `scale` subresource, so scaling is a merge patch
-  of `spec.worker.replicas` rather than a write to `autoscaling/v1.Scale`. The
-  gateway's service account needs `patch` on `clusters` in that group.
+* Scaling needs the `Cluster` CRD to declare `subresource:scale`. Without it
+  the subresource does not exist and every scale-up fails, which shows as
+  queries refused with `NeedsScaleUp`.
 * One gateway instance serves one engine - see `RoutingSessionManager` for why
   the interfaces make a single instance serving both impractical.
 * The JDBC path is ungated. Impala runs its own admission control, so
@@ -215,7 +214,7 @@ what is switched on:
 | Feature | Resource | Verbs |
 |---|---|---|
 | `kubernetes` resolver | `services` | `get`, `list` |
-| `scaling.enabled` | `clusters.trino.arenadata.io` | `get`, `patch` |
+| `scaling.enabled` | `clusters.trino.arenadata.io/scale` | `get`, `update` |
 | `admission.shared` | `secrets` in the ledger namespace | `get`, `list`, `create`, `update`, `delete` |
 
 `reconcile.enabled` needs no Kubernetes rights - it talks to the coordinator's

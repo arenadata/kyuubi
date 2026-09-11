@@ -17,56 +17,81 @@
 
 package org.apache.kyuubi.gateway.scaling
 
-import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
-import io.fabric8.kubernetes.api.model.GenericKubernetesResource
 import io.fabric8.kubernetes.client.KubernetesClient
-import io.fabric8.kubernetes.client.dsl.base.PatchContext
-import io.fabric8.kubernetes.client.dsl.base.PatchType
 import io.fabric8.kubernetes.client.dsl.base.ResourceDefinitionContext
-import io.fabric8.kubernetes.client.utils.Serialization
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ScaleTarget
 
 /**
- * Raises the replica count in a custom resource's spec.
+ * The `scale` subresource of a cluster's custom resource.
  *
- * A merge patch of the one field, not a replacement of the object: the operator
- * and whoever else edits the resource must keep their changes. The path is
- * taken from the target, so the gateway holds no operator types and a different
- * CRD needs configuration rather than code.
- *
- * The current size is read from the resource itself rather than remembered.
- * A remembered size goes stale the moment anything else scales the cluster, and
- * acting on a stale one means either a scale-up that never happens or a query
- * admitted against workers that are not there.
+ * Kept behind an interface because it is the one part that needs a live api
+ * server, and the decision about when to scale is worth testing on its own.
  */
-class KubernetesClusterScaler(client: KubernetesClient) extends ClusterScaler with Logging {
+trait ScaleApi {
+
+  /**
+   * Workers the cluster actually has, as the resource reports them.
+   *
+   * `status.replicas`, not `spec.replicas`: the question admission is asking is
+   * how many workers exist, and the spec answers how many were asked for. A
+   * cluster still bringing up the six it was told to run has fewer than six to
+   * put a query on.
+   */
+  def ready(target: ScaleTarget): Option[Int]
+
+  /** Asks for `workers`, without waiting for them. */
+  def request(target: ScaleTarget, workers: Int): Unit
+}
+
+/**
+ * Raises a cluster's worker count through its `scale` subresource.
+ *
+ * `autoscaling/v1.Scale` rather than a patch of the spec: the subresource is
+ * the declared way to resize a custom resource, it keeps the gateway from
+ * knowing where in the spec the count lives, and it narrows the permission the
+ * gateway needs from writing `clusters` to writing `clusters/scale` - so a
+ * gateway that can resize a cluster still cannot change its image or its
+ * catalogs.
+ */
+class KubernetesClusterScaler(api: ScaleApi) extends ClusterScaler with Logging {
 
   override def ensureAtLeast(target: ScaleTarget, workers: Int): Int = {
     try {
-      val resource = get(target)
-      val current = replicasOf(resource, target.replicasPath)
-      current match {
-        case Some(size) if size >= workers =>
-          debug(s"$target already has $size workers, no scale-up needed for $workers")
-          size
-        case _ =>
-          patchReplicas(target, workers)
-          info(s"Asked $target for $workers workers, was ${current.getOrElse("unset")}")
+      api.ready(target) match {
+        case Some(current) if current >= workers =>
+          debug(s"$target already has $current workers, no scale-up needed for $workers")
+          current
+        case current =>
+          api.request(target, workers)
+          info(s"Asked $target for $workers workers, had ${current.getOrElse(0)}")
           workers
       }
     } catch {
       case NonFatal(e) =>
-        // Report what exists rather than what was asked for: the caller sizes
-        // an admission against the answer, and claiming workers that were never
+        // Report nothing rather than what was asked for: the caller sizes an
+        // admission against the answer, and claiming workers that were never
         // requested would admit a query onto a cluster that cannot hold it.
         warn(s"Could not scale $target to $workers workers", e)
         0
     }
   }
+}
+
+/** Talks to the api server. */
+class FabricScaleApi(client: KubernetesClient) extends ScaleApi {
+
+  override def ready(target: ScaleTarget): Option[Int] =
+    Option(resource(target).scale())
+      .flatMap(s => Option(s.getStatus))
+      .flatMap(s => Option(s.getReplicas))
+      .map(_.intValue())
+
+  override def request(target: ScaleTarget, workers: Int): Unit =
+    resource(target).scale(workers)
 
   private def resource(target: ScaleTarget) = {
     val context = new ResourceDefinitionContext.Builder()
@@ -78,62 +103,5 @@ class KubernetesClusterScaler(client: KubernetesClient) extends ClusterScaler wi
     client.genericKubernetesResources(context)
       .inNamespace(target.namespace)
       .withName(target.name)
-  }
-
-  private def get(target: ScaleTarget): GenericKubernetesResource = {
-    val found = resource(target).get()
-    if (found == null) {
-      throw new IllegalStateException(s"$target does not exist")
-    }
-    found
-  }
-
-  private def patchReplicas(target: ScaleTarget, workers: Int): Unit = {
-    resource(target)
-      .patch(
-        PatchContext.of(PatchType.JSON_MERGE),
-        Serialization.asJson(KubernetesClusterScaler.nest(target.replicasPath, workers)))
-  }
-
-  private def replicasOf(
-      resource: GenericKubernetesResource,
-      path: Seq[String]): Option[Int] =
-    KubernetesClusterScaler.dig(resource.getAdditionalProperties.asScala.toMap, path)
-}
-
-object KubernetesClusterScaler {
-
-  /** Builds `{"spec":{"worker":{"replicas":n}}}` from the path and the count. */
-  def nest(path: Seq[String], value: Int): java.util.Map[String, Any] =
-    path.foldRight[Any](value) { (segment, inner) =>
-      Map(segment -> inner)
-    } match {
-      case m: Map[_, _] => m.asInstanceOf[Map[String, Any]].asJava
-      case other =>
-        throw new IllegalArgumentException(s"A replicas path cannot be empty, got $other")
-    }
-
-  /**
-   * Follows the path through the parsed resource.
-   *
-   * Returns None for an absent or non-numeric value rather than throwing: a
-   * spec that has never had a replica count set is an ordinary state, and means
-   * the same thing to the caller as "fewer than you need".
-   */
-  def dig(root: Map[String, Any], path: Seq[String]): Option[Int] = path.toList match {
-    case Nil => None
-    case last :: Nil =>
-      root.get(last).flatMap {
-        case n: Number => Some(n.intValue())
-        case s: String => scala.util.Try(s.trim.toInt).toOption
-        case _ => None
-      }
-    case head :: rest =>
-      root.get(head).flatMap {
-        case m: java.util.Map[_, _] =>
-          dig(m.asInstanceOf[java.util.Map[String, Any]].asScala.toMap, rest)
-        case m: Map[_, _] => dig(m.asInstanceOf[Map[String, Any]], rest)
-        case _ => None
-      }
   }
 }
