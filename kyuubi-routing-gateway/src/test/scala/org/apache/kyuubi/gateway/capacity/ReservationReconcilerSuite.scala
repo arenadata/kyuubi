@@ -43,7 +43,7 @@ class ReservationReconcilerSuite extends KyuubiFunSuite {
   /** Admits two queries and returns the accountant plus a movable clock. */
   private def fixture = {
     var now = 1000000L
-    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, () => now)
+    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
     accountant.admit("c", capacity, "r1", 10 * GB)
     accountant.admit("c", capacity, "r2", 10 * GB)
     (accountant, () => now, (t: Long) => now = t)

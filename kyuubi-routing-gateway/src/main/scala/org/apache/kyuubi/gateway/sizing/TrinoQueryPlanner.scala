@@ -64,12 +64,14 @@ object TrinoQueryPlanner {
    * mean Trino changed the shape of EXPLAIN output, and gluing the pieces
    * together would produce a document the parser would misread as a plan.
    */
-  def firstCell(rows: Iterator[List[Any]]): String =
-    if (!rows.hasNext) ""
-    else
-      rows.next() match {
-        case (cell: String) :: _ => cell
-        case cell :: _ if cell != null => cell.toString
-        case _ => ""
-      }
+  def firstCell(rows: Iterator[List[Any]]): String = {
+    if (!rows.hasNext) {
+      return ""
+    }
+    rows.next() match {
+      case (cell: String) :: _ => cell
+      case cell :: _ if cell != null => cell.toString
+      case _ => ""
+    }
+  }
 }

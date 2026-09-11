@@ -24,7 +24,9 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.trino.session.TrinoSessionImpl
 import org.apache.kyuubi.operation.TClientTestUtils
 import org.apache.kyuubi.session.SessionHandle
-import org.apache.kyuubi.shaded.hive.service.rpc.thrift.{TCloseSessionReq, TOpenSessionReq, TStatusCode}
+import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TCloseSessionReq
+import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TOpenSessionReq
+import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TStatusCode
 
 /**
  * Drives the gateway over real HS2 to prove that identity decides the cluster.

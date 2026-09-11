@@ -24,8 +24,11 @@ import org.apache.kyuubi.gateway.capacity.AdmissionGate
 import org.apache.kyuubi.gateway.capacity.AdmissionPolicy
 import org.apache.kyuubi.gateway.capacity.CapacityAccountant
 import org.apache.kyuubi.gateway.capacity.ClusterCapacity
+import org.apache.kyuubi.gateway.capacity.InMemoryReservationStore
 import org.apache.kyuubi.gateway.capacity.MemoryCalibration
 import org.apache.kyuubi.gateway.capacity.ReservationReconciler
+import org.apache.kyuubi.gateway.capacity.ReservationStore
+import org.apache.kyuubi.gateway.capacity.SecretReservationStore
 import org.apache.kyuubi.gateway.capacity.TrinoClusterQueries
 import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.cluster.ClusterResolver
@@ -108,7 +111,37 @@ object RoutingBackendService {
       case p if p.equalsIgnoreCase("Exclusive") => AdmissionPolicy.Exclusive
       case _ => AdmissionPolicy.PackByMemory
     }
-    Some(new CapacityAccountant(policy))
+    Some(new CapacityAccountant(policy, storeFor(conf)))
+  }
+
+  /**
+   * Where reservations are kept.
+   *
+   * In this process unless told otherwise, because a single replica is the
+   * common deployment and a shared ledger costs an api-server round trip per
+   * admission. Sharing must be switched on deliberately - but running more than
+   * one replica without it means each admits against its own ledger and
+   * together they overcommit every cluster, so the choice belongs with whoever
+   * decided to scale the gateway out.
+   */
+  def storeFor(conf: KyuubiConf): ReservationStore = {
+    if (!conf.getOption(SecretReservationStore.ENABLED_KEY).exists(_.toBoolean)) {
+      return new InMemoryReservationStore
+    }
+    val client = KubernetesUtils.buildKubernetesClient(conf).getOrElse {
+      throw new IllegalStateException(
+        s"${SecretReservationStore.ENABLED_KEY} is on but no Kubernetes client could be built")
+    }
+    val namespace = conf.getOption(SecretReservationStore.NAMESPACE_KEY)
+      .orElse(Option(client.getNamespace))
+      .filter(_.nonEmpty)
+      .getOrElse(throw new IllegalStateException(
+        s"${SecretReservationStore.NAMESPACE_KEY} must be set: the shared ledger needs a " +
+          "namespace to live in and none could be inferred"))
+    new SecretReservationStore(
+      client,
+      namespace,
+      pollMillis = conf.getOption(SecretReservationStore.POLL_KEY).map(_.toLong).getOrElse(1000L))
   }
 
   /**

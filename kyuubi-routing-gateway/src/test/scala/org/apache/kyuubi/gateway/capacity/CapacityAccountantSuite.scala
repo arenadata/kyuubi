@@ -30,7 +30,7 @@ class CapacityAccountantSuite extends KyuubiFunSuite {
     maxWorkers = 10)
 
   private def accountant(policy: AdmissionPolicy.AdmissionPolicy, now: Long = 1000L) =
-    new CapacityAccountant(policy, () => now)
+    new CapacityAccountant(policy, clock = () => now)
 
   test("workersFor is a ceiling, not a ratio") {
     assert(capacity.workersFor(10 * GB) === 1)
@@ -95,7 +95,7 @@ class CapacityAccountantSuite extends KyuubiFunSuite {
 
   test("reservations older than the cutoff are reported for reclaim") {
     var now = 10000L
-    val a = new CapacityAccountant(AdmissionPolicy.PackByMemory, () => now)
+    val a = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
     a.admit("c", capacity, "q1", 1 * GB)
 
     assert(a.staleReservations(5000L).isEmpty, "a fresh reservation is not stale")

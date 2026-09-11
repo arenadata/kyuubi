@@ -48,6 +48,32 @@ responses:
 | `NeedsScaleUp(n)` | cluster idle but too small | scaling to `n` |
 | `TooLarge(n, max)` | beyond the ceiling | neither |
 
+The gateway acts on the first two. `Busy` holds the query until room frees, up
+to `admission.holdTimeout`; `NeedsScaleUp(n)` raises the cluster's worker count
+and admits the query for that size. `TooLarge` is answered at once - waiting and
+scaling are both futile, and turning that answer into a timeout helps nobody.
+
+Admitting against workers that do not exist yet is safe only because the worker
+count travels with the query as `required_workers_count`: Trino holds it in
+`WAITING_FOR_RESOURCES` until they register. A scale-up that never lands shows
+as a query that waited and failed, rather than one that quietly ran on too few
+workers.
+
+Reservations are released when the operation closes. That covers the normal case
+and not a client that vanishes mid-query or a gateway restarted while queries
+were in flight - so each query also carries its reservation id to the cluster as
+a client tag, and `reconcile.enabled` turns on a pass that compares the ledger
+against the coordinator's own list of queries. An unreachable coordinator
+changes nothing: an empty answer would justify releasing everything, and
+over-admitting onto a cluster that is already struggling is worse than refusing
+for a while.
+
+With several replicas, `admission.shared` moves the ledger into a Secret per
+cluster and admits by compare-and-swap on its `resourceVersion`. Without it each
+replica admits against its own ledger and together they overcommit every
+cluster. Deliberately not leader election: a leader would make every admission
+wait for one replica and make its death an outage.
+
 `AdmissionPolicy` picks how a cluster is shared. `PackByMemory` admits while
 memory is left, which is safe for memory but not for time - co-resident queries
 share CPU and both slow down. `Exclusive` runs one query at a time: predictable
@@ -67,9 +93,14 @@ memory.
 
 `memoryFactor` is the calibration knob and its default is a guess. The planner's
 per-operator estimates are not the query's peak - the peak lies between the
-largest operator and the sum of the live ones. Turning the guess into a number
-needs these estimates compared against the `peakUserMemoryBytes` of finished
-queries.
+largest operator and the sum of the live ones.
+
+The reconciler turns the guess into a measurement: for every query it sees
+finish, it compares what was reserved against what the coordinator reports the
+query actually held, and logs the factor that would have been right. Aggregated
+rather than averaged per query, because what decides whether a cluster fits its
+work is the total held against the total needed, and a per-query average lets a
+crowd of small queries outvote the large ones. It reports and does not act.
 
 ## Configuration
 
@@ -84,6 +115,21 @@ queries.
 | `kyuubi.gateway.kubernetes.labelSelector` | `kyuubi.gateway/enabled=true` | which Services are clusters |
 | `kyuubi.gateway.kubernetes.namespace` | all | restrict the search |
 | `kyuubi.gateway.kubernetes.pollInterval` | `10000` | ms between polls |
+| `kyuubi.gateway.admission.holdTimeout` | `0` | ms to wait for a busy cluster before refusing |
+| `kyuubi.gateway.admission.requiredWorkersMaxWait` | cluster's own | how long a query may wait for its workers |
+| `kyuubi.gateway.admission.shared` | `false` | keep reservations in Secrets, for several replicas |
+| `kyuubi.gateway.admission.sharedNamespace` | the gateway's own | where the ledgers live |
+| `kyuubi.gateway.admission.sharedPollInterval` | `1000` | ms between checks while holding, when shared |
+| `kyuubi.gateway.scaling.enabled` | `false` | let the gateway raise a cluster's worker count |
+| `kyuubi.gateway.kubernetes.scale.group` | `trino.arenadata.io` | CRD group holding the worker count |
+| `kyuubi.gateway.kubernetes.scale.version` | `v1alpha1` | CRD version |
+| `kyuubi.gateway.kubernetes.scale.plural` | `clusters` | CRD plural |
+| `kyuubi.gateway.kubernetes.scale.replicasPath` | `spec.worker.replicas` | where in the spec the count is |
+| `kyuubi.gateway.reconcile.enabled` | `false` | reclaim reservations from the cluster's own view |
+| `kyuubi.gateway.reconcile.interval` | `30000` | ms between reconciliation passes |
+| `kyuubi.gateway.reconcile.grace` | `60000` | ms before a reservation is judged missing |
+| `kyuubi.gateway.reconcile.user` | the process user | identity used to read `/v1/query` |
+| `kyuubi.gateway.jdbc.impersonationTemplate` | `;hive.server2.proxy.user={user}` | how the JDBC cluster is told who is asking |
 
 Admission is off by default. Routing is useful on its own, and admission changes
 what clients see - a query that used to run can now be refused - so turning it
@@ -98,7 +144,14 @@ kyuubi.gateway/default: "false"
 kyuubi.gateway/max-memory-per-node-bytes: "10737418240"
 kyuubi.gateway/workers: "4"
 kyuubi.gateway/max-workers: "10"
+kyuubi.gateway/scale-target: trino-analytics
 ```
+
+`scale-target` names the custom resource whose worker count stands for this
+cluster's size. It is an annotation rather than something derived from an owner
+reference on purpose: the gateway is told what it may scale, so a Service it
+happens to reach cannot hand it write access to an object nobody meant to
+expose. Without it a cluster is never scaled, only admitted to.
 
 Anything under `kyuubi.gateway.cluster.<name>.session.` becomes session
 configuration for that cluster, with the prefix stripped - this is how a cluster
@@ -126,27 +179,21 @@ annotated.
 
 ## Known limits
 
-* Reservations live in memory, so the accountant is correct for one process.
-  Several replicas admitting against one cluster would each see only their own
-  reservations and together overcommit it.
-* Release depends on the caller. `staleReservations` exists because a missed
-  release would otherwise shrink a cluster's apparent capacity permanently; the
-  precise signal is Trino's `EventListener`, which is not wired up yet.
+* Fair queueing is not implemented. Held queries are unordered, so a large one
+  can be passed by smaller ones that keep fitting. Ordering them would mean
+  holding capacity empty while the big query waits, which idles the cluster for
+  as long as the query is large.
+* Scaling is one-way. Lowering a replica count deletes pods, and a Trino worker
+  that disappears takes its query fragments with it; shrinking safely means
+  draining first, which is not expressible through a replica count and belongs
+  to whatever owns the cluster's lifecycle.
+* The `Cluster` CRD declares no `scale` subresource, so scaling is a merge patch
+  of `spec.worker.replicas` rather than a write to `autoscaling/v1.Scale`. The
+  gateway's service account needs `patch` on `clusters` in that group.
 * One gateway instance serves one engine - see `RoutingSessionManager` for why
   the interfaces make a single instance serving both impractical.
-* `EXPLAIN` is not wired to a client yet, so every statement sizes as unknown
-  and lands on `defaultWorkers`. Accounting is real from the start; only its
-  precision waits on this.
 * The JDBC path is ungated. Impala runs its own admission control, so
   double-accounting it needs thought rather than a copy of the Trino branch.
-* The JDBC path does not propagate the caller's identity by default. The Trino
-  path does - `kyuubi.session.user` reaches the cluster as the principal - but
-  `JdbcSessionImpl` forwards the caller only when
-  `kyuubi.engine.jdbc.connection.propagateCredential` is on, and that forwards
-  the password too. Impala impersonation normally wants a proxy user against
-  `--authorized_proxy_user_config` instead, which is a deployment decision this
-  module deliberately does not make for you. Until it is made, every JDBC query
-  reaches Impala as the gateway's own account.
 * Parts of the Trino engine read process-wide configuration where a gateway
   would want per-session: `SESSION_PROGRESS_ENABLE`,
   `ENGINE_TRINO_OPERATION_INCREMENTAL_COLLECT` and
@@ -154,6 +201,26 @@ annotated.
   `sessionManager.getConf`. Setting them per cluster has no effect; set them
   once for the gateway. The connection details, which matter most, were fixed
   to read per session.
+* `memoryFactor` is reported, never applied. The reconciler measures what
+  queries actually used against what was reserved for them and logs the factor
+  that would have been right; setting it stays a decision. A factor that moved
+  on its own would change admission without anyone deciding to, and the first
+  sign of a bad measurement would be queries being refused.
+
+## Permissions
+
+Everything the gateway reads or writes in Kubernetes is optional, so grant only
+what is switched on:
+
+| Feature | Resource | Verbs |
+|---|---|---|
+| `kubernetes` resolver | `services` | `get`, `list` |
+| `scaling.enabled` | `clusters.trino.arenadata.io` | `get`, `patch` |
+| `admission.shared` | `secrets` in the ledger namespace | `get`, `list`, `create`, `update`, `delete` |
+
+`reconcile.enabled` needs no Kubernetes rights - it talks to the coordinator's
+own `/v1/query` as `reconcile.user`, which a cluster with authentication
+enabled has to permit separately.
 
 ## Running
 
