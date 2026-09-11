@@ -20,6 +20,7 @@ package org.apache.kyuubi.gateway
 import okhttp3.OkHttpClient
 
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.engine.jdbc.dialect.JdbcDialect
 import org.apache.kyuubi.gateway.capacity.AdmissionGate
 import org.apache.kyuubi.gateway.capacity.AdmissionPolicy
 import org.apache.kyuubi.gateway.capacity.CapacityAccountant
@@ -49,6 +50,7 @@ import org.apache.kyuubi.gateway.sizing.SizingPolicy
 import org.apache.kyuubi.service.{AbstractBackendService, Service}
 import org.apache.kyuubi.session.SessionManager
 import org.apache.kyuubi.util.KubernetesUtils
+import org.apache.kyuubi.util.reflect.ReflectUtils.loadFromServiceLoader
 
 /**
  * Backend service of the gateway. Unlike the Kyuubi server it launches nothing:
@@ -110,9 +112,28 @@ object RoutingBackendService {
       accountant: Option[CapacityAccountant]): RoutingSessionManager = {
     conf.getOption(ENGINE_KEY).getOrElse("trino").toLowerCase match {
       case "trino" => new TrinoRoutingSessionManager(resolver, gateFor(conf, accountant))
-      case jdbcEngine => new JdbcRoutingSessionManager(resolver, jdbcEngine)
+      case jdbc if jdbcEngines.contains(jdbc) => new JdbcRoutingSessionManager(resolver, jdbc)
+      case other =>
+        // Checked here rather than left to the dialect lookup, which happens at
+        // the first session and reports "Don't find jdbc dialect implement for
+        // jdbc engine: spark" - a message about an internal lookup, from a
+        // gateway that came up and reported healthy. A name this gateway cannot
+        // serve is a startup error, the same as a frontend protocol it does not
+        // implement.
+        throw new IllegalArgumentException(
+          s"$ENGINE_KEY is '$other', which this gateway cannot serve. " +
+            s"Supported: trino, ${jdbcEngines.toSeq.sorted.mkString(", ")}")
     }
   }
+
+  /**
+   * Engines reachable over JDBC, as the dialects on the classpath declare them.
+   *
+   * Read from the dialects rather than listed here, so the two cannot disagree:
+   * adding a dialect is what makes an engine available, and this follows.
+   */
+  private[gateway] def jdbcEngines: Set[String] =
+    loadFromServiceLoader[JdbcDialect]().map(_.name().toLowerCase).toSet
 
   /**
    * The one accountant, or none when admission is off.

@@ -13,6 +13,25 @@ override lazy val frontendServices = ...                    // stock Kyuubi fron
 Because no engine is launched, query results traverse one intermediary rather
 than two. That matters when the gateway also carries bulk traffic.
 
+## Engines
+
+| Engine | |
+|---|---|
+| `trino` | routing, admission, sizing from `EXPLAIN`, scaling both ways |
+| `impala` and the other JDBC dialects | routing and impersonation only |
+
+`kyuubi.gateway.engine` takes `trino` or the name of any dialect on the
+classpath - `clickhouse`, `doris`, `impala`, `mysql`, `oracle`, `phoenix`,
+`postgresql`, `starrocks`. Anything else is a startup error naming what is
+supported, rather than a gateway that comes up and fails at the first session.
+
+**Spark is not among them.** Kyuubi launches a Spark engine per session rather
+than connecting to one that is already running, which is the opposite of what
+this gateway does, and there is no Spark dialect for the JDBC path. Routing to
+an already-running Spark Thrift Server would need a dialect of its own - about
+a hundred lines, next to `ImpalaDialect` - since a Thrift Server speaks HS2 and
+the Hive driver can reach it.
+
 ## Routing
 
 `RoutingSessionManager` resolves the cluster for the user and puts its address
