@@ -26,6 +26,7 @@ import org.apache.kyuubi.{Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols.FrontendProtocol
+import org.apache.kyuubi.metrics.{MetricsConf, MetricsSystem}
 import org.apache.kyuubi.server.{KyuubiTBinaryFrontendService, KyuubiTHttpFrontendService}
 import org.apache.kyuubi.service.{AbstractBackendService, AbstractFrontendService, Serverable}
 import org.apache.kyuubi.util.SignalRegister
@@ -59,6 +60,20 @@ class RoutingGateway(name: String) extends Serverable(name) {
         s"No supported frontend protocol in ${KyuubiConf.FRONTEND_PROTOCOLS.key}")
     }
     services.toSeq
+  }
+
+  /**
+   * Registers the metrics system before anything else.
+   *
+   * First, so that whatever the backend and the resolver publish while starting
+   * has somewhere to go - a cluster set discovered during startup would
+   * otherwise be the one set nobody could see.
+   */
+  override def initialize(conf: KyuubiConf): Unit = synchronized {
+    if (conf.get(MetricsConf.METRICS_ENABLED)) {
+      addService(new MetricsSystem)
+    }
+    super.initialize(conf)
   }
 
   override protected def stopServer(): Unit = {

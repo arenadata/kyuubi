@@ -27,6 +27,7 @@ import io.fabric8.kubernetes.api.model.Service
 import io.fabric8.kubernetes.client.KubernetesClient
 
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.gateway.metrics.GatewayMetrics
 import org.apache.kyuubi.service.AbstractService
 import org.apache.kyuubi.util.{KubernetesUtils, ThreadUtils}
 
@@ -74,6 +75,9 @@ class KubernetesClusterResolver
 
   override def start(): Unit = {
     refresh()
+    // Published again once the metrics registry exists: the first refresh runs
+    // before it, so its result would otherwise be the one set nobody can see.
+    GatewayMetrics.publish(snapshot.get())
     poller.scheduleWithFixedDelay(
       () => refresh(),
       pollInterval,
@@ -113,13 +117,16 @@ class KubernetesClusterResolver
         val clusters = services.flatMap(toClusterRef)
         snapshot.set(clusters)
         seen.set(current)
+        GatewayMetrics.publish(clusters)
         info(s"Cluster set changed, now ${clusters.size}: " +
           clusters.map(c => s"${c.name}->${c.url}").mkString(", "))
       }
     } catch {
       case NonFatal(e) =>
         // Keep serving the last known good snapshot: a transient api-server
-        // failure must not make every session unroutable.
+        // failure must not make every session unroutable. The counter is how
+        // anyone finds out - the published set looks healthy while it is stale.
+        GatewayMetrics.refreshFailed()
         warn("Failed to refresh clusters from Kubernetes, keeping previous snapshot", e)
     }
   }

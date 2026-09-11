@@ -34,6 +34,7 @@ import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.cluster.ClusterResolver
 import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
 import org.apache.kyuubi.gateway.cluster.StaticClusterResolver
+import org.apache.kyuubi.gateway.metrics.GatewayMetrics
 import org.apache.kyuubi.gateway.scaling.ClusterScaler
 import org.apache.kyuubi.gateway.scaling.FabricScaleApi
 import org.apache.kyuubi.gateway.scaling.KubernetesClusterScaler
@@ -57,6 +58,7 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
   def this() = this(RoutingBackendService.resolverFor)
 
   @volatile private var _sessionManager: RoutingSessionManager = _
+  @volatile private var _resolver: ClusterResolver = _
 
   override def sessionManager: SessionManager = _sessionManager
 
@@ -75,7 +77,16 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
     accountant.foreach { a =>
       RoutingBackendService.reconcilerFor(conf, a, resolver).foreach(addService)
     }
+    _resolver = resolver
     super.initialize(conf)
+  }
+
+  override def start(): Unit = {
+    super.start()
+    // After start, because the metrics registry only exists from then on. A
+    // resolver that polls publishes on its own; this is what puts a static one
+    // - which never changes and so never publishes - into the metrics at all.
+    GatewayMetrics.publish(_resolver.clusters)
   }
 }
 
