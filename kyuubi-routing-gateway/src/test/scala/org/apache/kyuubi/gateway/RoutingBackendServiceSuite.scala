@@ -42,14 +42,18 @@ class RoutingBackendServiceSuite extends KyuubiFunSuite {
     assert(manager.engine === "impala")
   }
 
+  test("a Spark Thrift Server is served over jdbc like any other HS2 backend") {
+    val manager = managerFor("spark")
+    assert(manager.isInstanceOf[JdbcRoutingSessionManager])
+    assert(manager.engine === "spark")
+  }
+
   test("an engine nobody can serve is a startup error naming what is supported") {
-    // Spark is the case this was written for: Kyuubi launches a Spark engine per
-    // session rather than connecting to one, so there is no dialect for it and
-    // nothing here to route to.
-    val e = intercept[IllegalArgumentException](managerFor("spark"))
-    assert(e.getMessage.contains("spark"))
+    val e = intercept[IllegalArgumentException](managerFor("cassandra"))
+    assert(e.getMessage.contains("cassandra"))
     assert(e.getMessage.contains("trino"), "the message should say what is supported")
     assert(e.getMessage.contains("impala"))
+    assert(e.getMessage.contains("spark"))
   }
 
   test("a typo is refused rather than taken for a jdbc engine") {
@@ -61,8 +65,9 @@ class RoutingBackendServiceSuite extends KyuubiFunSuite {
 
   test("the engines on offer come from the dialects, not from a list here") {
     val engines = RoutingBackendService.jdbcEngines
-    assert(engines.contains("impala"))
-    assert(!engines.contains("spark"))
+    assert(engines.contains("impala"), "shipped by the JDBC engine")
+    assert(engines.contains("spark"), "added by this module's own dialect")
+    assert(!engines.contains("cassandra"))
     assert(
       engines.forall(e => e == e.toLowerCase),
       "matched case-insensitively, so stored lowercase")

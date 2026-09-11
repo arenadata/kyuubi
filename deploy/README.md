@@ -427,12 +427,17 @@ own ledger and together they overcommit every cluster — the exact overcommit t
 gate exists to prevent. Needs the `secrets` rule in the Role
 `kyuubi-routing-gateway`.
 
-### JDBC clusters (Impala)
+### JDBC clusters (Impala, Spark Thrift Server)
 
 ```properties
-kyuubi.gateway.engine                     impala
+kyuubi.gateway.engine                     impala      # or spark
 kyuubi.gateway.jdbc.impersonationTemplate ;hive.server2.proxy.user={user}
 ```
+
+`spark` here means a Spark Thrift Server, which is already running and speaks
+HS2 - not a Kyuubi-launched Spark engine, which this gateway has no machinery
+for. It gets routing and impersonation and nothing else: Spark's own scheduler
+decides what runs.
 
 One gateway serves one engine, so Impala needs a second Deployment - and every
 object in `rbac.yaml` and `deployment.yaml` is named `kyuubi-routing-gateway`,

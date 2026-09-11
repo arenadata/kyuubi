@@ -18,35 +18,38 @@ than two. That matters when the gateway also carries bulk traffic.
 | Engine | |
 |---|---|
 | `trino` | routing, admission, sizing from `EXPLAIN`, scaling both ways |
-| `impala` and the other JDBC dialects | routing and impersonation only |
+| `impala`, `spark` and the other JDBC dialects | routing and impersonation only |
 
 `kyuubi.gateway.engine` takes `trino` or the name of any dialect on the
 classpath - `clickhouse`, `doris`, `impala`, `mysql`, `oracle`, `phoenix`,
-`postgresql`, `starrocks`. Anything else is a startup error naming what is
-supported, rather than a gateway that comes up and fails at the first session.
+`postgresql`, `spark`, `starrocks`. Anything else is a startup error naming what
+is supported, rather than a gateway that comes up and fails at the first
+session.
 
-**Spark is not among them, and that is this module's doing rather than
-Kyuubi's.** Spark is Kyuubi's flagship engine: `externals/kyuubi-spark-sql-engine`
-plus `EngineRef.getOrCreate`, which looks an engine up in ZooKeeper at the
-configured share level and launches one only when none is registered - so a
-long-running engine is reused, not started per session.
+### Spark
 
-This gateway replaces exactly that mechanism. `RoutingBackendService` brings its
-own `SessionManager` instead of Kyuubi's, which removes engine discovery,
-launching and the ZooKeeper they need - deliberately, because the premise here
-is that the cluster already exists, is found from a Service, and should be one
-hop away rather than two.
+Kyuubi's own Spark support launches an engine and finds it through ZooKeeper -
+`EngineRef.getOrCreate` looks one up at the configured share level and starts
+one only when none is registered, so a long-running engine is reused rather
+than started per session. This gateway removed that machinery along with the
+rest of the engine layer, because its premise is a cluster that already exists
+and should be one hop away rather than two.
 
-So Spark has three possible homes, and only the last one belongs in this module:
+What fits that premise is a **Spark Thrift Server**: already running, speaking
+HS2, reachable with the Hive driver. `SparkDialect` makes it an ordinary
+backend - discovered from a Service, routed to by identity, impersonated the
+same way Impala is.
 
-* the Kyuubi server, unchanged and alongside this gateway - it already does this
-  well and needs nothing written;
-* this gateway delegating to Kyuubi's own session manager when the engine is
-  Spark, which brings back ZooKeeper, launching and the second hop, and makes
-  the gateway two different things;
-* a Spark Thrift Server reached over JDBC, which is already running and speaks
-  HS2, so it needs only a dialect - about a hundred lines next to
-  `ImpalaDialect`.
+What it does not get is admission, sizing or scaling. Spark's own scheduler
+decides what runs and with what; a second opinion from outside would fight it
+rather than help. A cluster that needs those is a Trino one.
+
+The dialect lives here rather than in `kyuubi-jdbc-engine` so the engine
+everyone else uses is untouched - the service loader merges what it finds
+across jars. It brings no connection provider: providers are keyed on the
+driver rather than the engine, and the one shipped for Impala already handles
+`KyuubiHiveDriver`, so a second claiming the same driver would make the choice
+between them ambiguous.
 
 ## Routing
 
