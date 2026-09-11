@@ -100,6 +100,24 @@ kyuubi.gateway/workers: "4"
 kyuubi.gateway/max-workers: "10"
 ```
 
+Anything under `kyuubi.gateway.cluster.<name>.session.` becomes session
+configuration for that cluster, with the prefix stripped - this is how a cluster
+carries its own catalog, timeouts or Trino session properties:
+
+```properties
+kyuubi.gateway.cluster.analytics.url = http://trino-analytics:8080
+kyuubi.gateway.cluster.analytics.users = alice,bob
+kyuubi.gateway.cluster.analytics.session.kyuubi.session.engine.trino.connection.catalog = hive
+```
+
+Note the key inside: Trino's connection settings are `kyuubi.session.engine.
+trino.connection.*`, not `kyuubi.engine.trino.connection.*`. The wrong spelling
+is accepted silently and the session then fails to open with "Trino default
+catalog can not be null!".
+
+`kyuubi.session.user` is set from the authenticated caller and cannot be
+overridden by a cluster declaration - see below.
+
 Capacity is only used when all three of its annotations are present and
 consistent. A partial declaration is worse than none: the accountant would size
 against a made-up ceiling. A cluster that declares no capacity is admitted
@@ -121,6 +139,41 @@ annotated.
   precision waits on this.
 * The JDBC path is ungated. Impala runs its own admission control, so
   double-accounting it needs thought rather than a copy of the Trino branch.
+* The JDBC path does not propagate the caller's identity by default. The Trino
+  path does - `kyuubi.session.user` reaches the cluster as the principal - but
+  `JdbcSessionImpl` forwards the caller only when
+  `kyuubi.engine.jdbc.connection.propagateCredential` is on, and that forwards
+  the password too. Impala impersonation normally wants a proxy user against
+  `--authorized_proxy_user_config` instead, which is a deployment decision this
+  module deliberately does not make for you. Until it is made, every JDBC query
+  reaches Impala as the gateway's own account.
+* Parts of the Trino engine read process-wide configuration where a gateway
+  would want per-session: `SESSION_PROGRESS_ENABLE`,
+  `ENGINE_TRINO_OPERATION_INCREMENTAL_COLLECT` and
+  `ENGINE_OPERATION_CONVERT_CATALOG_DATABASE_ENABLED` come from
+  `sessionManager.getConf`. Setting them per cluster has no effect; set them
+  once for the gateway. The connection details, which matter most, were fixed
+  to read per session.
+
+## Running
+
+```bash
+java -cp "kyuubi-routing-gateway/target/classes:$(cat kyuubi-routing-gateway/target/cp.txt)" \
+  org.apache.kyuubi.gateway.RoutingGateway \
+  --conf kyuubi.frontend.protocols=THRIFT_BINARY \
+  --conf kyuubi.frontend.thrift.binary.bind.port=10099 \
+  --conf kyuubi.gateway.cluster.analytics.url=http://trino-analytics:8080 \
+  --conf kyuubi.gateway.cluster.analytics.users=alice
+```
+
+Generate `cp.txt` once with
+`mvn -pl kyuubi-routing-gateway dependency:build-classpath -Dmdep.outputFile=target/cp.txt -Dmdep.includeScope=runtime`.
+
+`bin/kyuubi` starts `KyuubiServer` and is not the launcher for this module.
+
+A protocol in `kyuubi.frontend.protocols` that the gateway does not implement is
+a startup error, not a warning: a gateway that came up listening on nothing
+would look healthy to a supervisor while serving no one.
 
 ## Building
 
