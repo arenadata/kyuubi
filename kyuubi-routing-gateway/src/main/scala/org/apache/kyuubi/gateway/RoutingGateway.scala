@@ -17,13 +17,18 @@
 
 package org.apache.kyuubi.gateway
 
-import scala.collection.mutable.ListBuffer
+import java.util.concurrent.CountDownLatch
 
+import scala.collection.mutable.ListBuffer
+import scala.util.control.NonFatal
+
+import org.apache.kyuubi.{Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols.FrontendProtocol
 import org.apache.kyuubi.server.{KyuubiTBinaryFrontendService, KyuubiTHttpFrontendService}
 import org.apache.kyuubi.service.{AbstractBackendService, AbstractFrontendService, Serverable}
+import org.apache.kyuubi.util.SignalRegister
 
 /**
  * Composition root of the gateway.
@@ -58,5 +63,50 @@ class RoutingGateway(name: String) extends Serverable(name) {
 
   override protected def stopServer(): Unit = {
     info(s"$name stopped")
+  }
+}
+
+object RoutingGateway extends Logging {
+
+  private val shutdown = new CountDownLatch(1)
+
+  @volatile private var gateway: Option[RoutingGateway] = None
+
+  def main(args: Array[String]): Unit = {
+    SignalRegister.registerLogger(logger)
+    val conf = KyuubiConf()
+    try {
+      Utils.fromCommandLineArgs(args, conf)
+      start(conf)
+      // Hold the main thread: the frontends run on their own, and exiting here
+      // would take the process down with them.
+      shutdown.await()
+    } catch {
+      case NonFatal(t) =>
+        error("The routing gateway failed to start", t)
+        stop()
+        // Exit non-zero so a supervisor restarts rather than reporting healthy.
+        System.exit(1)
+    }
+  }
+
+  private[gateway] def start(conf: KyuubiConf): RoutingGateway = {
+    val instance = new RoutingGateway()
+    gateway = Some(instance)
+    instance.initialize(conf)
+    instance.start()
+    Utils.addShutdownHook(() => stop())
+    info(s"Routing gateway started with frontends: " +
+      instance.frontendServices.map(_.getName).mkString(", "))
+    instance
+  }
+
+  private[gateway] def stop(): Unit = {
+    gateway.foreach { instance =>
+      try instance.stop()
+      catch { case NonFatal(e) => warn("Error stopping the routing gateway", e) }
+    }
+    gateway = None
+    shutdown.countDown()
   }
 }

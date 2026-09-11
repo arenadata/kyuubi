@@ -43,8 +43,9 @@ import org.apache.kyuubi.gateway.capacity.AdmissionPolicy.AdmissionPolicy
  * that state is left to a later change, and the interface is deliberately
  * narrow so it can move without touching callers.
  */
-class CapacityAccountant(policy: AdmissionPolicy, clock: () => Long = () => System.currentTimeMillis)
-  extends Logging {
+class CapacityAccountant(
+    policy: AdmissionPolicy,
+    clock: () => Long = () => System.currentTimeMillis) extends Logging {
 
   // Writes go through `synchronized` because admission is a read-modify-write
   // that must be atomic; the concurrent map is for the read paths - metrics and
