@@ -68,8 +68,22 @@ The tag defaults to the short commit hash, and `latest` is pushed alongside it.
 
 ## Configuration
 
-Everything is in the ConfigMap in `deployment.yaml`, mounted at `/etc/kyuubi`
-and found through `KYUUBI_CONF_DIR`. The gateway reads it **once, at startup**.
+Everything is in the ConfigMap **`kyuubi-routing-gateway`**, defined at the top
+of `deployment.yaml`. It holds one key, `kyuubi-defaults.conf`, mounted read-only
+at `/etc/kyuubi` through the `config` volume and found by the gateway through
+`KYUUBI_CONF_DIR`. The gateway reads it **once, at startup**.
+
+Two objects in this namespace share that name, which is worth knowing before
+reading a log line about either:
+
+| | Holds | Created by |
+|---|---|---|
+| ConfigMap `kyuubi-routing-gateway` | `kyuubi-defaults.conf`, the gateway's own configuration | you, from `deployment.yaml` |
+| Secret `kyuubi-gw-<cluster>-<hash>` | the shared reservation ledger, one per cluster | the gateway, only with `admission.shared` |
+
+Nothing but the gateway touches the Secrets, and they are Secrets rather than
+ConfigMaps because the ledger says which clusters are busy and how much is
+running on each - a map of the platform's load.
 
 ### Frontends
 
@@ -285,6 +299,11 @@ kyuubi.gateway.admission.shared          true
 kyuubi.gateway.admission.sharedNamespace gateway
 ```
 
+The ledger becomes a Secret per cluster, named `kyuubi-gw-<cluster>-<hash>`,
+created and deleted by the gateway as clusters come and go. Admission is a
+compare-and-swap on its `resourceVersion`, so replicas contend rather than
+coordinate: no leader, and nothing to release when one dies.
+
 Required before raising `replicas`. Without it each replica admits against its
 own ledger and together they overcommit every cluster — the exact overcommit the
 gate exists to prevent. Needs the `secrets` rule in the Role.
@@ -318,8 +337,24 @@ push. Pin a real tag for anything that has to be reproducible.
 ## Troubleshooting
 
 **The pod starts but routes nowhere, and the log shows only built-in defaults.**
-`KYUUBI_CONF_DIR` is not set or does not contain `kyuubi-defaults.conf`. Nothing
-reloads configuration; a ConfigMap change needs a rollout restart.
+The configuration was not read. The chain is ConfigMap `kyuubi-routing-gateway`
+-> key `kyuubi-defaults.conf` -> volume `config` -> `/etc/kyuubi` ->
+`KYUUBI_CONF_DIR`; a break anywhere in it leaves the gateway on its defaults,
+started and healthy and routing nowhere. Check the whole chain at once:
+
+```bash
+kubectl -n gateway get cm kyuubi-routing-gateway -o jsonpath='{.data}' | head -c 200
+kubectl -n gateway get pod -l app.kubernetes.io/name=kyuubi-routing-gateway \
+  -o jsonpath='{.items[0].spec.containers[0].env}{"\n"}{.items[0].spec.volumes}'
+```
+
+The log is the quickest tell: with this ConfigMap applied the HTTP frontend
+starts, so `Routing gateway started with frontends: KyuubiTBinaryFrontend,
+KyuubiTHttpFrontendService` means the file was read. One frontend means it was
+not.
+
+Nothing reloads configuration on its own, and an edit to the ConfigMap is
+invisible to the Deployment - it needs a rollout restart.
 
 **`Published 0 clusters` and `discovery_clusters` is 0.** The Services are
 missing the label, are in another namespace than
