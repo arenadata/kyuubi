@@ -1,0 +1,98 @@
+#
+# Overlay that puts the gateway behind Kerberos.
+#
+# Applied after deployment.yaml, which it does not change: that Deployment
+# already mounts krb5.conf and the keytab as optional Secrets, so turning
+# Kerberos on is replacing the configuration Secret and supplying the other two.
+# Kept separate because Kerberos is a decision, and a manifest that only works
+# with a realm behind it is a worse starting point.
+#
+# The keytab Secret is not here - it holds key material and comes from
+# kerberos-keytab.sh, which fetches it from the realm.
+#
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kyuubi-routing-gateway-krb5
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+type: Opaque
+stringData:
+  krb5.conf: |
+    [libdefaults]
+        default_realm = EXAMPLE.COM
+        # The realm's own name server is off, so there are no SRV records to
+        # find the KDC with and no reverse zone to canonicalise against. Both
+        # lookups are turned off and the KDC is named outright: with rdns on,
+        # a client resolves the host, looks the address back up, and asks for
+        # whatever the PTR said - a principal nobody created.
+        dns_lookup_realm = false
+        dns_lookup_kdc = false
+        dns_canonicalize_hostname = false
+        rdns = false
+        # Matching the enctypes the realm is configured for. Naming them keeps a
+        # client from proposing something the KDC refuses and reporting it as a
+        # failure to authenticate.
+        default_tkt_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
+        default_tgs_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
+        permitted_enctypes = aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96
+
+    [realms]
+        EXAMPLE.COM = {
+            kdc = ldap-kdc.gateway.svc.cluster.local:88
+            kpasswd_server = ldap-kdc.gateway.svc.cluster.local:464
+        }
+
+    [domain_realm]
+        .gateway.svc.cluster.local = EXAMPLE.COM
+        gateway.svc.cluster.local = EXAMPLE.COM
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kyuubi-routing-gateway
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+type: Opaque
+stringData:
+  kyuubi-defaults.conf: |
+    # Binary only. Kyuubi's thrift HTTP frontend refuses to start when Kerberos
+    # is the only authentication configured - "Kerberos is not supported for
+    # Thrift HTTP mode" - because that transport has no GSSAPI negotiation. It
+    # comes back if a plain type is configured alongside, which is what the LDAP
+    # section below is for; without one, naming THRIFT_HTTP here stops the
+    # gateway from starting at all.
+    kyuubi.frontend.protocols                     THRIFT_BINARY
+    kyuubi.frontend.thrift.binary.bind.host       0.0.0.0
+    kyuubi.frontend.thrift.binary.bind.port       10009
+
+    # Clients authenticate with a ticket. The identity that comes out of the
+    # SASL exchange is what routing keys on, so this is also what decides which
+    # cluster a session reaches - the user can no longer simply be asserted.
+    # Hadoop decides whether security is on from its own Configuration, into
+    # which every Kyuubi setting is copied - so this is the key that makes the
+    # keytab login happen at all. Without it the gateway starts, finds no
+    # logged-in principal, and fails with "Kerberos principal should have 3
+    # parts" naming the container's OS user.
+    hadoop.security.authentication                kerberos
+
+    kyuubi.authentication                         KERBEROS
+    kyuubi.kinit.principal                        hive/kyuubi-routing-gateway.gateway.svc.cluster.local@EXAMPLE.COM
+    kyuubi.kinit.keytab                           /etc/kyuubi/keytab/gateway.keytab
+
+    kyuubi.gateway.engine                         trino
+    kyuubi.gateway.cluster.resolver               kubernetes
+    kyuubi.gateway.kubernetes.namespace           gateway
+    kyuubi.gateway.kubernetes.labelSelector       kyuubi.gateway/enabled=true
+    kyuubi.gateway.kubernetes.pollInterval        10000
+
+    kyuubi.metrics.enabled                        true
+    kyuubi.metrics.reporters                      PROMETHEUS
+    kyuubi.metrics.prometheus.port                10019
+    kyuubi.metrics.prometheus.path                /metrics
+
+    kyuubi.gateway.admission.enabled              false
+    kyuubi.gateway.scaling.enabled                false

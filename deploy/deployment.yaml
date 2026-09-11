@@ -1,51 +1,16 @@
 #
 # The gateway itself.
 #
+# The configuration it reads is not here: it is one Secret named
+# kyuubi-routing-gateway, and there are two mutually exclusive versions of it -
+# config.yaml without Kerberos, kerberos-gateway.yaml with. Apply one. Keeping
+# them out of this file is what stops re-applying the Deployment from quietly
+# putting the other one back.
+#
 # One replica here. More than one is supported, but only with
 # kyuubi.gateway.admission.shared on - otherwise each replica admits against its
 # own ledger and together they overcommit every cluster.
 #
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kyuubi-routing-gateway
-  namespace: gateway
-  labels:
-    app.kubernetes.io/name: kyuubi-routing-gateway
-data:
-  # The gateway reads this once, at startup. An edit here needs
-  # `kubectl rollout restart deploy/kyuubi-routing-gateway -n gateway`;
-  # nothing reloads it on its own, and a ConfigMap change is invisible to the
-  # Deployment.
-  kyuubi-defaults.conf: |
-    # Frontends. Binary HS2 is the one every client speaks; the HTTP transport is
-    # there for clients that cannot open a raw socket through a proxy.
-    kyuubi.frontend.protocols                     THRIFT_BINARY,THRIFT_HTTP
-    kyuubi.frontend.thrift.binary.bind.host       0.0.0.0
-    kyuubi.frontend.thrift.binary.bind.port       10009
-    kyuubi.frontend.thrift.http.bind.host         0.0.0.0
-    kyuubi.frontend.thrift.http.bind.port         10010
-
-    # Discovery: Services in this namespace carrying the label, read every 10s.
-    kyuubi.gateway.engine                         trino
-    kyuubi.gateway.cluster.resolver               kubernetes
-    kyuubi.gateway.kubernetes.namespace           gateway
-    kyuubi.gateway.kubernetes.labelSelector       kyuubi.gateway/enabled=true
-    kyuubi.gateway.kubernetes.pollInterval        10000
-
-    # Metrics on their own port, so the gateway can be scraped without exposing
-    # anything else. No admin REST: there is nothing here to administer remotely.
-    kyuubi.metrics.enabled                        true
-    kyuubi.metrics.reporters                      PROMETHEUS
-    kyuubi.metrics.prometheus.port                10019
-    kyuubi.metrics.prometheus.path                /metrics
-
-    # Admission, scaling and the shared ledger are off: each changes what
-    # clients see or writes to Kubernetes, and each should be turned on
-    # deliberately. See the module README for what they need.
-    kyuubi.gateway.admission.enabled              false
-    kyuubi.gateway.scaling.enabled                false
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -79,9 +44,23 @@ spec:
           env:
             # Where Kyuubi looks for kyuubi-defaults.conf. Command-line --conf
             # flags still win over the file, which is what makes a one-off
-            # override possible without editing the ConfigMap.
+            # override possible without editing the Secret.
             - name: KYUUBI_CONF_DIR
               value: /etc/kyuubi
+            # Two variables for one file, because two different things read it.
+            # KRB5_CONFIG is the MIT C library's, honoured by any krb5 tool a
+            # child process might be; the JVM ignores it entirely and reads the
+            # java.security.krb5.conf property instead - without which the login
+            # fails with "KrbException: Cannot locate default realm" while the
+            # file sits mounted and correct.
+            #
+            # Harmless with authentication off: nothing parses the file then.
+            # Set here so turning Kerberos on needs no change to the Deployment,
+            # only to the Secrets it mounts.
+            - name: KRB5_CONFIG
+              value: /etc/kyuubi/krb5/krb5.conf
+            - name: JAVA_TOOL_OPTIONS
+              value: -Djava.security.krb5.conf=/etc/kyuubi/krb5/krb5.conf
           ports:
             - name: hs2-binary
               containerPort: 10009
@@ -120,12 +99,35 @@ spec:
             - name: config
               mountPath: /etc/kyuubi
               readOnly: true
+            # Both are optional, so this Deployment runs with or without a
+            # realm behind it. Kerberos is then a matter of applying
+            # kerberos.yaml, running kerberos-keytab.sh and rolling the pods.
+            - name: krb5
+              mountPath: /etc/kyuubi/krb5
+              readOnly: true
+            - name: keytab
+              mountPath: /etc/kyuubi/keytab
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: config
-          configMap:
-            name: kyuubi-routing-gateway
+          secret:
+            secretName: kyuubi-routing-gateway
+            # Readable by the gateway's own uid and nobody else in the pod.
+            defaultMode: 0400
+        - name: krb5
+          secret:
+            secretName: kyuubi-routing-gateway-krb5
+            defaultMode: 0444
+            optional: true
+        - name: keytab
+          secret:
+            secretName: kyuubi-routing-gateway-keytab
+            # A keytab is a credential: readable by the gateway and nothing
+            # else, which is also what Hadoop's login checks for.
+            defaultMode: 0400
+            optional: true
         # The root filesystem is read-only, and the JVM still wants somewhere to
         # write - hsperfdata, and any heap dump worth having.
         - name: tmp

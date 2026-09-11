@@ -1,0 +1,14 @@
+# Applies to deploy/Dockerfile only - BuildKit reads <dockerfile>.dockerignore
+# in preference to the repository's own, so the upstream file stays untouched.
+#
+# The root pom is a reactor over every module, and Maven refuses to start if one
+# of them is missing - so every pom has to be here even though only one module
+# is built. What is not needed is the other modules' sources: their artifacts
+# come from the mounted local repository, already built.
+.git
+**/target
+**/src
+!kyuubi-hive-jdbc/src
+!deploy/client
+docs
+**/*.md

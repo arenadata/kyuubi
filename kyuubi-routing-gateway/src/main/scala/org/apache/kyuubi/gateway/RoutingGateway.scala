@@ -22,14 +22,17 @@ import java.util.concurrent.CountDownLatch
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
+import org.apache.hadoop.security.UserGroupInformation
+
 import org.apache.kyuubi.{Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols
 import org.apache.kyuubi.config.KyuubiConf.FrontendProtocols.FrontendProtocol
+import org.apache.kyuubi.gateway.security.KerberosLogin
 import org.apache.kyuubi.metrics.{MetricsConf, MetricsSystem}
 import org.apache.kyuubi.server.{KyuubiTBinaryFrontendService, KyuubiTHttpFrontendService}
 import org.apache.kyuubi.service.{AbstractBackendService, AbstractFrontendService, Serverable}
-import org.apache.kyuubi.util.SignalRegister
+import org.apache.kyuubi.util.{KyuubiHadoopUtils, SignalRegister}
 
 /**
  * Composition root of the gateway.
@@ -63,16 +66,24 @@ class RoutingGateway(name: String) extends Serverable(name) {
   }
 
   /**
-   * Registers the metrics system before anything else.
+   * Registers the metrics system and the Kerberos login before anything else.
    *
-   * First, so that whatever the backend and the resolver publish while starting
-   * has somewhere to go - a cluster set discovered during startup would
-   * otherwise be the one set nobody could see.
+   * Metrics first, so that whatever the backend and the resolver publish while
+   * starting has somewhere to go - a cluster set discovered during startup
+   * would otherwise be the one set nobody could see. The login before the
+   * frontends, because the SASL server asks for the logged-in principal as it
+   * initialises.
    */
   override def initialize(conf: KyuubiConf): Unit = synchronized {
+    // Hadoop reads whether security is on from its own Configuration, and every
+    // Kyuubi setting is copied into it - so `hadoop.security.authentication
+    // kerberos` in kyuubi-defaults.conf is what turns this on. Set before any
+    // service initialises, because they read it rather than the KyuubiConf.
+    UserGroupInformation.setConfiguration(KyuubiHadoopUtils.newHadoopConf(conf))
     if (conf.get(MetricsConf.METRICS_ENABLED)) {
       addService(new MetricsSystem)
     }
+    addService(new KerberosLogin)
     super.initialize(conf)
   }
 

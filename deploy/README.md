@@ -25,22 +25,31 @@ the image build will fail offline with an unresolvable artifact.
 ```bash
 kubectl apply -f deploy/namespace.yaml -f deploy/rbac.yaml
 ./deploy/build.sh                                  # builds, pushes to localhost:5001
-kubectl apply -f deploy/deployment.yaml
+kubectl apply -f deploy/config.yaml -f deploy/deployment.yaml
 kubectl apply -f deploy/clusters-example.yaml      # optional: two example clusters
 kubectl -n gateway rollout status deploy/kyuubi-routing-gateway
 ```
+
+For Kerberos instead of no authentication, see *Kerberos* below.
 
 ## What is here
 
 | File | |
 |---|---|
 | `namespace.yaml` | the namespace `gateway`, which everything below lives in |
+| `config.yaml` | the gateway's configuration, without authentication |
 | `rbac.yaml` | ServiceAccount, Role and RoleBinding, all named `kyuubi-routing-gateway` |
-| `deployment.yaml` | ConfigMap, Deployment and the gateway's **own** Service, same name again |
+| `deployment.yaml` | Deployment and the gateway's **own** Service, same name again |
 | `clusters-example.yaml` | Services that **declare clusters** - a different use of Service entirely |
 | `Dockerfile` | build and runtime image |
 | `Dockerfile.dockerignore` | build context, read in preference to the repo's own |
 | `build.sh` | builds and pushes |
+| `kerberos.yaml` | a Kerberos realm and directory - ldap-kdc |
+| `kerberos-gateway.yaml` | the gateway's configuration **with** Kerberos, replacing `config.yaml` |
+| `kerberos-keytab.sh` | fetches a principal's keytab from the realm into a Secret |
+| `kerberos-test.yaml` | two Kerberized clients, one per identity |
+| `kerberos-test.sh` | runs them and shows where each was routed |
+| `Dockerfile.client` | the test client's image |
 
 ## The image
 
@@ -69,31 +78,43 @@ The tag defaults to the short commit hash, and `latest` is pushed alongside it.
 
 ## Configuration
 
-Everything is in the ConfigMap **`kyuubi-routing-gateway`**, defined at the top
-of `deployment.yaml`. It holds one key, `kyuubi-defaults.conf`, mounted read-only
-at `/etc/kyuubi` through the `config` volume and found by the gateway through
-`KYUUBI_CONF_DIR`. The gateway reads it **once, at startup**.
+Everything is in the Secret **`kyuubi-routing-gateway`**. It holds one key,
+`kyuubi-defaults.conf`, mounted read-only at `/etc/kyuubi` through the `config`
+volume and found by the gateway through `KYUUBI_CONF_DIR`. The gateway reads it
+**once, at startup**.
+
+A Secret rather than a ConfigMap, as everything mounted here is: one kind of
+object for mounted state, written with `stringData` so it stays reviewable in
+`kubectl get -o yaml`.
+
+**Two files define that Secret and only one may be applied**: `config.yaml`
+without authentication, `kerberos-gateway.yaml` with. Whichever was applied last
+is what the gateway reads, and nothing warns about it - which is why neither
+lives in `deployment.yaml`, where re-applying the Deployment would quietly put
+one of them back.
 
 **Six objects are called `kyuubi-routing-gateway`** - the ServiceAccount, Role,
-RoleBinding, ConfigMap, Deployment and Service - so a sentence about "the
-gateway's ConfigMap" is only unambiguous because of the kind, not the name.
+RoleBinding, Secret, Deployment and Service - so a sentence about "the gateway's
+Secret" is only unambiguous because of the kind, not the name.
 `kubectl -n gateway get sa,role,rolebinding,cm,deploy,svc` lists them together.
 
 The reservation ledger is **not** among them. It is a Secret per cluster named
 `kyuubi-gw-<cluster>-<hash>`, created by the gateway itself and only when
 `admission.shared` is on:
 
-| | Kind | Holds | Created by |
-|---|---|---|---|
-| `kyuubi-routing-gateway` | ConfigMap | `kyuubi-defaults.conf`, the gateway's configuration | you, from `deployment.yaml` |
-| `kyuubi-gw-<cluster>-<hash>` | Secret | the shared reservation ledger | the gateway |
+| Name | Holds | Created by |
+|---|---|---|
+| `kyuubi-routing-gateway` | `kyuubi-defaults.conf`, the gateway's configuration | you, from `config.yaml` or `kerberos-gateway.yaml` |
+| `kyuubi-routing-gateway-krb5` | `krb5.conf` | you, from `kerberos-gateway.yaml` |
+| `kyuubi-routing-gateway-keytab` | the gateway's service keytab | `kerberos-keytab.sh`, from the realm |
+| `kyuubi-gw-<cluster>-<hash>` | the shared reservation ledger | the gateway |
 
-A Secret rather than a ConfigMap because the ledger says which clusters are busy
-and how much is running on each - a map of the platform's load.
+The last three are optional: the Deployment mounts krb5.conf and the keytab as
+optional Secrets, so it runs with or without a realm behind it.
 
 ### Frontends
 
-The value column is what this ConfigMap sets.
+The value column is what the configuration Secret sets.
 
 | Key | Value | |
 |---|---|---|
@@ -112,7 +133,7 @@ fails loudly instead of leaving a server listening on nothing.
 
 ### Discovery
 
-The value column is what this ConfigMap sets; where it differs from the
+The value column is what the configuration Secret sets; where it differs from the
 built-in default, both are given.
 
 | Key | Value | |
@@ -135,10 +156,10 @@ else. There is no admin REST endpoint.
 | `kyuubi.metrics.prometheus.port` | `10019` | also carries the probes |
 | `kyuubi.metrics.prometheus.path` | `/metrics` | |
 
-### What this ConfigMap leaves off
+### What the configuration leaves off
 
-Admission, scaling, reconciliation and the shared ledger are all off, and the
-file says so explicitly rather than relying on defaults. Each is covered under
+Admission, scaling, reconciliation and the shared ledger are all off, and
+`config.yaml` says so explicitly rather than relying on defaults. Each is covered under
 *Optional features* below.
 
 JDBC impersonation is the one thing that is **on** by default, and it only
@@ -371,14 +392,98 @@ kyuubi.gateway.jdbc.impersonationTemplate ;hive.server2.proxy.user={user}
 One gateway serves one engine, so Impala needs a second Deployment - and every
 object in `rbac.yaml` and `deployment.yaml` is named `kyuubi-routing-gateway`,
 so copying them verbatim overwrites the Trino gateway rather than adding to it.
-Rename all of them, the Service included, and give the new ConfigMap its own
-frontend ports if both are to be reachable on one host.
+Rename all of them, the Service included, and give the new configuration Secret
+its own frontend ports if both are to be reachable on one host.
 
 Impersonation is **on** by default: without it every query reaches Impala as the
 account the gateway connects with, and Impala's per-user authorisation sees one
 user for everybody. The Impala cluster must list that account in
 `--authorized_proxy_user_config`, or every session fails - loudly, which is the
 point.
+
+## Kerberos
+
+Without this the user is whatever the client says it is, and since the user is
+the routing key, anyone can reach any cluster by asking. With it the identity
+comes out of a ticket, so routing and access control rest on the same thing.
+
+```bash
+kubectl apply -f deploy/kerberos.yaml                 # the realm
+kubectl -n gateway rollout status deploy/ldap-kdc
+./deploy/kerberos-keytab.sh                           # the gateway's keytab
+kubectl apply -f deploy/kerberos-gateway.yaml         # replaces config.yaml
+kubectl -n gateway rollout restart deploy/kyuubi-routing-gateway
+```
+
+`kerberos.yaml` runs `ghcr.io/shulutkov/ldap-kdc`, which serves one directory
+over both LDAP and Kerberos. One store matters here: an account's LDAP digest
+and its Kerberos keys are written from the same password in the same
+transaction, so a realm built for a test stand cannot drift between the two the
+way two separate services do.
+
+The bootstrap plan in that file creates the accounts the example clusters route
+- `alice`, `bob`, `carol`, `eve` - and the gateway's own service principal
+`hive/kyuubi-routing-gateway.gateway.svc.cluster.local`. It creates what is
+missing and leaves alone what is there, so a password changed later survives a
+restart.
+
+### Four things that are easy to get wrong
+
+**The realm needs privileged ports.** Kerberos, LDAP and kpasswd all listen
+below 1024, which an unprivileged process may not bind. The pod asks for the
+`net.ipv4.ip_unprivileged_port_start` sysctl, in Kubernetes' safe set since
+1.22, rather than running as root.
+
+**The JVM does not read `KRB5_CONFIG`.** That is the MIT C library's variable.
+The JVM reads the `java.security.krb5.conf` property, supplied through
+`JAVA_TOOL_OPTIONS`; without it the login fails with "KrbException: Cannot
+locate default realm" while the file sits mounted and correct.
+
+**Hadoop decides separately whether security is on.** It reads its own
+Configuration, into which every Kyuubi setting is copied, so
+`hadoop.security.authentication kerberos` is what makes the keytab login happen
+at all. Without it the gateway starts, finds no logged-in principal, and fails
+with "Kerberos principal should have 3 parts" naming the container's OS user.
+
+**The HTTP transport cannot do Kerberos.** Kyuubi's thrift HTTP frontend refuses
+to start when Kerberos is the only authentication configured - it has no GSSAPI
+negotiation - so `kerberos-gateway.yaml` lists `THRIFT_BINARY` alone. Configure
+a plain type alongside Kerberos and the HTTP frontend comes back, using that
+type; the realm serves LDAP for exactly this.
+
+### Testing it
+
+```bash
+./deploy/kerberos-test.sh
+```
+
+```
+krb-client         OK server=Trino driver=Kyuubi Project Hive JDBC Client
+krb-client-carol   OK server=Trino driver=Kyuubi Project Hive JDBC Client
+
+where the gateway sent them:
+Opening trino session for alice on gateway/trino-analytics
+Opening trino session for carol on gateway/trino-etl
+```
+
+Two callers rather than one, because a single session could have landed
+anywhere; two that land differently show the ticket deciding the route.
+
+The clients run **in** the cluster. Kerberos service principals are host-based,
+so a client reaching the gateway through a port-forward asks for a principal
+named after `localhost`, which nobody created - the exchange then fails with
+`KDC_ERR_S_PRINCIPAL_UNKNOWN` and looks like a broken realm rather than a
+broken address.
+
+Neither client has `kinit` or any krb5 tool: the JDBC driver takes
+`kyuubiClientPrincipal` and `kyuubiClientKeytab` in the url and gets the ticket
+itself, which is what lets the image stay a bare JRE.
+
+A client with no ticket is refused at the mechanism:
+
+```
+REFUSED ... Peer indicated failure: Unsupported mechanism type PLAIN
+```
 
 ## Updating
 
@@ -396,24 +501,28 @@ push. Pin a real tag for anything that has to be reproducible.
 ## Troubleshooting
 
 **The pod starts but routes nowhere, and the log shows only built-in defaults.**
-The configuration was not read. The chain is ConfigMap `kyuubi-routing-gateway`
+The configuration was not read. The chain is Secret `kyuubi-routing-gateway`
 -> key `kyuubi-defaults.conf` -> volume `config` -> `/etc/kyuubi` ->
 `KYUUBI_CONF_DIR`; a break anywhere in it leaves the gateway on its defaults,
-started and healthy and routing nowhere. Check the whole chain at once:
+started and healthy and routing nowhere. Applying `config.yaml` over
+`kerberos-gateway.yaml` or the other way round does the same thing without
+breaking anything, which is worse. Check the whole chain at once:
 
 ```bash
-kubectl -n gateway get cm kyuubi-routing-gateway -o jsonpath='{.data}' | head -c 200
+kubectl -n gateway get secret kyuubi-routing-gateway \
+  -o jsonpath='{.data.kyuubi-defaults\.conf}' | base64 -d | head -20
 kubectl -n gateway get pod -l app.kubernetes.io/name=kyuubi-routing-gateway \
   -o jsonpath='{.items[0].spec.containers[0].env}{"\n"}{.items[0].spec.volumes}'
 ```
 
-The log is the quickest tell: with this ConfigMap applied the HTTP frontend
+The log is the quickest tell: with `config.yaml` applied the HTTP frontend
 starts, so `Routing gateway started with frontends: KyuubiTBinaryFrontend,
-KyuubiTHttpFrontendService` means the file was read. One frontend means it was
-not.
+KyuubiTHttpFrontendService` means the file was read. One frontend means either
+it was not, or Kerberos is on - `kerberos-gateway.yaml` runs the binary
+frontend alone, and for that reason.
 
-Nothing reloads configuration on its own, and an edit to the ConfigMap is
-invisible to the Deployment - it needs a rollout restart.
+Nothing reloads configuration on its own, and an edit to the Secret is invisible
+to the Deployment - it needs a rollout restart.
 
 **`Published 0 clusters` and `discovery_clusters` is 0.** The cluster-declaring
 Services - `trino-analytics` and the like, not the gateway's own
@@ -453,8 +562,13 @@ resolving inside the node, not only on the laptop.
 ## Uninstall
 
 ```bash
+kubectl delete -f deploy/kerberos-test.yaml --ignore-not-found
+kubectl delete -f deploy/kerberos.yaml --ignore-not-found
 kubectl delete -f deploy/clusters-example.yaml --ignore-not-found
 kubectl delete -f deploy/deployment.yaml --ignore-not-found
+kubectl -n gateway delete secret kyuubi-routing-gateway \
+  kyuubi-routing-gateway-krb5 kyuubi-routing-gateway-keytab \
+  krb-client-keytab --ignore-not-found
 kubectl delete -f deploy/rbac.yaml --ignore-not-found
 kubectl delete -f deploy/namespace.yaml --ignore-not-found
 ```
