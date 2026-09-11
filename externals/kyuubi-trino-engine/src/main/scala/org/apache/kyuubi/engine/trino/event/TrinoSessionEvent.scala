@@ -39,7 +39,10 @@ case class TrinoSessionEvent(
 object TrinoSessionEvent {
 
   def apply(session: TrinoSessionImpl): TrinoSessionEvent = {
-    val sessionConf = session.sessionManager.getConf
+    // The session's own conf, not the process conf: they are the same in a
+    // dedicated engine, but a gateway serves several clusters from one process
+    // and the connection details live per session.
+    val sessionConf = session.sessionConf
     val connectionUrl = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_URL).getOrElse(
       throw KyuubiSQLException("Trino server url can not be null!"))
     val catalog = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_CATALOG).getOrElse(
