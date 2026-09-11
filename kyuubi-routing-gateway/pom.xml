@@ -29,6 +29,16 @@
     <packaging>jar</packaging>
     <name>Kyuubi Project Routing Gateway</name>
 
+    <properties>
+        <!--
+          Container-backed suites are out of the ordinary build. They need a
+          Docker socket, which the build is deliberately not given, and a build
+          that fails for want of one teaches people to ignore failures. Run them
+          with -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow
+        -->
+        <maven.plugin.scalatest.exclude.tags>org.scalatest.tags.Slow,org.apache.kyuubi.gateway.tags.ContainerTest</maven.plugin.scalatest.exclude.tags>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.kyuubi</groupId>
@@ -58,6 +68,50 @@
             <groupId>org.apache.kyuubi</groupId>
             <artifactId>kyuubi-jdbc-engine_${scala.binary.version}</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          The Trino engine's own query tests, reused unchanged: a gateway that
+          routes to Trino has to behave like Trino, and the suite that already
+          decides what that means is the one the engine is held to.
+        -->
+        <dependency>
+            <groupId>org.apache.kyuubi</groupId>
+            <artifactId>kyuubi-trino-engine_${scala.binary.version}</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- The client under test: real JDBC over both HS2 transports. -->
+        <dependency>
+            <groupId>org.apache.kyuubi</groupId>
+            <artifactId>${hive.jdbc.artifact}</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.dimafeng</groupId>
+            <artifactId>testcontainers-scala-scalatest_${scala.binary.version}</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.dimafeng</groupId>
+            <artifactId>testcontainers-scala-trino_${scala.binary.version}</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          Not used to talk to Trino - the gateway speaks the client protocol -
+          but TrinoContainer is a JdbcDatabaseContainer and waits for readiness
+          through this driver. Without it the container never reports up.
+        -->
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-jdbc</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>

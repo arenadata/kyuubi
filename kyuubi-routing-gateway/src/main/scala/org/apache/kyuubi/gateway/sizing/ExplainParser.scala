@@ -58,6 +58,7 @@ object ExplainParser extends Logging {
   private def collect(root: JsonNode): QueryEstimate = {
     var peakMemory = 0d
     var totalMemory = 0d
+    var peakOutput = 0d
     var cpu = 0d
     var rows = 0d
     var seen = false
@@ -68,13 +69,17 @@ object ExplainParser extends Logging {
         if (estimates != null && estimates.isArray) {
           estimates.elements().asScala.foreach { est =>
             val memory = finite(est, "memoryCost")
+            val output = finite(est, "outputSizeInBytes")
             val cpuCost = finite(est, "cpuCost")
             val rowCount = finite(est, "outputRowCount")
-            if (memory.isDefined || cpuCost.isDefined || rowCount.isDefined) seen = true
+            if (memory.isDefined || output.isDefined || cpuCost.isDefined || rowCount.isDefined) {
+              seen = true
+            }
             memory.foreach { m =>
               peakMemory = math.max(peakMemory, m)
               totalMemory += m
             }
+            output.foreach(o => peakOutput = math.max(peakOutput, o))
             cpuCost.foreach(cpu += _)
             rowCount.foreach(r => rows = math.max(rows, r))
           }
@@ -92,6 +97,7 @@ object ExplainParser extends Logging {
       QueryEstimate(
         peakMemoryBytes = peakMemory.toLong,
         totalMemoryBytes = totalMemory.toLong,
+        peakOutputBytes = peakOutput.toLong,
         cpuCost = cpu,
         outputRowCount = rows,
         estimatesPresent = true)

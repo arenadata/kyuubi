@@ -91,6 +91,13 @@ table statistics are missing. That reads as *unknown*, never as zero: sizing a
 query as free would put an unbounded one on a minimal cluster and fail it on
 memory.
 
+Memory alone is not enough. Trino reports `memoryCost` 0 for a plan that only
+streams - a scan holds nothing, and the planner says so truthfully - so sizing
+on it alone reserves nothing for the commonest query shape there is, and a gate
+that reserves nothing admits everything. `outputSizeInBytes` stands in where
+`memoryCost` is silent: the larger of the two is a lower bound on the query's
+footprint and is never zero for a query that produces rows.
+
 `memoryFactor` is the calibration knob and its default is a guess. The planner's
 per-operator estimates are not the query's peak - the peak lies between the
 largest operator and the sum of the live ones.
@@ -205,6 +212,41 @@ annotated.
   that would have been right; setting it stays a decision. A factor that moved
   on its own would change admission without anyone deciding to, and the first
   sign of a bad measurement would be queries being refused.
+
+## Tests
+
+The ordinary build runs unit tests only:
+
+```bash
+mvn -pl kyuubi-routing-gateway test
+```
+
+Three suites start a real Trino in a container and drive the gateway through
+it. They are tagged `ContainerTest` and excluded by default, because they need a
+Docker socket the build is deliberately not given - and a build that fails for
+want of a socket teaches people to ignore failures.
+
+```bash
+mvn -pl kyuubi-routing-gateway test \
+    -Dmaven.plugin.scalatest.exclude.tags=org.scalatest.tags.Slow \
+    -Dsuites='org.apache.kyuubi.gateway.it.GatewayTrinoBinarySuite'
+```
+
+| Suite | |
+|---|---|
+| `GatewayTrinoBinarySuite` | the Trino engine's own query suite, over binary HS2 |
+| `GatewayTrinoHttpSuite` | the same, over the HTTP transport |
+| `GatewayAdmissionSuite` | sizing and admission against a real planner |
+
+The first two reuse `TrinoQueryTests` from the engine unchanged, and that is the
+point: the gateway's claim is that routing changes where a query goes and
+nothing about what it returns, so the suite that already decides what Trino
+behaviour means is the one to hold it to. Both transports are run because they
+are different code paths with different framing.
+
+`GatewayAdmissionSuite` is the only thing that can say whether `EXPLAIN` on a
+real query yields a plan with estimates in it. A hand-written plan proves the
+parser and nothing about the plans.
 
 ## Permissions
 

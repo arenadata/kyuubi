@@ -20,8 +20,9 @@ package org.apache.kyuubi.gateway.sizing
 /**
  * What the planner thinks a query will cost, as read from EXPLAIN.
  *
- * @param peakMemoryBytes largest single-operator memory estimate in the plan
+ * @param peakMemoryBytes  largest single-operator memory estimate in the plan
  * @param totalMemoryBytes sum over all operators
+ * @param peakOutputBytes  largest single-operator output size
  * @param cpuCost          processor work, not power - see [[QuerySizer]]
  * @param outputRowCount   rows the query is expected to return
  * @param estimatesPresent whether the planner produced any estimate at all
@@ -29,6 +30,7 @@ package org.apache.kyuubi.gateway.sizing
 case class QueryEstimate(
     peakMemoryBytes: Long,
     totalMemoryBytes: Long,
+    peakOutputBytes: Long,
     cpuCost: Double,
     outputRowCount: Double,
     estimatesPresent: Boolean)
@@ -42,5 +44,6 @@ object QueryEstimate {
    * normal case for freshly written data. Callers must treat this as "size not
    * known" and fall back to a default, never as "this query is free".
    */
-  val unknown: QueryEstimate = QueryEstimate(0L, 0L, 0d, 0d, estimatesPresent = false)
+  val unknown: QueryEstimate =
+    QueryEstimate(0L, 0L, 0L, 0d, 0d, estimatesPresent = false)
 }
