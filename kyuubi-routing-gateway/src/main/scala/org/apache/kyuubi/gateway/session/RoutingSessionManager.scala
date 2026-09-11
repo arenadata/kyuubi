@@ -66,16 +66,24 @@ abstract class RoutingSessionManager(name: String, resolver: ClusterResolver)
     }
     val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster)
     info(s"Opening $engine session for $user on ${cluster.name} at ${cluster.url}")
-    createEngineSession(protocol, user, password, ipAddress, routed)
+    createEngineSession(protocol, user, password, ipAddress, routed, cluster)
   }
 
   /** Session configuration that points the engine session layer at the cluster. */
   protected def connectionConf(cluster: ClusterRef): Map[String, String]
 
+  /**
+   * Builds the engine session.
+   *
+   * The cluster is passed rather than left to be re-derived: admission is
+   * accounted per cluster, and a session that disagreed with the routing
+   * decision about which cluster it is on would corrupt that accounting.
+   */
   protected def createEngineSession(
       protocol: TProtocolVersion,
       user: String,
       password: String,
       ipAddress: String,
-      conf: Map[String, String]): Session
+      conf: Map[String, String],
+      cluster: ClusterRef): Session
 }

@@ -48,6 +48,10 @@ class JdbcRoutingSessionManager(resolver: ClusterResolver, override val engine: 
       user: String,
       password: String,
       ipAddress: String,
-      conf: Map[String, String]): Session =
+      conf: Map[String, String],
+      cluster: ClusterRef): Session =
+    // Admission is not wired for the JDBC path yet: Impala does its own
+    // admission control, so double-accounting it needs thought rather than a
+    // copy of the Trino branch.
     new JdbcSessionImpl(protocol, user, password, ipAddress, conf, this)
 }

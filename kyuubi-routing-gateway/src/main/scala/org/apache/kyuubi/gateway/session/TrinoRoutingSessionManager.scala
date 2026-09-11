@@ -20,12 +20,13 @@ package org.apache.kyuubi.gateway.session
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.trino.operation.TrinoOperationManager
 import org.apache.kyuubi.engine.trino.session.TrinoSessionImpl
+import org.apache.kyuubi.gateway.capacity.{AdmissionGate, SessionAdmission}
 import org.apache.kyuubi.gateway.cluster.{ClusterRef, ClusterResolver}
 import org.apache.kyuubi.operation.OperationManager
 import org.apache.kyuubi.session.Session
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 
-class TrinoRoutingSessionManager(resolver: ClusterResolver)
+class TrinoRoutingSessionManager(resolver: ClusterResolver, gate: Option[AdmissionGate] = None)
   extends RoutingSessionManager("TrinoRoutingSessionManager", resolver) {
 
   override val engine: String = "trino"
@@ -40,6 +41,15 @@ class TrinoRoutingSessionManager(resolver: ClusterResolver)
       user: String,
       password: String,
       ipAddress: String,
-      conf: Map[String, String]): Session =
-    new TrinoSessionImpl(protocol, user, password, ipAddress, conf, this)
+      conf: Map[String, String],
+      cluster: ClusterRef): Session = gate match {
+    case Some(g) =>
+      new GatedTrinoSession(
+        protocol, user, password, ipAddress, conf, this, new SessionAdmission(g, cluster))
+    case None =>
+      // Without a gate the gateway still routes; it just does not account for
+      // what it lets through. Useful for a first rollout, where routing is the
+      // change being proven and capacity is still managed by hand.
+      new TrinoSessionImpl(protocol, user, password, ipAddress, conf, this)
+  }
 }
