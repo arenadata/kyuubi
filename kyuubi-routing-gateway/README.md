@@ -53,33 +53,73 @@ flowchart LR
     ee ==>|hop 2| data
 ```
 
-**Routing gateway**
+**Routing gateway**, with the ADB Connector path dotted
 
 ```mermaid
 flowchart LR
     client["JDBC client"]
 
+    subgraph adb["Arenadata DB"]
+        direction TB
+        master["ADB master"]
+        segs["segments 1..N"]
+    end
+
     subgraph gw["Routing gateway"]
         direction TB
-        fe["Thrift frontend<br/>the same one"]
+        fe["Thrift frontend"]
         be["RoutingBackendService"]
         sm["RoutingSessionManager<br/>resolves by identity"]
-        ks["TrinoSessionImpl<br/>the engine's own, in process"]
+        ks["Engine session<br/>in process"]
         gate["AdmissionGate<br/>size, admit, hold"]
         fe --> be --> sm --> ks
         ks --> gate
     end
 
     k8s[("Kubernetes<br/>Services and annotations")]
+    op["Cluster operator"]
 
-    trino[("Trino cluster<br/>already running")]
+    subgraph cl["Trino / Impala / Spark, already running"]
+        direction TB
+        coord["coordinator"]
+        pods["worker pods<br/>each with an ADB Connector sidecar"]
+        coord --- pods
+    end
 
     client -->|HS2, identity from SASL| fe
     sm -->|poll by label| k8s
-    gate -->|EXPLAIN| trino
+    gate -->|EXPLAIN| coord
     gate -->|patch clusters/scale| k8s
-    ks ==>|hop 1, the only one| trino
+    ks ==>|hop 1, the only one| coord
+
+    master -.->|HS2, the same entry point| fe
+    op -.->|computes LOCATION per pod| pods
+    segs <-.->|external tables, bulk in parallel| pods
+
+    classDef dotted stroke-dasharray: 5 5
+    class adb,op dotted
 ```
+
+The dotted overlay is the point of the gateway being the ADB Connector, and it
+says something that is easy to get backwards: **ADB's query goes through the
+gateway, ADB's data does not.**
+
+The control path is an ordinary session. The ADB master opens it over HS2 at
+the same address every other client uses, and it is routed, authenticated,
+admitted and sized like any other - one entry point for Trino, Impala and Spark
+alike, which is what collapsing the connector and the gateway into one service
+was for.
+
+The data path never touches the gateway. Greenplum moves bulk through external
+tables, one per segment or partition, so the segments and the pods exchange it
+in parallel and directly; the operator computes each pod's `LOCATION` and puts
+it in the sidecar's environment. Routing a terabyte through a single process
+would make the gateway the narrowest thing in the picture, and the reason it
+does not have to is that the connector was already built to go around it.
+
+The two paths differ for an ordinary client, which is worth being clear about:
+a JDBC client's **results do** cross the gateway - that is the single hop the
+thick arrow marks - and only ADB's bulk transfer is parallel.
 
 What the pictures are saying:
 
@@ -91,6 +131,7 @@ What the pictures are saying:
 | What decides the backend | share level and engine type | the authenticated identity |
 | Capacity | the engine's own | sized before admission, held in a ledger |
 | Cluster size | fixed | grown for a query, given back when idle |
+| Bulk transfer to ADB | not its concern | around it, segments to pods in parallel |
 
 The frontends and the engine session layer are shared, not reimplemented:
 `TrinoSessionImpl` and `TrinoOperationManager` are the engine's own classes
