@@ -38,7 +38,9 @@ class AdmissionGate(
     accountant: CapacityAccountant,
     sizer: QuerySizer,
     capacityOf: ClusterRef => Option[ClusterCapacity],
-    scaler: Option[ClusterScaler] = None)
+    scaler: Option[ClusterScaler] = None,
+    holdMillis: Long = 0L,
+    clock: () => Long = () => System.currentTimeMillis)
   extends Logging {
 
   import AdmissionGate._
@@ -78,7 +80,7 @@ class AdmissionGate(
       }
 
     val decision = sizer.size(estimate, capacity)
-    accountant.admit(cluster.name, capacity, queryId, decision.queryMemoryBytes) match {
+    admitOrHold(cluster, capacity, queryId, decision.queryMemoryBytes) match {
       case Right(reservation) =>
         info(s"Admitted $queryId to ${cluster.name}: ${decision.reason}")
         Right(Admitted(Some(reservation), decision.workers))
@@ -88,6 +90,42 @@ class AdmissionGate(
         info(s"Denied $queryId on ${cluster.name}: $denial")
         Left(denial)
     }
+  }
+
+  /**
+   * Admits, waiting for room if the cluster is merely busy.
+   *
+   * Only Busy is worth waiting on. NeedsScaleUp and TooLarge do not improve by
+   * waiting - the first needs the cluster grown, the second needs a different
+   * query - and holding on them would turn an answerable refusal into a
+   * timeout.
+   *
+   * The wait is bounded and off by default because a held query holds the
+   * frontend thread that carries it. A gateway that waits by default would let
+   * one busy cluster exhaust the thrift handler pool and stop answering for
+   * every other cluster too, so how long to wait has to be sized against that
+   * pool rather than assumed.
+   */
+  private def admitOrHold(
+      cluster: ClusterRef,
+      capacity: ClusterCapacity,
+      queryId: String,
+      memoryBytes: Long): Either[AdmissionDenial, Reservation] = {
+    val deadline = clock() + holdMillis
+    var attempt = accountant.admit(cluster.name, capacity, queryId, memoryBytes)
+    var waited = false
+    while (attempt == Left(AdmissionDenial.Busy) && clock() < deadline) {
+      if (!waited) {
+        info(s"Holding $queryId for up to ${holdMillis}ms: ${cluster.name} is busy")
+        waited = true
+      }
+      accountant.awaitRelease(deadline - clock())
+      attempt = accountant.admit(cluster.name, capacity, queryId, memoryBytes)
+    }
+    if (waited && attempt.isRight) {
+      info(s"Admitted $queryId to ${cluster.name} after holding")
+    }
+    attempt
   }
 
   /**

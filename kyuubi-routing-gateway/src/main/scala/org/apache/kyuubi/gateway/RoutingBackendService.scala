@@ -86,6 +86,7 @@ object RoutingBackendService {
   val ADMISSION_ENABLED_KEY = "kyuubi.gateway.admission.enabled"
   val ADMISSION_POLICY_KEY = "kyuubi.gateway.admission.policy"
   val SCALING_ENABLED_KEY = "kyuubi.gateway.scaling.enabled"
+  val HOLD_TIMEOUT_KEY = "kyuubi.gateway.admission.holdTimeout"
   val MEMORY_FACTOR_KEY = "kyuubi.gateway.sizing.memoryFactor"
   val DEFAULT_WORKERS_KEY = "kyuubi.gateway.sizing.defaultWorkers"
 
@@ -111,7 +112,8 @@ object RoutingBackendService {
       new CapacityAccountant(policy),
       new QuerySizer(sizing),
       capacityOf,
-      scalerFor(conf)))
+      scalerFor(conf),
+      conf.getOption(HOLD_TIMEOUT_KEY).map(_.toLong).getOrElse(0L)))
   }
 
   /**

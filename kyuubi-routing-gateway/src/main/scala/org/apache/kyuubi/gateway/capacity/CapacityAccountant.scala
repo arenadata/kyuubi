@@ -97,12 +97,31 @@ class CapacityAccountant(
       val remaining = held - queryId
       if (remaining.isEmpty) reservations.remove(cluster) else reservations.put(cluster, remaining)
       debug(s"Released $queryId on $cluster")
+      // Woken on every release, not only on the one a given waiter needs: this
+      // instance does not know how much each waiter wants, and a waiter that
+      // wakes to find the room still too small simply waits again.
+      notifyAll()
     }
   }
 
   /** Drops every reservation on a cluster, for when it disappears entirely. */
   def releaseAll(cluster: String): Unit = synchronized {
     reservations.remove(cluster)
+    notifyAll()
+  }
+
+  /**
+   * Waits for capacity to be released, up to `timeoutMillis`.
+   *
+   * Returns when something was released or the wait ran out - the caller finds
+   * out which by trying to admit again, because between waking and retrying
+   * another query may have taken the room. This is deliberately not a queue:
+   * waiters are not ordered, and a large query can be passed by smaller ones
+   * that keep fitting. Fair queueing would need to hold capacity empty while a
+   * big query waits, which wastes the cluster for as long as it waits.
+   */
+  def awaitRelease(timeoutMillis: Long): Unit = synchronized {
+    if (timeoutMillis > 0) wait(timeoutMillis)
   }
 
   def reservedBytes(cluster: String): Long =

@@ -172,4 +172,65 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     assert(g.admit(scalable, "q2", "SELECT 1", planner(planWith(40 * GB))).isLeft)
     assert(scaler.asked.isEmpty)
   }
+
+  test("a busy cluster holds the query until room frees, then admits it") {
+    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory)
+    val g = new AdmissionGate(
+      accountant,
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
+      _ => Some(capacity),
+      None,
+      holdMillis = 30000L)
+    val big = planner(planWith(40 * GB))
+
+    assert(g.admit(cluster, "q1", "SELECT 1", big).isRight)
+
+    // q2 does not fit until q1 goes. Release it from another thread while q2
+    // is waiting: the point is that the waiter wakes on the release rather
+    // than on a timeout, so this finishes in milliseconds, not in 30 seconds.
+    val releaser = new Thread(() => {
+      Thread.sleep(200)
+      g.release("c", "q1")
+    })
+    releaser.start()
+
+    val startedAt = System.currentTimeMillis()
+    val admitted = g.admit(cluster, "q2", "SELECT 1", big)
+    val tookMillis = System.currentTimeMillis() - startedAt
+    releaser.join()
+
+    assert(admitted.isRight, "the query should have been held, not refused")
+    assert(tookMillis < 25000, s"waited ${tookMillis}ms - it woke on the timeout, not the release")
+  }
+
+  test("holding gives up and says the cluster is busy") {
+    val g = new AdmissionGate(
+      new CapacityAccountant(AdmissionPolicy.PackByMemory),
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
+      _ => Some(capacity),
+      None,
+      holdMillis = 150L)
+    val big = planner(planWith(40 * GB))
+    assert(g.admit(cluster, "q1", "SELECT 1", big).isRight)
+    assert(g.admit(cluster, "q2", "SELECT 1", big).swap.getOrElse(null) === AdmissionDenial.Busy)
+  }
+
+  test("waiting is not tried on refusals that waiting cannot fix") {
+    var waits = 0
+    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory) {
+      override def awaitRelease(timeoutMillis: Long): Unit = {
+        waits += 1
+        super.awaitRelease(timeoutMillis)
+      }
+    }
+    val g = new AdmissionGate(
+      accountant,
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
+      _ => Some(capacity),
+      None,
+      holdMillis = 30000L)
+    // Needs 15 workers against a ceiling of 10: no amount of waiting helps.
+    assert(g.admit(cluster, "q1", "SELECT 1", planner(planWith(150 * GB))).isLeft)
+    assert(waits === 0, "holding on a hopeless refusal turns an answer into a timeout")
+  }
 }
