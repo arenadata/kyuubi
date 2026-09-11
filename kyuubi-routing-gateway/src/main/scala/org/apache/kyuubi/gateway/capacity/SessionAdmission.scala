@@ -24,6 +24,7 @@ import scala.collection.JavaConverters._
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ClusterRef
+import org.apache.kyuubi.gateway.sizing.QueryPlanner
 import org.apache.kyuubi.operation.OperationHandle
 
 /**
@@ -32,7 +33,8 @@ import org.apache.kyuubi.operation.OperationHandle
  * Kept apart from any one session class so both engines can use it, and so the
  * bookkeeping can be tested without constructing a session at all.
  */
-class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef) extends Logging {
+class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef, planner: QueryPlanner)
+  extends Logging {
 
   private val held = new ConcurrentHashMap[OperationHandle, String]()
 
@@ -43,13 +45,16 @@ class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef) extends Logging
    * outlive a failed start: there is no window in which a caller holds a
    * reservation it has not yet bound to an operation.
    */
-  def admitAndRun(statement: String)(run: () => OperationHandle): OperationHandle = {
+  def admitAndRun(statement: String)(run: Int => OperationHandle): OperationHandle = {
     val queryId = UUID.randomUUID().toString
-    gate.admit(cluster, queryId, statement) match {
+    gate.admit(cluster, queryId, statement, planner) match {
       case Left(denial) => throw AdmissionRefused(cluster.name, denial)
-      case Right(_) =>
+      case Right(admitted) =>
         try {
-          val handle = run()
+          // The worker count reaches `run` rather than being applied here: how
+          // a cluster is told to hold a query for its workers is the engine's
+          // business, and this bookkeeping serves both engines.
+          val handle = run(admitted.workers)
           held.put(handle, queryId)
           handle
         } catch {

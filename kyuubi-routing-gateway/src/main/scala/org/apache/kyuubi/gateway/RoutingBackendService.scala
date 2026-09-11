@@ -106,11 +106,7 @@ object RoutingBackendService {
     Some(new AdmissionGate(
       new CapacityAccountant(policy),
       new QuerySizer(sizing),
-      capacityOf,
-      // EXPLAIN is not wired to a client yet, so every statement sizes as
-      // unknown and lands on defaultWorkers. Accounting is real from the start;
-      // only its precision waits on this.
-      (_, _) => ""))
+      capacityOf))
   }
 
   private def capacityOf(cluster: ClusterRef): Option[ClusterCapacity] =

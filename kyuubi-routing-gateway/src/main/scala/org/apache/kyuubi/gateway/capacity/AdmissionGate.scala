@@ -19,7 +19,7 @@ package org.apache.kyuubi.gateway.capacity
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ClusterRef
-import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QuerySizer}
+import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QueryPlanner, QuerySizer}
 
 /**
  * Sizes a query, then admits it if the cluster can hold it.
@@ -28,14 +28,15 @@ import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QuerySize
  * subtracts a size from the remaining capacity, and the only source of that
  * size before execution is the planner.
  *
- * `explain` and `capacityOf` are injected rather than reached for, so the
- * decision logic can be exercised without a cluster behind it.
+ * `capacityOf` is injected rather than reached for, so the decision logic can
+ * be exercised without a cluster behind it. The planner arrives per call rather
+ * than per gate because it belongs to the session: the estimate depends on the
+ * catalog, schema and statistics that session sees.
  */
 class AdmissionGate(
     accountant: CapacityAccountant,
     sizer: QuerySizer,
-    capacityOf: ClusterRef => Option[ClusterCapacity],
-    explain: (ClusterRef, String) => String)
+    capacityOf: ClusterRef => Option[ClusterCapacity])
   extends Logging {
 
   import AdmissionGate._
@@ -45,7 +46,8 @@ class AdmissionGate(
   def admit(
       cluster: ClusterRef,
       queryId: String,
-      statement: String): Either[AdmissionDenial, Admitted] = {
+      statement: String,
+      planner: QueryPlanner): Either[AdmissionDenial, Admitted] = {
     val capacity = capacityOf(cluster).getOrElse {
       // A cluster whose capacity nobody declared cannot be accounted for.
       // Refusing its queries would break every cluster not yet annotated, so
@@ -62,7 +64,7 @@ class AdmissionGate(
         QueryEstimate.unknown
       } else {
         try {
-          ExplainParser.parse(explain(cluster, statement))
+          ExplainParser.parse(planner.explain(statement))
         } catch {
           case e: Exception =>
             // A failed EXPLAIN is not a reason to refuse the query - the

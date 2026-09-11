@@ -20,7 +20,7 @@ package org.apache.kyuubi.gateway.session
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.trino.operation.TrinoOperationManager
 import org.apache.kyuubi.engine.trino.session.TrinoSessionImpl
-import org.apache.kyuubi.gateway.capacity.{AdmissionGate, SessionAdmission}
+import org.apache.kyuubi.gateway.capacity.AdmissionGate
 import org.apache.kyuubi.gateway.cluster.{ClusterRef, ClusterResolver}
 import org.apache.kyuubi.operation.OperationManager
 import org.apache.kyuubi.session.Session
@@ -44,14 +44,7 @@ class TrinoRoutingSessionManager(resolver: ClusterResolver, gate: Option[Admissi
       conf: Map[String, String],
       cluster: ClusterRef): Session = gate match {
     case Some(g) =>
-      new GatedTrinoSession(
-        protocol,
-        user,
-        password,
-        ipAddress,
-        conf,
-        this,
-        new SessionAdmission(g, cluster))
+      new GatedTrinoSession(protocol, user, password, ipAddress, conf, this, g, cluster)
     case None =>
       // Without a gate the gateway still routes; it just does not account for
       // what it lets through. Useful for a first rollout, where routing is the

@@ -19,7 +19,7 @@ package org.apache.kyuubi.gateway.capacity
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.gateway.cluster.ClusterRef
-import org.apache.kyuubi.gateway.sizing.{QuerySizer, SizingPolicy}
+import org.apache.kyuubi.gateway.sizing.{QueryPlanner, QuerySizer, SizingPolicy}
 import org.apache.kyuubi.operation.OperationHandle
 
 class SessionAdmissionSuite extends KyuubiFunSuite {
@@ -34,14 +34,15 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
     val gate = new AdmissionGate(
       accountant,
       new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
-      _ => Some(capacity),
-      (_, _) => s"""{"estimates":[{"memoryCost":${20 * GB}.0}],"children":[]}""")
-    (accountant, new SessionAdmission(gate, cluster))
+      _ => Some(capacity))
+    val planner: QueryPlanner =
+      (_: String) => s"""{"estimates":[{"memoryCost":${20 * GB}.0}],"children":[]}"""
+    (accountant, new SessionAdmission(gate, cluster, planner))
   }
 
   test("a started statement holds its reservation until the operation closes") {
     val (accountant, admission) = fixture
-    val handle = admission.admitAndRun("SELECT 1")(() => OperationHandle())
+    val handle = admission.admitAndRun("SELECT 1")(_ => OperationHandle())
     assert(admission.outstanding === 1)
     assert(accountant.reservedBytes("c") === 20 * GB)
 
@@ -52,9 +53,9 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
 
   test("a refusal names what would help") {
     val (_, admission) = fixture
-    admission.admitAndRun("SELECT 1")(() => OperationHandle())
+    admission.admitAndRun("SELECT 1")(_ => OperationHandle())
     val refused = intercept[AdmissionRefused](
-      admission.admitAndRun("SELECT 2")(() => OperationHandle()))
+      admission.admitAndRun("SELECT 2")(_ => OperationHandle()))
     assert(refused.denial === AdmissionDenial.Busy)
     assert(refused.getMessage.contains("Retry when the queries in flight finish"))
   }
@@ -62,13 +63,13 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
   test("a failed start does not leak the reservation") {
     val (accountant, admission) = fixture
     intercept[RuntimeException](
-      admission.admitAndRun("SELECT 1")(() => throw new RuntimeException("engine refused")))
+      admission.admitAndRun("SELECT 1")(_ => throw new RuntimeException("engine refused")))
     assert(
       accountant.reservedBytes("c") === 0,
       "a reservation must not outlive the start it was taken for")
 
     // The proof it was really released: the next statement is admitted.
-    assert(admission.admitAndRun("SELECT 2")(() => OperationHandle()) != null)
+    assert(admission.admitAndRun("SELECT 2")(_ => OperationHandle()) != null)
   }
 
   test("closing an unknown handle is harmless") {
@@ -79,7 +80,7 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
 
   test("closing the session releases what is still in flight") {
     val (accountant, admission) = fixture
-    admission.admitAndRun("SELECT 1")(() => OperationHandle())
+    admission.admitAndRun("SELECT 1")(_ => OperationHandle())
     assert(accountant.reservedBytes("c") === 20 * GB)
 
     // A client that disconnects mid-query would otherwise leave the cluster
