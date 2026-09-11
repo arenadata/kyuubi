@@ -19,6 +19,10 @@ than two. That matters when the gateway also carries bulk traffic.
 into the session conf. `TrinoSessionImpl` reads the connection url from there,
 so the Trino session and operation layer is reused unmodified.
 
+Configuration keys are written in full in the Configuration table below and
+shortened in prose, where `admission.holdTimeout` means
+`kyuubi.gateway.admission.holdTimeout`.
+
 Resolvers are selected with `kyuubi.gateway.cluster.resolver`:
 
 * `static` — clusters declared in configuration, see `StaticClusterResolver`
@@ -29,13 +33,13 @@ a routing mistake must not become an access control bypass.
 
 ## Capacity
 
-Neither engine binds a query to a subset of workers - every query spreads over
-every active node - so "reserve workers for this query" is not expressible
-inside them. What is expressible is accounting, which is what `capacity/` does:
+Neither Trino nor Impala binds a query to a subset of workers - every query
+spreads over every active node - so "reserve workers for this query" is not
+expressible inside either. What is expressible is accounting, which is what `capacity/` does:
 track what a cluster can hold, subtract what is already admitted, admit only
 when the remainder covers it.
 
-Memory is the tracked quantity because it is the one the engine enforces. CPU is
+Memory is the tracked quantity because it is the one both engines enforce. CPU is
 not: an estimate gives work, not power, so dividing it by capacity yields a
 duration rather than a requirement.
 
@@ -238,7 +242,8 @@ mvn -pl kyuubi-routing-gateway test \
 | `GatewayTrinoHttpSuite` | the same, over the HTTP transport |
 | `GatewayAdmissionSuite` | sizing and admission against a real planner |
 
-The first two reuse `TrinoQueryTests` from the engine unchanged, and that is the
+The first two reuse `TrinoQueryTests` from `externals/kyuubi-trino-engine`
+unchanged, and that is the
 point: the gateway's claim is that routing changes where a query goes and
 nothing about what it returns, so the suite that already decides what Trino
 behaviour means is the one to hold it to. Both transports are run because they
