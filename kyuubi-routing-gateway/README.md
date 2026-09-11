@@ -25,12 +25,28 @@ classpath - `clickhouse`, `doris`, `impala`, `mysql`, `oracle`, `phoenix`,
 `postgresql`, `starrocks`. Anything else is a startup error naming what is
 supported, rather than a gateway that comes up and fails at the first session.
 
-**Spark is not among them.** Kyuubi launches a Spark engine per session rather
-than connecting to one that is already running, which is the opposite of what
-this gateway does, and there is no Spark dialect for the JDBC path. Routing to
-an already-running Spark Thrift Server would need a dialect of its own - about
-a hundred lines, next to `ImpalaDialect` - since a Thrift Server speaks HS2 and
-the Hive driver can reach it.
+**Spark is not among them, and that is this module's doing rather than
+Kyuubi's.** Spark is Kyuubi's flagship engine: `externals/kyuubi-spark-sql-engine`
+plus `EngineRef.getOrCreate`, which looks an engine up in ZooKeeper at the
+configured share level and launches one only when none is registered - so a
+long-running engine is reused, not started per session.
+
+This gateway replaces exactly that mechanism. `RoutingBackendService` brings its
+own `SessionManager` instead of Kyuubi's, which removes engine discovery,
+launching and the ZooKeeper they need - deliberately, because the premise here
+is that the cluster already exists, is found from a Service, and should be one
+hop away rather than two.
+
+So Spark has three possible homes, and only the last one belongs in this module:
+
+* the Kyuubi server, unchanged and alongside this gateway - it already does this
+  well and needs nothing written;
+* this gateway delegating to Kyuubi's own session manager when the engine is
+  Spark, which brings back ZooKeeper, launching and the second hop, and makes
+  the gateway two different things;
+* a Spark Thrift Server reached over JDBC, which is already running and speaks
+  HS2, so it needs only a dialect - about a hundred lines next to
+  `ImpalaDialect`.
 
 ## Routing
 
