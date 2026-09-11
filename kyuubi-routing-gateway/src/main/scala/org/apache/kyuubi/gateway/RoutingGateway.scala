@@ -89,7 +89,11 @@ object RoutingGateway extends Logging {
 
   def main(args: Array[String]): Unit = {
     SignalRegister.registerLogger(logger)
-    val conf = KyuubiConf()
+    // File first, command line second, so that a flag can override the file.
+    // Without loadFileDefaults the gateway would start with nothing but its
+    // built-in defaults and a mounted configuration would be silently ignored -
+    // which looks like a gateway that came up healthy and routes nowhere.
+    val conf = KyuubiConf().loadFileDefaults()
     try {
       Utils.fromCommandLineArgs(args, conf)
       start(conf)
