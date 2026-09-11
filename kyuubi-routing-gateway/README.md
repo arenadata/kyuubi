@@ -265,6 +265,10 @@ enabled has to permit separately.
 
 ## Running
 
+For Kubernetes see [`deploy/README.md`](../deploy/README.md), which covers the
+manifests, the image build, permissions and the configuration in one place.
+Directly:
+
 ```bash
 java -cp "kyuubi-routing-gateway/target/classes:$(cat kyuubi-routing-gateway/target/cp.txt)" \
   org.apache.kyuubi.gateway.RoutingGateway \
