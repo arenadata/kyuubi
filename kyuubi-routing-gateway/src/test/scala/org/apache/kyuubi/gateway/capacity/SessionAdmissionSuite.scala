@@ -34,7 +34,7 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
     val gate = new AdmissionGate(
       accountant,
       new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
-      _ => capacity,
+      _ => Some(capacity),
       (_, _) => s"""{"estimates":[{"memoryCost":${20 * GB}.0}],"children":[]}""")
     (accountant, new SessionAdmission(gate, cluster))
   }

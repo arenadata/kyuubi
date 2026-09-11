@@ -36,14 +36,14 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     new AdmissionGate(
       new CapacityAccountant(policy),
       new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
-      _ => capacity,
+      _ => Some(capacity),
       explain)
 
   test("sizes from the plan and admits what fits") {
     val g = gate()
     val admitted = g.admit(cluster, "q1", "SELECT * FROM t").toOption.get
     assert(admitted.workers === 1)
-    assert(admitted.reservation.memoryBytes === 10 * GB)
+    assert(admitted.reservation.map(_.memoryBytes) === Some(10 * GB))
   }
 
   test("a query too big for the current cluster asks to scale") {
@@ -74,6 +74,17 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     val g = gate(explain = (_, _) => { planned += 1; planWith(GB) })
     g.admit(cluster, "q1", "MERGE INTO t USING s ON t.id = s.id")
     assert(planned === 1, "the safe direction for an unknown statement is to plan it")
+  }
+
+  test("a cluster with no declared capacity is admitted unaccounted, not refused") {
+    val ungated = new AdmissionGate(
+      new CapacityAccountant(AdmissionPolicy.PackByMemory),
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
+      _ => None,
+      (_, _) => planWith(60 * GB))
+    val admitted = ungated.admit(cluster, "q1", "SELECT 1").toOption.get
+    assert(admitted.reservation.isEmpty,
+      "refusing would break every cluster not yet annotated")
   }
 
   test("release returns the capacity to the pool") {

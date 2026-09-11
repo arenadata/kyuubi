@@ -139,6 +139,7 @@ class KubernetesClusterResolver
         url = s"$scheme://$host:$port",
         users = ann.get(USERS_ANNOTATION).map(csv).getOrElse(Set.empty),
         isDefault = ann.get(DEFAULT_ANNOTATION).exists(_.toBoolean),
+        capacity = declaredCapacity(ann),
         sessionConf = ann.collect {
           case (k, v) if k.startsWith(SESSION_ANNOTATION_PREFIX) =>
             k.substring(SESSION_ANNOTATION_PREFIX.length) -> v
@@ -156,6 +157,31 @@ class KubernetesClusterResolver
       case None => ports.headOption.map(_.getPort.intValue()).getOrElse(DEFAULT_PORT)
     }
   }
+
+  /**
+   * Capacity is only reported when all three parts are present and sensible.
+   *
+   * A partial declaration is worse than none: the accountant would size against
+   * a made-up ceiling and either refuse queries that fit or admit ones that do
+   * not. Absent capacity is a state the caller already has to handle.
+   */
+  private def declaredCapacity(ann: Map[String, String]): Option[DeclaredCapacity] =
+    for {
+      memory <- ann.get(MAX_MEMORY_PER_NODE_ANNOTATION).flatMap(parsePositiveLong)
+      workers <- ann.get(WORKERS_ANNOTATION).flatMap(parsePositiveLong).map(_.toInt)
+      maxWorkers <- ann.get(MAX_WORKERS_ANNOTATION).flatMap(parsePositiveLong).map(_.toInt)
+      if maxWorkers >= workers
+    } yield DeclaredCapacity(memory, workers, maxWorkers)
+
+  private def parsePositiveLong(s: String): Option[Long] =
+    try {
+      val v = s.trim.toLong
+      if (v > 0) Some(v) else None
+    } catch {
+      case _: NumberFormatException =>
+        warn(s"Ignoring a capacity annotation that is not a number: $s")
+        None
+    }
 
   private def csv(s: String): Set[String] =
     s.split(",").map(_.trim).filter(_.nonEmpty).toSet
@@ -177,4 +203,7 @@ object KubernetesClusterResolver {
   val USERS_ANNOTATION = "kyuubi.gateway/users"
   val DEFAULT_ANNOTATION = "kyuubi.gateway/default"
   val SESSION_ANNOTATION_PREFIX = "kyuubi.gateway/session."
+  val MAX_MEMORY_PER_NODE_ANNOTATION = "kyuubi.gateway/max-memory-per-node-bytes"
+  val WORKERS_ANNOTATION = "kyuubi.gateway/workers"
+  val MAX_WORKERS_ANNOTATION = "kyuubi.gateway/max-workers"
 }

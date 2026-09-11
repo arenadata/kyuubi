@@ -34,19 +34,26 @@ import org.apache.kyuubi.gateway.sizing.{ExplainParser, QueryEstimate, QuerySize
 class AdmissionGate(
     accountant: CapacityAccountant,
     sizer: QuerySizer,
-    capacityOf: ClusterRef => ClusterCapacity,
+    capacityOf: ClusterRef => Option[ClusterCapacity],
     explain: (ClusterRef, String) => String)
   extends Logging {
 
   import AdmissionGate._
 
-  case class Admitted(reservation: Reservation, workers: Int)
+  case class Admitted(reservation: Option[Reservation], workers: Int)
 
   def admit(
       cluster: ClusterRef,
       queryId: String,
       statement: String): Either[AdmissionDenial, Admitted] = {
-    val capacity = capacityOf(cluster)
+    val capacity = capacityOf(cluster).getOrElse {
+      // A cluster whose capacity nobody declared cannot be accounted for.
+      // Refusing its queries would break every cluster not yet annotated, so
+      // it is admitted unaccounted - but noisily, because an unaccounted
+      // cluster silently defeats the point of having a gate.
+      warnUnaccounted(cluster.name)
+      return Right(Admitted(None, 0))
+    }
 
     val estimate =
       if (!needsSizing(statement)) {
@@ -70,7 +77,7 @@ class AdmissionGate(
     accountant.admit(cluster.name, capacity, queryId, decision.queryMemoryBytes) match {
       case Right(reservation) =>
         info(s"Admitted $queryId to ${cluster.name}: ${decision.reason}")
-        Right(Admitted(reservation, decision.workers))
+        Right(Admitted(Some(reservation), decision.workers))
       case Left(denial) =>
         info(s"Denied $queryId on ${cluster.name}: $denial")
         Left(denial)
@@ -78,6 +85,15 @@ class AdmissionGate(
   }
 
   def release(cluster: String, queryId: String): Unit = accountant.release(cluster, queryId)
+
+  private val warnedUnaccounted = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
+  /** Warns once per cluster; per query this would drown the log. */
+  private def warnUnaccounted(cluster: String): Unit =
+    if (warnedUnaccounted.add(cluster)) {
+      warn(s"Cluster $cluster declares no capacity, admitting its queries unaccounted. " +
+        "Annotate it with max-memory-per-node-bytes, workers and max-workers to gate it.")
+    }
 }
 
 object AdmissionGate {

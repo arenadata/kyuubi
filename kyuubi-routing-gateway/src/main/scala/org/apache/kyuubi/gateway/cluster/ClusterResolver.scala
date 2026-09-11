@@ -26,6 +26,7 @@ package org.apache.kyuubi.gateway.cluster
  * @param users       users allowed here; empty means "only reachable as default"
  * @param isDefault   whether users with no explicit mapping land here
  * @param sessionConf extra session configuration applied to sessions routed here
+ * @param capacity    what the cluster can hold, when the operator declared it
  */
 case class ClusterRef(
     name: String,
@@ -33,7 +34,22 @@ case class ClusterRef(
     url: String,
     users: Set[String] = Set.empty,
     isDefault: Boolean = false,
-    sessionConf: Map[String, String] = Map.empty)
+    sessionConf: Map[String, String] = Map.empty,
+    capacity: Option[DeclaredCapacity] = None)
+
+/**
+ * Capacity as declared alongside the cluster, not measured.
+ *
+ * The operator knows these because it writes the engine's configuration and
+ * owns the scaling bounds; the gateway would otherwise have to guess them or
+ * scrape them. `workers` is the count the operator last published, which lags
+ * reality between updates - a resolver with a live worker count should override
+ * it rather than trust it.
+ */
+case class DeclaredCapacity(
+    maxMemoryPerNodeBytes: Long,
+    workers: Int,
+    maxWorkers: Int)
 
 /**
  * Resolves the cluster a session belongs to.

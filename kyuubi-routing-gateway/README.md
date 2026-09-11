@@ -71,6 +71,41 @@ largest operator and the sum of the live ones. Turning the guess into a number
 needs these estimates compared against the `peakUserMemoryBytes` of finished
 queries.
 
+## Configuration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `kyuubi.gateway.engine` | `trino` | engine this instance serves |
+| `kyuubi.gateway.cluster.resolver` | `static` | `static` or `kubernetes` |
+| `kyuubi.gateway.admission.enabled` | `false` | gate statements on capacity |
+| `kyuubi.gateway.admission.policy` | `PackByMemory` | or `Exclusive` |
+| `kyuubi.gateway.sizing.memoryFactor` | `1.5` | calibration, see above |
+| `kyuubi.gateway.sizing.defaultWorkers` | `2` | used when no estimate exists |
+| `kyuubi.gateway.kubernetes.labelSelector` | `kyuubi.gateway/enabled=true` | which Services are clusters |
+| `kyuubi.gateway.kubernetes.namespace` | all | restrict the search |
+| `kyuubi.gateway.kubernetes.pollInterval` | `10000` | ms between polls |
+
+Admission is off by default. Routing is useful on its own, and admission changes
+what clients see - a query that used to run can now be refused - so turning it
+on should be a decision rather than something that arrives with an upgrade.
+
+Clusters are declared by annotations on their coordinator `Service`:
+
+```yaml
+kyuubi.gateway/engine: trino
+kyuubi.gateway/users: alice,bob
+kyuubi.gateway/default: "false"
+kyuubi.gateway/max-memory-per-node-bytes: "10737418240"
+kyuubi.gateway/workers: "4"
+kyuubi.gateway/max-workers: "10"
+```
+
+Capacity is only used when all three of its annotations are present and
+consistent. A partial declaration is worse than none: the accountant would size
+against a made-up ceiling. A cluster that declares no capacity is admitted
+unaccounted, with a warning - refusing would break every cluster not yet
+annotated.
+
 ## Known limits
 
 * Reservations live in memory, so the accountant is correct for one process.
@@ -81,6 +116,11 @@ queries.
   precise signal is Trino's `EventListener`, which is not wired up yet.
 * One gateway instance serves one engine - see `RoutingSessionManager` for why
   the interfaces make a single instance serving both impractical.
+* `EXPLAIN` is not wired to a client yet, so every statement sizes as unknown
+  and lands on `defaultWorkers`. Accounting is real from the start; only its
+  precision waits on this.
+* The JDBC path is ungated. Impala runs its own admission control, so
+  double-accounting it needs thought rather than a copy of the Trino branch.
 
 ## Building
 
