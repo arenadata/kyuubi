@@ -18,8 +18,12 @@
 package org.apache.kyuubi.gateway
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.gateway.cluster.{ClusterResolver, KubernetesClusterResolver, StaticClusterResolver}
+import org.apache.kyuubi.gateway.cluster.ClusterResolver
+import org.apache.kyuubi.gateway.cluster.KubernetesClusterResolver
+import org.apache.kyuubi.gateway.cluster.StaticClusterResolver
+import org.apache.kyuubi.gateway.session.JdbcRoutingSessionManager
 import org.apache.kyuubi.gateway.session.RoutingSessionManager
+import org.apache.kyuubi.gateway.session.TrinoRoutingSessionManager
 import org.apache.kyuubi.service.{AbstractBackendService, Service}
 import org.apache.kyuubi.session.SessionManager
 
@@ -47,7 +51,7 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
     }
     // The session manager must exist before super.initialize, which registers
     // it as a child service itself - registering it here too would double-add.
-    _sessionManager = new RoutingSessionManager(resolver)
+    _sessionManager = RoutingBackendService.sessionManagerFor(conf, resolver)
     super.initialize(conf)
   }
 }
@@ -55,6 +59,19 @@ class RoutingBackendService(resolverFactory: KyuubiConf => ClusterResolver)
 object RoutingBackendService {
 
   val RESOLVER_KEY = "kyuubi.gateway.cluster.resolver"
+  val ENGINE_KEY = "kyuubi.gateway.engine"
+
+  /**
+   * One gateway instance serves one engine - see RoutingSessionManager for why
+   * a single instance cannot dispatch between engine-specific operation
+   * managers.
+   */
+  def sessionManagerFor(conf: KyuubiConf, resolver: ClusterResolver): RoutingSessionManager = {
+    conf.getOption(ENGINE_KEY).getOrElse("trino").toLowerCase match {
+      case "trino" => new TrinoRoutingSessionManager(resolver)
+      case jdbcEngine => new JdbcRoutingSessionManager(resolver, jdbcEngine)
+    }
+  }
 
   def resolverFor(conf: KyuubiConf): ClusterResolver = {
     conf.getOption(RESOLVER_KEY).getOrElse("static").toLowerCase match {

@@ -18,31 +18,36 @@
 package org.apache.kyuubi.gateway.session
 
 import org.apache.kyuubi.KyuubiSQLException
-import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.engine.trino.operation.TrinoOperationManager
-import org.apache.kyuubi.engine.trino.session.TrinoSessionImpl
-import org.apache.kyuubi.gateway.cluster.ClusterResolver
-import org.apache.kyuubi.operation.OperationManager
+import org.apache.kyuubi.gateway.cluster.{ClusterRef, ClusterResolver}
 import org.apache.kyuubi.session.{Session, SessionManager}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 
 /**
- * Session manager that resolves the target cluster per authenticated user and
- * hands the resolved address to the engine session layer through session
- * configuration.
+ * Resolves the target cluster per authenticated user and hands its address to
+ * the engine session layer through session configuration.
  *
- * This is the whole of the routing change: the Trino session layer is reused
- * unmodified, because [[TrinoSessionImpl]] reads the connection url from the
- * session conf rather than from a fixed engine configuration.
+ * This is the whole of the routing change: the engine session layers read their
+ * connection address from session conf, so routing only has to put the right
+ * address there. They are reused unmodified.
  *
- * Deliberately extends [[SessionManager]] and not `TrinoSessionManager`: the
- * latter stops the JVM when the last session closes at CONNECTION share level,
- * which is correct for an engine process and wrong for a long-lived gateway.
+ * Deliberately extends [[SessionManager]] and not the engines' own session
+ * managers: those stop the JVM when the last session closes at CONNECTION share
+ * level, which is right for an engine process and wrong for a gateway.
+ *
+ * One instance serves one engine type. `OperationManager.addOperation` and
+ * `getOperation` are final and keep their own registry, and
+ * `AbstractBackendService` looks operations up through
+ * `sessionManager.operationManager` - so a single instance cannot dispatch
+ * between engine-specific operation managers without reimplementing every
+ * operation factory. Running one gateway per engine costs a deployment and
+ * keeps the engine-specific paths apart, including the capacity accounting,
+ * which differs between them anyway.
  */
-class RoutingSessionManager(resolver: ClusterResolver)
-  extends SessionManager("RoutingSessionManager") {
+abstract class RoutingSessionManager(name: String, resolver: ClusterResolver)
+  extends SessionManager(name) {
 
-  override val operationManager: OperationManager = new TrinoOperationManager()
+  /** Engine type this instance serves; clusters of other engines are refused. */
+  def engine: String
 
   override protected def isServer: Boolean = true
 
@@ -55,14 +60,22 @@ class RoutingSessionManager(resolver: ClusterResolver)
     val cluster = resolver.resolve(user, conf).getOrElse {
       throw KyuubiSQLException(s"No cluster is allowed for user $user")
     }
-    if (cluster.engine != "trino") {
+    if (!cluster.engine.equalsIgnoreCase(engine)) {
       throw KyuubiSQLException(
-        s"Cluster ${cluster.name} has engine ${cluster.engine}, only trino is supported yet")
+        s"Cluster ${cluster.name} runs ${cluster.engine}, this gateway serves $engine")
     }
-    val routed = conf ++
-      cluster.sessionConf +
-      (KyuubiConf.ENGINE_TRINO_CONNECTION_URL.key -> cluster.url)
-    info(s"Opening session for $user on cluster ${cluster.name} at ${cluster.url}")
-    new TrinoSessionImpl(protocol, user, password, ipAddress, routed, this)
+    val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster)
+    info(s"Opening $engine session for $user on ${cluster.name} at ${cluster.url}")
+    createEngineSession(protocol, user, password, ipAddress, routed)
   }
+
+  /** Session configuration that points the engine session layer at the cluster. */
+  protected def connectionConf(cluster: ClusterRef): Map[String, String]
+
+  protected def createEngineSession(
+      protocol: TProtocolVersion,
+      user: String,
+      password: String,
+      ipAddress: String,
+      conf: Map[String, String]): Session
 }

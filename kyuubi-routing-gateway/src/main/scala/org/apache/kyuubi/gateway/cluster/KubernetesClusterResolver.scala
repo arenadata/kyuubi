@@ -100,7 +100,9 @@ class KubernetesClusterResolver
   private[cluster] def refresh(): Unit = {
     try {
       val services = listServices()
-      val current = services.map(s => s.getMetadata.getUid -> s.getMetadata.getResourceVersion).toMap
+      val current = services
+        .map(s => s.getMetadata.getUid -> s.getMetadata.getResourceVersion)
+        .toMap
       if (current != seen.get()) {
         val clusters = services.flatMap(toClusterRef)
         snapshot.set(clusters)
