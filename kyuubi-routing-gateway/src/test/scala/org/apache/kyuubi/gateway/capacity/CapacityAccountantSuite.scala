@@ -102,7 +102,8 @@ class CapacityAccountantSuite extends KyuubiFunSuite {
 
     now = 20000L
     a.admit("c", capacity, "q2", 1 * GB)
-    assert(a.staleReservations(5000L).map(_._2.queryId) === Seq("q1"),
+    assert(
+      a.staleReservations(5000L).map(_._2.queryId) === Seq("q1"),
       "a reservation that outlives any plausible query means its release was missed, " +
         "and left alone it shrinks the cluster for good")
   }

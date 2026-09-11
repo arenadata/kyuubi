@@ -45,7 +45,13 @@ class TrinoRoutingSessionManager(resolver: ClusterResolver, gate: Option[Admissi
       cluster: ClusterRef): Session = gate match {
     case Some(g) =>
       new GatedTrinoSession(
-        protocol, user, password, ipAddress, conf, this, new SessionAdmission(g, cluster))
+        protocol,
+        user,
+        password,
+        ipAddress,
+        conf,
+        this,
+        new SessionAdmission(g, cluster))
     case None =>
       // Without a gate the gateway still routes; it just does not account for
       // what it lets through. Useful for a first rollout, where routing is the

@@ -63,7 +63,8 @@ class SessionAdmissionSuite extends KyuubiFunSuite {
     val (accountant, admission) = fixture
     intercept[RuntimeException](
       admission.admitAndRun("SELECT 1")(() => throw new RuntimeException("engine refused")))
-    assert(accountant.reservedBytes("c") === 0,
+    assert(
+      accountant.reservedBytes("c") === 0,
       "a reservation must not outlive the start it was taken for")
 
     // The proof it was really released: the next statement is admitted.

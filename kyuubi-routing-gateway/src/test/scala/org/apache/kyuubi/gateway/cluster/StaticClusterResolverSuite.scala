@@ -52,7 +52,8 @@ class StaticClusterResolverSuite extends KyuubiFunSuite {
 
   test("rejects when no cluster is allowed and none is default") {
     val resolver = new StaticClusterResolver(conf - "kyuubi.gateway.cluster.shared.default")
-    assert(resolver.resolve("carol", Map.empty).isEmpty,
+    assert(
+      resolver.resolve("carol", Map.empty).isEmpty,
       "an unmapped user must be rejected, not silently sent somewhere")
   }
 

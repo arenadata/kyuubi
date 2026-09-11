@@ -54,7 +54,8 @@ class AdmissionGateSuite extends KyuubiFunSuite {
 
   test("a failing EXPLAIN does not refuse the query") {
     val g = gate(explain = (_, _) => throw new RuntimeException("cannot plan in isolation"))
-    assert(g.admit(cluster, "q1", "SELECT * FROM t").isRight,
+    assert(
+      g.admit(cluster, "q1", "SELECT * FROM t").isRight,
       "the engine, not the gateway, decides whether an unplannable statement runs")
   }
 
@@ -83,8 +84,7 @@ class AdmissionGateSuite extends KyuubiFunSuite {
       _ => None,
       (_, _) => planWith(60 * GB))
     val admitted = ungated.admit(cluster, "q1", "SELECT 1").toOption.get
-    assert(admitted.reservation.isEmpty,
-      "refusing would break every cluster not yet annotated")
+    assert(admitted.reservation.isEmpty, "refusing would break every cluster not yet annotated")
   }
 
   test("release returns the capacity to the pool") {

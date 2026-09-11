@@ -63,7 +63,8 @@ class SizingSuite extends KyuubiFunSuite {
     val quoted =
       """{"id":"1","estimates":[{"outputRowCount":"NaN","cpuCost":"NaN","memoryCost":"NaN"}],
         |"children":[]}""".stripMargin
-    assert(!ExplainParser.parse(quoted).estimatesPresent,
+    assert(
+      !ExplainParser.parse(quoted).estimatesPresent,
       "missing table statistics must not read as a free query")
 
     // A bare NaN token is not valid JSON; losing one field to it is acceptable,
