@@ -72,14 +72,20 @@ abstract class RoutingSessionManager(name: String, resolver: ClusterResolver)
     // what keeps a query arriving at the cluster as its caller instead of as the
     // gateway's own service account. Placed after the cluster conf so that no
     // per-cluster setting can override the authenticated user.
-    val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster) +
+    val routed = conf ++ cluster.sessionConf ++ connectionConf(cluster, user) +
       (KYUUBI_SESSION_USER_KEY -> user)
     info(s"Opening $engine session for $user on ${cluster.name} at ${cluster.url}")
     createEngineSession(protocol, user, password, ipAddress, routed, cluster)
   }
 
-  /** Session configuration that points the engine session layer at the cluster. */
-  protected def connectionConf(cluster: ClusterRef): Map[String, String]
+  /**
+   * Session configuration that points the engine session layer at the cluster.
+   *
+   * The user is passed because reaching a cluster and reaching it as somebody
+   * are not separable for every engine: where identity travels in the
+   * connection string, the address and the identity are the same setting.
+   */
+  protected def connectionConf(cluster: ClusterRef, user: String): Map[String, String]
 
   /**
    * Builds the engine session.

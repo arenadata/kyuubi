@@ -38,10 +38,26 @@ class JdbcRoutingSessionManager(resolver: ClusterResolver, override val engine: 
   // lazy: JdbcOperationManager needs conf, which is only set during initialize
   override lazy val operationManager: OperationManager = new JdbcOperationManager(conf)
 
-  override protected def connectionConf(cluster: ClusterRef): Map[String, String] =
+  override protected def connectionConf(cluster: ClusterRef, user: String): Map[String, String] =
     Map(
-      KyuubiConf.ENGINE_JDBC_CONNECTION_URL.key -> cluster.url,
+      KyuubiConf.ENGINE_JDBC_CONNECTION_URL.key ->
+        JdbcRoutingSessionManager.impersonate(cluster.url, user, templateFor(cluster)),
       KyuubiConf.ENGINE_JDBC_SHORT_NAME.key -> engine)
+
+  /**
+   * How this cluster expects to be told who is asking.
+   *
+   * Per cluster first, because a gateway can front drivers that spell it
+   * differently - the Hive driver takes `hive.server2.proxy.user`, Cloudera's
+   * Impala driver takes `DelegationUID` - and the gateway should not have to be
+   * split in two for that.
+   */
+  private def templateFor(cluster: ClusterRef): Option[String] =
+    cluster.sessionConf.get(JdbcRoutingSessionManager.IMPERSONATION_TEMPLATE_KEY)
+      .orElse(conf.getOption(JdbcRoutingSessionManager.IMPERSONATION_TEMPLATE_KEY))
+      .orElse(Some(JdbcRoutingSessionManager.DEFAULT_IMPERSONATION_TEMPLATE))
+      .map(_.trim)
+      .filter(_.nonEmpty)
 
   override protected def createEngineSession(
       protocol: TProtocolVersion,
@@ -54,4 +70,45 @@ class JdbcRoutingSessionManager(resolver: ClusterResolver, override val engine: 
     // admission control, so double-accounting it needs thought rather than a
     // copy of the Trino branch.
     new JdbcSessionImpl(protocol, user, password, ipAddress, conf, this)
+}
+
+object JdbcRoutingSessionManager {
+
+  /**
+   * How the caller's identity is appended to the connection url.
+   *
+   * `{user}` is replaced with the authenticated user. Set it empty to connect
+   * as the gateway's own account - which means the cluster sees one identity
+   * for everybody, and its per-user authorisation stops meaning anything.
+   */
+  val IMPERSONATION_TEMPLATE_KEY = "kyuubi.gateway.jdbc.impersonationTemplate"
+
+  /**
+   * On by default, unlike admission and scaling.
+   *
+   * Those change what a working deployment does; this one decides whether the
+   * cluster is told who is asking at all. Defaulting it off would make every
+   * query arrive as the gateway's service account and collapse Impala's
+   * per-user authorisation silently, whereas defaulting it on fails loudly and
+   * immediately if the gateway is not an authorised proxy user - which is a
+   * configuration the operator can then fix.
+   */
+  val DEFAULT_IMPERSONATION_TEMPLATE = ";hive.server2.proxy.user={user}"
+
+  private val UserPlaceholder = "{user}"
+
+  /**
+   * Appends the identity to the url, leaving one that is already there alone.
+   *
+   * A cluster url that already names a proxy user was written that way on
+   * purpose; appending a second one would produce a string whose meaning
+   * depends on which the driver reads first.
+   */
+  def impersonate(url: String, user: String, template: Option[String]): String = template match {
+    case None => url
+    case Some(t) =>
+      val parameter = t.takeWhile(c => c != '=').stripPrefix(";").stripPrefix("?").stripPrefix("&")
+      if (parameter.nonEmpty && url.contains(parameter)) url
+      else url + t.replace(UserPlaceholder, user)
+  }
 }

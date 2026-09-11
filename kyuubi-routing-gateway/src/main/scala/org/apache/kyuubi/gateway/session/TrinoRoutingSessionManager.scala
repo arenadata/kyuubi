@@ -33,7 +33,9 @@ class TrinoRoutingSessionManager(resolver: ClusterResolver, gate: Option[Admissi
 
   override val operationManager: OperationManager = new TrinoOperationManager()
 
-  override protected def connectionConf(cluster: ClusterRef): Map[String, String] =
+  // Trino carries identity in the protocol, not in the address, so the user
+  // plays no part here - it reaches the cluster as the session principal.
+  override protected def connectionConf(cluster: ClusterRef, user: String): Map[String, String] =
     Map(KyuubiConf.ENGINE_TRINO_CONNECTION_URL.key -> cluster.url)
 
   override protected def createEngineSession(
