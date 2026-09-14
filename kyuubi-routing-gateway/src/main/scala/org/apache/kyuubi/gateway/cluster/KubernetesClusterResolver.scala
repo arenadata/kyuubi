@@ -114,7 +114,21 @@ class KubernetesClusterResolver
         .map(s => s.getMetadata.getUid -> s.getMetadata.getResourceVersion)
         .toMap
       if (current != seen.get()) {
-        val clusters = services.flatMap(toClusterRef)
+        // Per service, not around the whole batch: one Service with a bad
+        // annotation (a port named that does not exist on it, say) must cost
+        // that one cluster, not freeze discovery for every other cluster
+        // behind it until someone notices and fixes the typo.
+        val clusters = services.flatMap { svc =>
+          try {
+            toClusterRef(svc)
+          } catch {
+            case NonFatal(e) =>
+              warn(s"Ignoring Service ${svc.getMetadata.getNamespace}/" +
+                s"${svc.getMetadata.getName}, its cluster annotations do not make sense: " +
+                e.getMessage)
+              None
+          }
+        }
         snapshot.set(clusters)
         seen.set(current)
         GatewayMetrics.publish(clusters)
