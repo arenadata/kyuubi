@@ -17,6 +17,7 @@
 
 package org.apache.kyuubi.gateway.session
 
+import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.jdbc.operation.JdbcOperationManager
 import org.apache.kyuubi.engine.jdbc.session.JdbcSessionImpl
@@ -107,8 +108,23 @@ object JdbcRoutingSessionManager {
   def impersonate(url: String, user: String, template: Option[String]): String = template match {
     case None => url
     case Some(t) =>
+      // The user reaches here as an authenticated identity, but the template
+      // splices it into a connection string with no quoting available - a
+      // `;` or `&` in it would add driver parameters nobody configured,
+      // potentially including a second, attacker-chosen proxy-user parameter
+      // that overrides the very impersonation this template exists to
+      // enforce. Rejected rather than escaped: there is no quoting convention
+      // shared by every JDBC driver this can front.
+      if (!SafeUser.pattern.matcher(user).matches()) {
+        throw KyuubiSQLException(
+          s"User '$user' cannot be used to impersonate on a JDBC connection: " +
+            s"only ${SafeUser.pattern} is allowed")
+      }
       val parameter = t.takeWhile(c => c != '=').stripPrefix(";").stripPrefix("?").stripPrefix("&")
       if (parameter.nonEmpty && url.contains(parameter)) url
       else url + t.replace(UserPlaceholder, user)
   }
+
+  /** Conservative on purpose: every identity provider this fronts fits it. */
+  private val SafeUser = "[A-Za-z0-9._@-]+".r
 }
