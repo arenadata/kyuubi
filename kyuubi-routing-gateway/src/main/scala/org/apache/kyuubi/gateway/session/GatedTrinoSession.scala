@@ -83,7 +83,10 @@ class GatedTrinoSession(
       if (ticket.workers > 0) {
         GatedTrinoSession.withRequiredWorkers(withTag, ticket.workers, maxWait)
       } else {
-        withTag
+        // No requirement of its own - and any requirement left by an earlier,
+        // heavier statement on this same session must not carry over, or a
+        // trivial statement would wait for workers it does not need.
+        GatedTrinoSession.withoutRequiredWorkers(withTag)
       }
     }
 
@@ -93,6 +96,15 @@ class GatedTrinoSession(
     // than releasing slightly early.
     admission.finished(operationHandle)
     super.closeOperation(operationHandle)
+  }
+
+  override def cancelOperation(operationHandle: OperationHandle): Unit = {
+    // A cancelled operation is not necessarily closed - a client may cancel
+    // and later close, or never close at all. Either way it holds nothing on
+    // the cluster from this point on, so its reservation is released here
+    // rather than left to wait for a closeOperation that may not come.
+    admission.finished(operationHandle)
+    super.cancelOperation(operationHandle)
   }
 
   override def close(): Unit = {
@@ -148,6 +160,15 @@ object GatedTrinoSession {
     val properties = new java.util.HashMap[String, String](session.getProperties)
     properties.put("required_workers_count", workers.toString)
     maxWait.foreach(properties.put("required_workers_max_wait_time", _))
+    ClientSession.builder(session).properties(properties).build()
+  }
+
+  /** Returns the session with any worker requirement from an earlier statement removed. */
+  def withoutRequiredWorkers(session: ClientSession): ClientSession = {
+    if (!session.getProperties.containsKey("required_workers_count")) return session
+    val properties = new java.util.HashMap[String, String](session.getProperties)
+    properties.remove("required_workers_count")
+    properties.remove("required_workers_max_wait_time")
     ClientSession.builder(session).properties(properties).build()
   }
 }
