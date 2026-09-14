@@ -21,6 +21,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ClusterRef
@@ -47,7 +48,18 @@ class SessionAdmission(gate: AdmissionGate, cluster: ClusterRef, planner: QueryP
    */
   def admitAndRun(statement: String)(run: AdmissionTicket => OperationHandle): OperationHandle = {
     val queryId = UUID.randomUUID().toString
-    gate.admit(cluster, queryId, statement, planner) match {
+    // Guarded like the run below: a store that cannot decide (a lost CAS
+    // race exhausting its retries, an unreachable api server) must surface as
+    // something the caller can recognise, not as whatever internal exception
+    // the store happens to throw.
+    val decision =
+      try {
+        gate.admit(cluster, queryId, statement, planner)
+      } catch {
+        case NonFatal(e) =>
+          throw AdmissionUndecidable(cluster.name, e)
+      }
+    decision match {
       case Left(denial) => throw AdmissionRefused(cluster.name, denial)
       case Right(admitted) =>
         try {
@@ -97,6 +109,12 @@ case class AdmissionTicket(reservationId: String, workers: Int)
 /** Refusal carrying the reason, so the client is told what would help. */
 case class AdmissionRefused(cluster: String, denial: AdmissionDenial)
   extends RuntimeException(AdmissionRefused.message(cluster, denial))
+
+/** The ledger itself could not answer - as opposed to answering "no". */
+case class AdmissionUndecidable(cluster: String, cause: Throwable)
+  extends RuntimeException(
+    s"Could not decide admission for cluster $cluster: ${cause.getMessage}",
+    cause)
 
 object AdmissionRefused {
 
