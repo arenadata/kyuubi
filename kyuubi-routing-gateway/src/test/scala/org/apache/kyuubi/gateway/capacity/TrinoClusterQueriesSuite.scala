@@ -17,7 +17,14 @@
 
 package org.apache.kyuubi.gateway.capacity
 
+import java.net.InetSocketAddress
+import java.nio.charset.StandardCharsets
+
+import com.sun.net.httpserver.{HttpExchange, HttpServer}
+import okhttp3.OkHttpClient
+
 import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.gateway.cluster.ClusterRef
 
 class TrinoClusterQueriesSuite extends KyuubiFunSuite {
 
@@ -89,5 +96,49 @@ class TrinoClusterQueriesSuite extends KyuubiFunSuite {
   test("a response that is not a list of queries yields nothing, not an error") {
     assert(TrinoClusterQueries.parse("{}") === Seq.empty)
     assert(TrinoClusterQueries.parse("[]") === Seq.empty)
+  }
+
+  /** A coordinator's `/v1/query` that answers with `code` and notes who asked. */
+  private def withCoordinator(code: Int)(f: (String, () => Option[String]) => Unit): Unit = {
+    @volatile var askedAs: Option[String] = None
+    val server = HttpServer.create(new InetSocketAddress("localhost", 0), 0)
+    server.createContext(
+      TrinoClusterQueries.QueriesPath,
+      (exchange: HttpExchange) => {
+        askedAs = Option(exchange.getRequestHeaders.getFirst("X-Trino-User"))
+        val body = (if (code == 200) {
+                      s"[${query("20260911_1", "RUNNING", "\"kyuubi-reservation:r1\"")}]"
+                    } else "Unauthorized").getBytes(StandardCharsets.UTF_8)
+        exchange.sendResponseHeaders(code, body.length)
+        exchange.getResponseBody.write(body)
+        exchange.close()
+      })
+    server.start()
+    try f(s"http://localhost:${server.getAddress.getPort}", () => askedAs)
+    finally server.stop(0)
+  }
+
+  test("each cluster is asked with the client made for it, as the configured user") {
+    withCoordinator(200) { (url, askedAs) =>
+      val cluster = ClusterRef("c", "trino", url)
+      var clientsFor = Seq.empty[ClusterRef]
+      val client = new OkHttpClient.Builder().build()
+      val queries = new TrinoClusterQueries(
+        c => { clientsFor :+= c; client },
+        "reconciler")
+
+      assert(queries.observe(cluster).map(_.map(_.reservationId)) === Some(Seq("r1")))
+      assert(clientsFor === Seq(cluster))
+      assert(askedAs() === Some("reconciler"))
+    }
+  }
+
+  test("a coordinator that refuses the reconciler is unreachable, not idle") {
+    withCoordinator(401) { (url, _) =>
+      val queries = new TrinoClusterQueries(_ => new OkHttpClient.Builder().build(), "reconciler")
+      assert(
+        queries.observe(ClusterRef("c", "trino", url)) === None,
+        "an empty list here would release every reservation on a secured cluster")
+    }
   }
 }

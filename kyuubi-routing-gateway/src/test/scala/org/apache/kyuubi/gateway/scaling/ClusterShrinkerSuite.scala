@@ -64,9 +64,9 @@ class ClusterShrinkerSuite extends KyuubiFunSuite {
 
   private class FakeDrain(reaches: String = TrinoWorkerDrain.Drained) extends WorkerDrain {
     val events = ArrayBuffer.empty[String]
-    override def drain(url: String): Unit = events += s"drain $url"
-    override def undrain(url: String): Unit = events += s"undrain $url"
-    override def state(url: String): Option[String] = Some(reaches)
+    override def drain(cluster: ClusterRef, url: String): Unit = events += s"drain $url"
+    override def undrain(cluster: ClusterRef, url: String): Unit = events += s"undrain $url"
+    override def state(cluster: ClusterRef, url: String): Option[String] = Some(reaches)
   }
 
   private class FakeScale extends ScaleApi {
@@ -210,7 +210,7 @@ class ClusterShrinkerSuite extends KyuubiFunSuite {
     val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
     val held = ArrayBuffer.empty[Long]
     val drain = new FakeDrain() {
-      override def state(url: String): Option[String] = {
+      override def state(cluster: ClusterRef, url: String): Option[String] = {
         // Observed from inside the drain: what a query arriving now would see.
         held += accountant.reservedBytes("ns/a")
         Some(TrinoWorkerDrain.Drained)

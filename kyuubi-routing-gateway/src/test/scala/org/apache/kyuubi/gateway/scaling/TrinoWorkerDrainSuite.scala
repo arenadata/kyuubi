@@ -24,6 +24,7 @@ import com.sun.net.httpserver.{HttpExchange, HttpServer}
 import okhttp3.OkHttpClient
 
 import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.gateway.cluster.ClusterRef
 
 /**
  * A worker's `/v1/info/state` as Trino guards it: reading the state is public,
@@ -80,27 +81,41 @@ class TrinoWorkerDrainSuite extends KyuubiFunSuite {
     finally worker.stop()
   }
 
+  private val cluster = ClusterRef("c", "trino", "http://c:8080")
+
   private def drainAs(user: String): TrinoWorkerDrain =
-    new TrinoWorkerDrain(new OkHttpClient.Builder().build(), user)
+    new TrinoWorkerDrain(_ => new OkHttpClient.Builder().build(), user)
 
   test("a drain speaks as the configured Trino user") {
     withWorker(acceptsUser = "gateway") { worker =>
       val drain = drainAs("gateway")
-      drain.drain(worker.url)
+      drain.drain(cluster, worker.url)
       assert(worker.lastUser === Some("gateway"))
       assert(worker.state === TrinoWorkerDrain.Draining)
-      assert(drain.state(worker.url) === Some(TrinoWorkerDrain.Draining))
-      drain.undrain(worker.url)
+      assert(drain.state(cluster, worker.url) === Some(TrinoWorkerDrain.Draining))
+      drain.undrain(cluster, worker.url)
       assert(worker.state === TrinoWorkerDrain.Active)
     }
   }
 
   test("a refused transition says which code and why") {
     withWorker(acceptsUser = "someone-else") { worker =>
-      val e = intercept[IllegalStateException](drainAs("gateway").drain(worker.url))
+      val e = intercept[IllegalStateException](drainAs("gateway").drain(cluster, worker.url))
       assert(e.getMessage.contains("HTTP 401"))
       assert(e.getMessage.contains("X-Trino-User"))
       assert(worker.state === TrinoWorkerDrain.Active)
+    }
+  }
+
+  test("each worker is reached with the client built for its cluster") {
+    withWorker(acceptsUser = "gateway") { worker =>
+      var clientsFor = Seq.empty[ClusterRef]
+      val client = new OkHttpClient.Builder().build()
+      val drain = new TrinoWorkerDrain(c => { clientsFor :+= c; client }, "gateway")
+
+      drain.drain(cluster, worker.url)
+
+      assert(clientsFor === Seq(cluster))
     }
   }
 }

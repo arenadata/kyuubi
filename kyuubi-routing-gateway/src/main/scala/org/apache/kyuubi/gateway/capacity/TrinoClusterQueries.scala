@@ -40,7 +40,7 @@ import org.apache.kyuubi.gateway.session.GatedTrinoSession
  * coordinator's history is certainly finished - so the weakness of the endpoint
  * is what makes it usable.
  */
-class TrinoClusterQueries(client: OkHttpClient, user: String)
+class TrinoClusterQueries(clientFor: ClusterRef => OkHttpClient, user: String)
   extends ClusterQueries with Logging {
 
   import TrinoClusterQueries._
@@ -52,7 +52,7 @@ class TrinoClusterQueries(client: OkHttpClient, user: String)
       .get()
       .build()
     try {
-      val response = client.newCall(request).execute()
+      val response = clientFor(cluster).newCall(request).execute()
       try {
         if (!response.isSuccessful) {
           warn(s"Could not list queries on ${cluster.name}: HTTP ${response.code}")

@@ -17,8 +17,6 @@
 
 package org.apache.kyuubi.gateway
 
-import okhttp3.OkHttpClient
-
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.jdbc.dialect.JdbcDialect
 import org.apache.kyuubi.gateway.capacity.AdmissionGate
@@ -30,6 +28,7 @@ import org.apache.kyuubi.gateway.capacity.MemoryCalibration
 import org.apache.kyuubi.gateway.capacity.ReservationReconciler
 import org.apache.kyuubi.gateway.capacity.ReservationStore
 import org.apache.kyuubi.gateway.capacity.SecretReservationStore
+import org.apache.kyuubi.gateway.capacity.TrinoClusterClients
 import org.apache.kyuubi.gateway.capacity.TrinoClusterQueries
 import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.cluster.ClusterResolver
@@ -198,7 +197,7 @@ object RoutingBackendService {
     Some(new ReservationReconciler(
       accountant,
       resolver,
-      new TrinoClusterQueries(new OkHttpClient.Builder().build(), user),
+      new TrinoClusterQueries(new TrinoClusterClients(conf, user), user),
       Some(new MemoryCalibration),
       ReservationReconciler.graceFrom(conf),
       ReservationReconciler.intervalFrom(conf)))
@@ -268,11 +267,12 @@ object RoutingBackendService {
       throw new IllegalStateException(
         s"${ClusterShrinker.ENABLED_KEY} is on but no Kubernetes client could be built")
     }
+    val drainUser = ClusterShrinker.userFrom(conf)
     Some(new ClusterShrinker(
       accountant,
       resolver,
       new KubernetesWorkerPool(client),
-      new TrinoWorkerDrain(new OkHttpClient.Builder().build(), ClusterShrinker.userFrom(conf)),
+      new TrinoWorkerDrain(new TrinoClusterClients(conf, drainUser), drainUser),
       new FabricScaleApi(client),
       capacityOf,
       ClusterShrinker.idleAfterFrom(conf),

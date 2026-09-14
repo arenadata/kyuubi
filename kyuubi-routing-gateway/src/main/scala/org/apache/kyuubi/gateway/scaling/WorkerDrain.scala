@@ -22,6 +22,7 @@ import scala.util.control.NonFatal
 import okhttp3.{MediaType, OkHttpClient, Request, RequestBody}
 
 import org.apache.kyuubi.Logging
+import org.apache.kyuubi.gateway.cluster.ClusterRef
 
 /**
  * A worker's own view of whether it should still be given work.
@@ -32,17 +33,21 @@ import org.apache.kyuubi.Logging
  * reversible, so a decision to shrink can be taken back when load returns.
  * `DRAINED` means every task on that worker has finished and it can be stopped
  * without failing a query.
+ *
+ * `cluster` is carried alongside the worker's own URL, not used to address it
+ * - workers are reached directly - but to pick the right credentials for a
+ * worker that needs them.
  */
 trait WorkerDrain {
 
   /** Asks the worker to stop taking new tasks and finish what it has. */
-  def drain(workerUrl: String): Unit
+  def drain(cluster: ClusterRef, workerUrl: String): Unit
 
   /** Puts a draining worker back to work. */
-  def undrain(workerUrl: String): Unit
+  def undrain(cluster: ClusterRef, workerUrl: String): Unit
 
   /** The worker's current state, or None when it could not be asked. */
-  def state(workerUrl: String): Option[String]
+  def state(cluster: ClusterRef, workerUrl: String): Option[String]
 }
 
 /**
@@ -50,21 +55,28 @@ trait WorkerDrain {
  *
  * `user` is sent as `X-Trino-User`: Trino guards `PUT /v1/info/state` as a
  * management write, and even a cluster with no authentication configured
- * refuses that with 401 unless the caller names an identity.
+ * refuses that with 401 unless the caller names an identity. `clientFor` picks
+ * the client the same way the coordinator side does - see
+ * [[TrinoClusterClients]] - because a worker on a secured cluster wants the
+ * same TLS or Kerberos as its coordinator, not a bare client that only the
+ * cluster's own sessions would be trusted with.
  */
-class TrinoWorkerDrain(client: OkHttpClient, user: String) extends WorkerDrain with Logging {
+class TrinoWorkerDrain(clientFor: ClusterRef => OkHttpClient, user: String)
+  extends WorkerDrain with Logging {
 
   import TrinoWorkerDrain._
 
-  override def drain(workerUrl: String): Unit = transition(workerUrl, Draining)
+  override def drain(cluster: ClusterRef, workerUrl: String): Unit =
+    transition(cluster, workerUrl, Draining)
 
-  override def undrain(workerUrl: String): Unit = transition(workerUrl, Active)
+  override def undrain(cluster: ClusterRef, workerUrl: String): Unit =
+    transition(cluster, workerUrl, Active)
 
-  override def state(workerUrl: String): Option[String] = {
+  override def state(cluster: ClusterRef, workerUrl: String): Option[String] = {
     val request = new Request.Builder().url(stateUrl(workerUrl))
       .header(UserHeader, user).get().build()
     try {
-      val response = client.newCall(request).execute()
+      val response = clientFor(cluster).newCall(request).execute()
       try {
         if (response.isSuccessful) {
           // The body is a quoted JSON string, e.g. "DRAINED".
@@ -81,11 +93,11 @@ class TrinoWorkerDrain(client: OkHttpClient, user: String) extends WorkerDrain w
     }
   }
 
-  private def transition(workerUrl: String, state: String): Unit = {
+  private def transition(cluster: ClusterRef, workerUrl: String, state: String): Unit = {
     val body = RequestBody.create(Json, "\"" + state + "\"")
     val request = new Request.Builder().url(stateUrl(workerUrl))
       .header(UserHeader, user).put(body).build()
-    val response = client.newCall(request).execute()
+    val response = clientFor(cluster).newCall(request).execute()
     try {
       if (!response.isSuccessful) {
         // Trino says why in the body - which header it wanted, or which
