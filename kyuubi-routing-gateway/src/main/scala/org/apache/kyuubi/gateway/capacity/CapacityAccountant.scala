@@ -51,7 +51,8 @@ class CapacityAccountant(
       cluster: String,
       capacity: ClusterCapacity,
       queryId: String,
-      memoryBytes: Long): Either[AdmissionDenial, Reservation] = {
+      memoryBytes: Long,
+      synthetic: Boolean = false): Either[AdmissionDenial, Reservation] = {
     val needed = capacity.workersFor(memoryBytes)
     if (needed > capacity.maxWorkers) {
       return Left(AdmissionDenial.TooLarge(needed, capacity.maxWorkers))
@@ -73,7 +74,7 @@ class CapacityAccountant(
             (held, Left(AdmissionDenial.Busy))
           }
         } else {
-          val reservation = Reservation(queryId, memoryBytes, clock())
+          val reservation = Reservation(queryId, memoryBytes, clock(), synthetic)
           (held + (queryId -> reservation), Right(reservation))
         }
       }

@@ -124,7 +124,12 @@ class ClusterShrinker(
     // Reserving through the same ledger the gate admits from is what closes the
     // race: a query arriving now sees the cluster as one worker smaller.
     val reservation = s"$ReservationPrefix${cluster.name}"
-    accountant.admit(cluster.name, capacity, reservation, capacity.maxMemoryPerNodeBytes) match {
+    accountant.admit(
+      cluster.name,
+      capacity,
+      reservation,
+      capacity.maxMemoryPerNodeBytes,
+      synthetic = true) match {
       case Left(denial) =>
         debug(s"Not shrinking ${cluster.name}: $denial")
       case Right(_) =>
@@ -139,9 +144,9 @@ class ClusterShrinker(
       target: org.apache.kyuubi.gateway.cluster.ScaleTarget,
       floor: Int): Unit = {
     info(s"${cluster.name} has been idle, draining ${departing.url}")
-    drain.drain(departing.url)
+    drain.drain(cluster, departing.url)
 
-    if (awaitDrained(departing.url)) {
+    if (awaitDrained(cluster, departing.url)) {
       scaleApi.request(target, departing.replicas - 1)
       idleSince.remove(cluster.name)
       info(s"${cluster.name} shrunk to ${departing.replicas - 1} workers, floor is $floor")
@@ -151,14 +156,14 @@ class ClusterShrinker(
       // to take those with it.
       warn(s"${departing.url} did not reach ${TrinoWorkerDrain.Drained} in " +
         s"${drainTimeoutMillis}ms, returning it to service")
-      drain.undrain(departing.url)
+      drain.undrain(cluster, departing.url)
     }
   }
 
-  private def awaitDrained(workerUrl: String): Boolean = {
+  private def awaitDrained(cluster: ClusterRef, workerUrl: String): Boolean = {
     val deadline = clock() + drainTimeoutMillis
     while (clock() < deadline) {
-      drain.state(workerUrl) match {
+      drain.state(cluster, workerUrl) match {
         case Some(TrinoWorkerDrain.Drained) => return true
         case Some(TrinoWorkerDrain.Active) =>
           // Something put it back - another gateway replica, or an operator.

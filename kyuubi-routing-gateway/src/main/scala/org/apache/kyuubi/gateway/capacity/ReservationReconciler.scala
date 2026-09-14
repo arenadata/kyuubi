@@ -106,11 +106,34 @@ class ReservationReconciler(
           }
         }
 
-        held.foreach { case (id, reservation) =>
-          // Only reservations old enough to have shown up are judged: a query
-          // admitted a moment ago has not reached the coordinator yet, and
-          // releasing it would hand its memory to somebody else.
-          if (!live.contains(id) && reservation.admittedAtMillis < cutoff) {
+        // A synthetic hold - a drain in progress, say - was never a Trino
+        // query and can never appear in `live`. Judging it the same way would
+        // release it as soon as it is older than the grace period, which is
+        // routinely sooner than whatever is holding it finishes; whoever
+        // admitted it releases it themselves.
+        //
+        // Only reservations old enough to have shown up are judged: a query
+        // admitted a moment ago has not reached the coordinator yet, and
+        // releasing it would hand its memory to somebody else.
+        val stale = held.filter { case (id, reservation) =>
+          !reservation.synthetic && !live.contains(id) && reservation.admittedAtMillis < cutoff
+        }
+
+        if (stale.nonEmpty && observed.isEmpty) {
+          // `observed` already carries only queries tagged as the gateway's
+          // own - see TrinoClusterQueries - so an empty list here says either
+          // "the cluster is idle" or "this viewer cannot see the gateway's
+          // queries", and those look identical. Releasing on the second would
+          // free capacity a query still holds, which is worse than the delay
+          // of waiting for stronger evidence: on a cluster the gateway has to
+          // itself, that evidence is ordinarily its own next query. A leaked
+          // reservation is held rather than guessed at, and a warning that
+          // persists is the operator's signal to check this cluster's access
+          // control.
+          warn(s"${cluster.name} lists none of the gateway's queries, keeping " +
+            s"${stale.size} reservations rather than trusting an answer that thin")
+        } else {
+          stale.keys.foreach { id =>
             info(s"Releasing $id on ${cluster.name}: the cluster is not running it")
             accountant.release(cluster.name, id)
           }

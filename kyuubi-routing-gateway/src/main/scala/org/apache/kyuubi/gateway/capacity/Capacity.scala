@@ -66,8 +66,21 @@ case class ClusterCapacity(
     else math.ceil(queryMemoryBytes.toDouble / maxMemoryPerNodeBytes).toInt
 }
 
-/** A query admitted to a cluster and not yet finished. */
-case class Reservation(queryId: String, memoryBytes: Long, admittedAtMillis: Long)
+/**
+ * A query admitted to a cluster and not yet finished.
+ *
+ * @param synthetic holds capacity for something that is not a Trino query the
+ *                  coordinator will ever list - a shrink-in-progress worker,
+ *                  for instance. [[ReservationReconciler]] cannot judge these
+ *                  by the cluster's own query list the way it judges real
+ *                  reservations, so it leaves them alone; whoever admitted one
+ *                  is responsible for releasing it.
+ */
+case class Reservation(
+    queryId: String,
+    memoryBytes: Long,
+    admittedAtMillis: Long,
+    synthetic: Boolean = false)
 
 /** Why a query could not be admitted right now. */
 sealed trait AdmissionDenial

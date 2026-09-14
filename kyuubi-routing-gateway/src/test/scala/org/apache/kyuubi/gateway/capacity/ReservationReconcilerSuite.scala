@@ -113,6 +113,47 @@ class ReservationReconcilerSuite extends KyuubiFunSuite {
     assert(calibration.observedFactor("c") === Some(2.0))
   }
 
+  test("a synthetic hold is left alone even once the list is trusted") {
+    val (accountant, clock, advance) = fixture
+    accountant.admit("c", capacity, "shrink:c", 10 * GB, synthetic = true)
+    advance(clock() + 600000L)
+    // One of the gateway's own queries is listed, so silence about r1/r2 counts
+    // - but the drain is never a Trino query and so can never be one of these.
+    val queries = new Fixed(Some(Seq(ObservedQuery("elsewhere", finished = false, None))))
+
+    reconciler(accountant, queries, clock).reconcile(cluster)
+
+    assert(
+      accountant.reservationsOn("c").keySet === Set("shrink:c"),
+      "a drain in progress can never appear in the cluster's list of queries")
+  }
+
+  test("a list with none of the gateway's queries in it releases nothing") {
+    val (accountant, clock, advance) = fixture
+    advance(clock() + 600000L)
+
+    reconciler(accountant, new Fixed(Some(Seq.empty)), clock).reconcile(cluster)
+
+    assert(
+      accountant.reservationsOn("c").keySet === Set("r1", "r2"),
+      "a coordinator that hides the gateway's own queries answers just like an idle one")
+  }
+
+  test("a leaked reservation goes once the cluster shows any of the gateway's queries") {
+    val (accountant, clock, advance) = fixture
+    advance(clock() + 600000L)
+    accountant.admit("c", capacity, "r3", 0L)
+
+    reconciler(
+      accountant,
+      new Fixed(Some(Seq(ObservedQuery("r3", finished = false, None)))),
+      clock).reconcile(cluster)
+
+    assert(
+      accountant.reservationsOn("c").keySet === Set("r3"),
+      "seeing one of the gateway's own queries is evidence the list is not hiding the rest")
+  }
+
   test("a cluster the resolver no longer knows has its reservations dropped") {
     val (accountant, clock, _) = fixture
     val queries = new Fixed(Some(Seq.empty))

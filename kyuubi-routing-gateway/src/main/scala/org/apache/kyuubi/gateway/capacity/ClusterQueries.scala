@@ -45,8 +45,12 @@ trait ClusterQueries {
    * Queries the cluster knows about that the gateway admitted.
    *
    * None means the cluster could not be asked. That is deliberately different
-   * from an empty answer: "nothing is running" would justify releasing every
-   * reservation, and an unreachable coordinator must never do that.
+   * from an empty answer, but an empty answer is not proof of an idle cluster
+   * either: a coordinator whose access control filters `/v1/query` by viewer
+   * can return nothing at all to an authenticated, reachable caller, which
+   * looks identical to "nothing is running" from here. The caller judges the
+   * two cases the same way only once it has other evidence the cluster is not
+   * hiding the gateway's own queries from it.
    */
   def observe(cluster: ClusterRef): Option[Seq[ObservedQuery]]
 }
