@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.gateway.scaling
 
+import java.util.concurrent.ConcurrentHashMap
+
 import scala.util.control.NonFatal
 
 import io.fabric8.kubernetes.client.KubernetesClient
@@ -59,24 +61,37 @@ trait ScaleApi {
  */
 class KubernetesClusterScaler(api: ScaleApi) extends ClusterScaler with Logging {
 
+  // One monitor per target, not one for the whole scaler: admissions on
+  // different clusters have no reason to contend. Within one target, this
+  // closes the read-then-write race between two concurrent scale-ups in this
+  // process - without it, a smaller concurrent request can issue its PUT
+  // after a larger one and leave the cluster short of what the larger
+  // admission already believes it was granted. It cannot close that race
+  // across gateway replicas, which still need a lock or a CAS-capable scale
+  // API to be fully safe.
+  private val locks = new ConcurrentHashMap[ScaleTarget, Object]()
+
   override def ensureAtLeast(target: ScaleTarget, workers: Int): Int = {
-    try {
-      api.ready(target) match {
-        case Some(current) if current >= workers =>
-          debug(s"$target already has $current workers, no scale-up needed for $workers")
-          current
-        case current =>
-          api.request(target, workers)
-          info(s"Asked $target for $workers workers, had ${current.getOrElse(0)}")
-          workers
+    val lock = locks.computeIfAbsent(target, _ => new Object)
+    lock.synchronized {
+      try {
+        api.ready(target) match {
+          case Some(current) if current >= workers =>
+            debug(s"$target already has $current workers, no scale-up needed for $workers")
+            current
+          case current =>
+            api.request(target, workers)
+            info(s"Asked $target for $workers workers, had ${current.getOrElse(0)}")
+            workers
+        }
+      } catch {
+        case NonFatal(e) =>
+          // Report nothing rather than what was asked for: the caller sizes an
+          // admission against the answer, and claiming workers that were never
+          // requested would admit a query onto a cluster that cannot hold it.
+          warn(s"Could not scale $target to $workers workers", e)
+          0
       }
-    } catch {
-      case NonFatal(e) =>
-        // Report nothing rather than what was asked for: the caller sizes an
-        // admission against the answer, and claiming workers that were never
-        // requested would admit a query onto a cluster that cannot hold it.
-        warn(s"Could not scale $target to $workers workers", e)
-        0
     }
   }
 }
