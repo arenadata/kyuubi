@@ -67,7 +67,7 @@ flowchart LR
 
     subgraph gw["Routing gateway"]
         direction TB
-        fe["Thrift frontend"]
+        fe["Thrift frontends, one listener each:<br/>binary on 10009; HTTP on 10010 with /cliservice<br/>and, dotted, /gpfdist/pod/* to a plain reverse proxy"]
         be["RoutingBackendService"]
         sm["RoutingSessionManager<br/>resolves by identity"]
         ks["Engine session<br/>in process"]
@@ -77,49 +77,107 @@ flowchart LR
     end
 
     k8s[("Kubernetes<br/>Services and annotations")]
-    op["Cluster operator"]
 
     subgraph cl["Trino / Impala / Spark, already running"]
         direction TB
         coord["coordinator"]
-        pods["worker pods<br/>each with an ADB Connector sidecar"]
+        pods["worker pods, gpfdist in each:<br/>the executor itself for Spark,<br/>a sidecar for Trino and Impala"]
         coord --- pods
     end
 
-    client -->|HS2, identity from SASL| fe
+    client -->|binary HS2: identity from SASL| fe
+    client -->|HS2 over HTTP: identity from the Authorization header,<br/>Basic, Negotiate or Bearer| fe
     sm -->|poll by label| k8s
     gate -->|EXPLAIN| coord
     gate -->|patch clusters/scale| k8s
     ks ==>|hop 1, the only one| coord
 
-    master -.->|HS2, the same entry point| fe
-    op -.->|computes LOCATION per pod| pods
-    segs <-.->|external tables, bulk in parallel| pods
+    pods -.->|JDBC to the master: the external table,<br/>LOCATION = the gateway's address and this pod's path| master
+    segs -.->|gpfdist over HTTP: the same 10010,<br/>/gpfdist/pod/...| fe
+    fe -.->|path rewritten, streamed to that pod's gpfdist,<br/>so a query's session stays on one| pods
 
     classDef dotted stroke-dasharray: 5 5
-    class adb,op dotted
+    class adb dotted
 ```
 
 The dotted overlay is the point of the gateway being the ADB Connector, and it
-says something that is easy to get backwards: **ADB's query goes through the
-gateway, ADB's data does not.**
+says something that is easy to get backwards: **the query and the data both
+cross the gateway, through different doors, and the data never enters the
+engine session.**
 
-The control path is an ordinary session. The ADB master opens it over HS2 at
-the same address every other client uses, and it is routed, authenticated,
-admitted and sized like any other - one entry point for Trino, Impala and Spark
-alike, which is what collapsing the connector and the gateway into one service
-was for.
+The control path runs the opposite way from what the name suggests. Nothing in
+ADB speaks HS2, and the master never opens a connection outward. As in the ADB
+Spark Connector, it is the connector side that opens JDBC to the master, and
+in the order its write diagram shows: start the gpfdist server, then create
+the external table that names it, then let the segments come. That side lives
+in the pod - gpfdist is the executor itself for Spark with the ADB Spark
+Connector, a sidecar for Trino and Impala, whose workers do not speak it - and
+the only thing a pod does differently here is what it writes into `LOCATION`:
+not its own address, which the segments could not reach, but the gateway's,
+with a path that names this pod. The gateway opens no JDBC and creates no
+tables. What arrives over HS2 is the query that set all this off, routed,
+authenticated, admitted and sized like any other - one entry point for Trino,
+Impala and Spark alike, which is what collapsing the connector and the
+gateway into one service was for.
 
-The data path never touches the gateway. Greenplum moves bulk through external
-tables, one per segment or partition, so the segments and the pods exchange it
-in parallel and directly; the operator computes each pod's `LOCATION` and puts
-it in the sidecar's environment. Routing a terabyte through a single process
-would make the gateway the narrowest thing in the picture, and the reason it
-does not have to is that the connector was already built to go around it.
+The data path is a different door of the same gateway. ADB moves bulk through
+external tables over gpfdist, which is plain HTTP with the query's identity in
+`X-GP-*` headers: every segment sends its own request to the gpfdist server
+named in `LOCATION`, the server groups the requests of one query into a
+session by transaction, command and scan number, and parcels its stream out to
+those connections round-robin. The master takes no part in it. In the ADB
+Spark Connector that server is every executor, and `LOCATION` lists one URI
+per executor, so the segments are spread across them, at most
+`gp_external_max_segs` per server.
 
-The two paths differ for an ordinary client, which is worth being clear about:
-a JDBC client's **results do** cross the gateway - that is the single hop the
-thick arrow marks - and only ADB's bulk transfer is parallel.
+A segment cannot connect to a pod, though - the segments live outside
+Kubernetes, and a pod address is not routable from there. The Tanzu Greenplum
+connector for Spark gets around it with an Ingress and a path per executor
+added while the transfer runs. Here there is no Ingress: the gateway is the
+one external address, so forwarding is its job, and forwarding is all of it.
+
+Nor is there a door of its own for it. gpfdist is HTTP/1.1 - `GET` for a
+readable table, `POST` for a writable one, `X-GP-*` headers and a chunked
+body - and the gateway already listens for HTTP: the Thrift HTTP frontend is
+a Jetty server with the HS2 servlet mounted on `/cliservice`, and HS2
+authentication lives inside that servlet, not on the listener. All the
+gateway adds is a second mapping on that listener, `/gpfdist/<pod>/*`, to a
+plain reverse proxy - Jetty's own, `jetty-proxy` is already in the assembly -
+which rewrites the path and streams, and knows nothing about gpfdist because
+it needs to know nothing. `LOCATION` names the gateway, port 10010, with a
+path per pod; a segment's request arriving on that path is streamed,
+unbuffered, to the gpfdist in that pod, whose address the gateway resolves
+through the same Kubernetes lookup routing uses. A path leads to one pod, so every request of a session lands on the
+same gpfdist, which is what the session needs, whichever gateway replica the
+Service handed the connection to. gpfdist being HTTP is what makes that
+possible; a binary stream could not be told apart by path.
+
+Two things follow. gpfdist has no authentication of its own - `gpfdists`,
+its TLS form with client certificates from the segments, is all there is - so
+the path is open unless the listener runs TLS and asks for a certificate,
+which is no different from gpfdist anywhere else. And ADB needs the HTTP
+frontend on: a Kerberos-only deployment, which turns it off, cannot be the
+connector.
+
+So the bulk does cross the gateway - which is why one hop matters, and why
+the introduction says so - but as an HTTP proxy in its own process, never
+through the engine session or the HS2 path: no rows are parsed, sized or held.
+What the proxy has to do is what an ingress would have had to: stream without
+buffering, since a gpfdist response is one long chunked stream per
+connection, keep requests open as long as `readable_external_table_timeout`
+on the ADB side allows, and carry the `X-GP-*` headers through untouched. Its
+throughput is the gateway's network, and every replica adds to it, because
+the Service spreads the segments' connections across replicas. Segments and
+pods still exchange the data in parallel and in both directions - writable
+external tables for reads out of ADB, readable ones for writes into it.
+
+None of the dotted part exists in this module yet; the picture is where it
+goes.
+
+For an ordinary JDBC client the results cross the gateway too - that is the
+single hop the thick arrow marks - but through the engine session. ADB's bulk
+crosses it through the proxy, in parallel across segments, and is the only
+traffic that does.
 
 What the pictures are saying:
 
@@ -131,7 +189,7 @@ What the pictures are saying:
 | What decides the backend | share level and engine type | the authenticated identity |
 | Capacity | the engine's own | sized before admission, held in a ledger |
 | Cluster size | fixed | grown for a query, given back when idle |
-| Bulk transfer to ADB | not its concern | around it, segments to pods in parallel |
+| Bulk transfer to ADB | not its concern | through it, as an HTTP proxy with a path per pod, in parallel |
 
 The frontends and the engine session layer are shared, not reimplemented:
 `TrinoSessionImpl` and `TrinoOperationManager` are the engine's own classes

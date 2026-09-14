@@ -506,11 +506,13 @@ Configuration, into which every Kyuubi setting is copied, so
 at all. Without it the gateway starts, finds no logged-in principal, and fails
 with "Kerberos principal should have 3 parts" naming the container's OS user.
 
-**The HTTP transport cannot do Kerberos.** Kyuubi's thrift HTTP frontend refuses
-to start when Kerberos is the only authentication configured - it has no GSSAPI
-negotiation - so `kerberos-gateway.yaml` lists `THRIFT_BINARY` alone. Configure
-a plain type alongside Kerberos and the HTTP frontend comes back, using that
-type; the realm serves LDAP for exactly this.
+**The HTTP transport refuses Kerberos alone.** Kyuubi's thrift HTTP frontend
+will not start when Kerberos is the only authentication configured, so
+`kerberos-gateway.yaml` lists `THRIFT_BINARY` alone. Configure a plain type
+alongside Kerberos and the HTTP frontend comes back, taking either
+`Authorization: Negotiate`, which is SPNEGO against the same keytab, or
+`Authorization: Basic` checked by that plain type; the realm serves LDAP for
+exactly this.
 
 ### Testing it
 
