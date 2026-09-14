@@ -79,16 +79,24 @@ spec:
               memory: 1Gi
             limits:
               memory: 2Gi
-          # Readiness on the metrics port rather than the thrift one: a TCP
-          # check against HS2 would pass on a socket that accepts and then
-          # fails every session, whereas the metrics endpoint only answers once
-          # the services behind it have started.
+          # Readiness on the hs2-binary port itself: the metrics service is
+          # registered first in RoutingGateway.initialize() and so starts
+          # before the backend service and the frontends do (CompositeService
+          # starts children in registration order) - /metrics can answer while
+          # the cluster resolver is still doing its first refresh, Kerberos is
+          # still logging in, or the thrift ports have not opened yet. A raw
+          # TCP check can in principle pass on a socket that accepts and then
+          # fails every session, but that is narrower than what it replaces:
+          # traffic routed to a pod not listening on hs2-binary at all.
           readinessProbe:
-            httpGet:
-              path: /metrics
-              port: metrics
+            tcpSocket:
+              port: hs2-binary
             initialDelaySeconds: 5
             periodSeconds: 5
+          # Liveness stays on metrics: it only has to tell whether the process
+          # is wedged, not whether it is ready for traffic, and a lightweight
+          # HTTP check that does not depend on session-handling capacity is
+          # the safer thing to fail a restart on.
           livenessProbe:
             httpGet:
               path: /metrics
