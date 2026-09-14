@@ -76,8 +76,38 @@ object StaticClusterResolver {
             .map(_.split(",").map(_.trim).filter(_.nonEmpty).toSet)
             .getOrElse(Set.empty),
           isDefault = conf.get(base + "default").exists(_.toBoolean),
-          sessionConf = sessionConf)
+          sessionConf = sessionConf,
+          capacity = declaredCapacity(base, conf))
       }
     }
   }
+
+  /**
+   * Capacity is only reported when all three parts are present and sensible.
+   *
+   * Mirrors the equivalent parsing in KubernetesClusterResolver's annotations -
+   * without this, a statically-resolved cluster can never carry a declared
+   * capacity, which leaves admission (and anything built on it) permanently
+   * "unaccounted" no matter how `kyuubi.gateway.admission.enabled` is set.
+   */
+  private def declaredCapacity(base: String, conf: Map[String, String]): Option[DeclaredCapacity] =
+    for {
+      memory <- conf.get(base + "max-memory-per-node-bytes").flatMap(parsePositiveLong)
+      workers <- conf.get(base + "workers").flatMap(parsePositiveLong).map(_.toInt)
+      maxWorkers <- conf.get(base + "max-workers").flatMap(parsePositiveLong).map(_.toInt)
+      if maxWorkers >= workers
+    } yield DeclaredCapacity(
+      memory,
+      workers,
+      maxWorkers,
+      minWorkers = conf.get(base + "min-workers")
+        .flatMap(parsePositiveLong).map(_.toInt).getOrElse(1).min(workers))
+
+  private def parsePositiveLong(s: String): Option[Long] =
+    try {
+      val v = s.trim.toLong
+      if (v > 0) Some(v) else None
+    } catch {
+      case _: NumberFormatException => None
+    }
 }
