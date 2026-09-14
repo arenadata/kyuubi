@@ -79,8 +79,12 @@ class SecretReservationStore(
       if (next == held) return answer
 
       try {
-        write(cluster, existing, next)
-        return answer
+        if (write(cluster, existing, next)) return answer
+        // write() returning false means the delete branch found the ledger
+        // had moved since `existing` was read - the same "somebody else wrote
+        // first" situation a 409 signals below, so it is retried the same way.
+        debug(s"Reservation ledger for $cluster changed under attempt $attempt, retrying")
+        backOff(attempt)
       } catch {
         case e: KubernetesClientException if e.getCode == 409 =>
           // Somebody else wrote first. The decision was made against what is now
@@ -142,14 +146,34 @@ class SecretReservationStore(
 
   private def secrets = client.secrets().inNamespace(namespace)
 
+  /** @return false when the delete branch found the ledger had moved and nothing was written. */
   private def write(
       cluster: String,
       existing: Option[Secret],
-      reservations: Map[String, Reservation]): Unit = {
+      reservations: Map[String, Reservation]): Boolean = {
     val name = nameFor(cluster)
     if (reservations.isEmpty) {
-      existing.foreach(_ => secrets.withName(name).delete())
-      return
+      return existing match {
+        case None => true
+        case Some(e) =>
+          // Plain delete-by-name carries no resourceVersion precondition the
+          // way create/update below do, so the version is checked by hand
+          // immediately before deleting. Not a true compare-and-swap - another
+          // write can still land in the gap - but it closes the window a
+          // blind delete left open: a concurrent admission whose write has
+          // already landed is caught here and retried against the new state,
+          // instead of being silently deleted along with the ledger it just
+          // wrote into.
+          val current = Option(secrets.withName(name).get())
+          val sameVersion = current.exists(
+            _.getMetadata.getResourceVersion == e.getMetadata.getResourceVersion)
+          if (sameVersion) {
+            secrets.withName(name).delete()
+            true
+          } else {
+            false
+          }
+      }
     }
     val secret = new SecretBuilder()
       .withNewMetadata()
@@ -173,6 +197,7 @@ class SecretReservationStore(
     } else {
       secrets.resource(secret).create()
     }
+    true
   }
 
   private def readFrom(secret: Secret): Map[String, Reservation] =
@@ -249,6 +274,9 @@ object SecretReservationStore {
       row.put("id", r.queryId)
       row.put("bytes", r.memoryBytes)
       row.put("at", r.admittedAtMillis)
+      // Omitted when false, so a ledger written by an older gateway version
+      // (with no such field) still reads back as an ordinary reservation.
+      if (r.synthetic) row.put("synthetic", true)
     }
     mapper.writeValueAsString(array)
   }
@@ -258,7 +286,11 @@ object SecretReservationStore {
     if (!root.isArray) return Map.empty
     root.elements().asScala.map { node =>
       val id = node.path("id").asText("")
-      id -> Reservation(id, node.path("bytes").asLong(), node.path("at").asLong())
+      id -> Reservation(
+        id,
+        node.path("bytes").asLong(),
+        node.path("at").asLong(),
+        node.path("synthetic").asBoolean(false))
     }.filter(_._1.nonEmpty).toMap
   }
 }
