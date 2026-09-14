@@ -45,8 +45,14 @@ trait WorkerDrain {
   def state(workerUrl: String): Option[String]
 }
 
-/** Talks to the worker over its own REST endpoint. */
-class TrinoWorkerDrain(client: OkHttpClient) extends WorkerDrain with Logging {
+/**
+ * Talks to the worker over its own REST endpoint.
+ *
+ * `user` is sent as `X-Trino-User`: Trino guards `PUT /v1/info/state` as a
+ * management write, and even a cluster with no authentication configured
+ * refuses that with 401 unless the caller names an identity.
+ */
+class TrinoWorkerDrain(client: OkHttpClient, user: String) extends WorkerDrain with Logging {
 
   import TrinoWorkerDrain._
 
@@ -55,7 +61,8 @@ class TrinoWorkerDrain(client: OkHttpClient) extends WorkerDrain with Logging {
   override def undrain(workerUrl: String): Unit = transition(workerUrl, Active)
 
   override def state(workerUrl: String): Option[String] = {
-    val request = new Request.Builder().url(stateUrl(workerUrl)).get().build()
+    val request = new Request.Builder().url(stateUrl(workerUrl))
+      .header(UserHeader, user).get().build()
     try {
       val response = client.newCall(request).execute()
       try {
@@ -76,12 +83,17 @@ class TrinoWorkerDrain(client: OkHttpClient) extends WorkerDrain with Logging {
 
   private def transition(workerUrl: String, state: String): Unit = {
     val body = RequestBody.create(Json, "\"" + state + "\"")
-    val request = new Request.Builder().url(stateUrl(workerUrl)).put(body).build()
+    val request = new Request.Builder().url(stateUrl(workerUrl))
+      .header(UserHeader, user).put(body).build()
     val response = client.newCall(request).execute()
     try {
       if (!response.isSuccessful) {
+        // Trino says why in the body - which header it wanted, or which
+        // system-information right the user lacks - so pass that on.
+        val reason = Option(response.body).map(_.string().trim).filter(_.nonEmpty)
+          .map(r => s" (${r.take(200)})").getOrElse("")
         throw new IllegalStateException(
-          s"$workerUrl refused the transition to $state: HTTP ${response.code}")
+          s"$workerUrl refused the transition to $state: HTTP ${response.code}$reason")
       }
       info(s"$workerUrl is now $state")
     } finally response.close()
@@ -97,6 +109,7 @@ object TrinoWorkerDrain {
   val Draining = "DRAINING"
   val Drained = "DRAINED"
   val Active = "ACTIVE"
+  val UserHeader = "X-Trino-User"
 
   private val Json = MediaType.parse("application/json")
 }

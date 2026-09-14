@@ -272,7 +272,7 @@ object RoutingBackendService {
       accountant,
       resolver,
       new KubernetesWorkerPool(client),
-      new TrinoWorkerDrain(new OkHttpClient.Builder().build()),
+      new TrinoWorkerDrain(new OkHttpClient.Builder().build(), ClusterShrinker.userFrom(conf)),
       new FabricScaleApi(client),
       capacityOf,
       ClusterShrinker.idleAfterFrom(conf),

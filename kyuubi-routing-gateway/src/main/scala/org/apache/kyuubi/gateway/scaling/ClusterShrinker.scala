@@ -23,7 +23,7 @@ import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 import scala.util.control.NonFatal
 
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.gateway.capacity.{CapacityAccountant, ClusterCapacity}
+import org.apache.kyuubi.gateway.capacity.{CapacityAccountant, ClusterCapacity, ReservationReconciler}
 import org.apache.kyuubi.gateway.cluster.{ClusterRef, ClusterResolver}
 import org.apache.kyuubi.service.AbstractService
 import org.apache.kyuubi.util.ThreadUtils
@@ -190,6 +190,7 @@ object ClusterShrinker {
   val IDLE_AFTER_KEY = "kyuubi.gateway.scaling.shrink.idleAfter"
   val INTERVAL_KEY = "kyuubi.gateway.scaling.shrink.interval"
   val DRAIN_TIMEOUT_KEY = "kyuubi.gateway.scaling.shrink.drainTimeout"
+  val USER_KEY = "kyuubi.gateway.scaling.shrink.user"
 
   val DefaultIdleAfterMillis = 600000L
   val DefaultIntervalMillis = 60000L
@@ -217,4 +218,18 @@ object ClusterShrinker {
 
   def drainTimeoutFrom(conf: KyuubiConf): Long =
     conf.getOption(DRAIN_TIMEOUT_KEY).map(_.toLong).getOrElse(DefaultDrainTimeoutMillis)
+
+  /**
+   * The Trino user a drain speaks as.
+   *
+   * Trino refuses `PUT /v1/info/state` without an identity even when no
+   * authentication is configured - its insecure authenticator still wants
+   * `X-Trino-User` - so the drain has to be someone. The reconciler already
+   * carries a Trino user for the same reason; reuse it unless told otherwise,
+   * and fall back to the OS user as it does.
+   */
+  def userFrom(conf: KyuubiConf): String =
+    conf.getOption(USER_KEY)
+      .orElse(conf.getOption(ReservationReconciler.USER_KEY))
+      .getOrElse(org.apache.kyuubi.Utils.currentUser)
 }

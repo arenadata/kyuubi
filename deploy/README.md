@@ -349,6 +349,7 @@ kyuubi.gateway.scaling.shrink.enabled       true
 kyuubi.gateway.scaling.shrink.idleAfter     600000   # ms with nothing reserved
 kyuubi.gateway.scaling.shrink.interval      60000
 kyuubi.gateway.scaling.shrink.drainTimeout  300000
+kyuubi.gateway.scaling.shrink.user          gateway   # Trino user, see below
 ```
 
 Off even when scaling up is on: growing a cluster costs money and shrinking one
@@ -376,6 +377,16 @@ to the coordinator, which stops assigning it tasks; `DRAINED` means the tasks it
 had have finished. A worker that does not reach `DRAINED` within `drainTimeout`
 is put back to `ACTIVE` rather than removed anyway - Trino's draining state is
 reversible for exactly this.
+
+The drain speaks to each worker as `shrink.user`, sent as `X-Trino-User`. Trino
+guards `PUT /v1/info/state` as a management write and answers `401` when no
+identity is sent, even on a cluster with no authentication configured. The
+setting defaults to `reconcile.user`, then to the OS user of the gateway
+process, which inside this image is a bare uid, so set one of the two. With
+file-based system access control the user also needs a `system_information`
+rule allowing `write`, or the worker answers `403`. Setting `management.user`
+on the workers is the other way in: Trino then treats every caller of a
+management endpoint over HTTP as that fixed user.
 
 *The capacity being removed is reserved for the duration.* A query admitted
 while the drain is in flight would otherwise be sized for a cluster about to be
