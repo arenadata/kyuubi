@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.gateway.capacity
 
+import java.util.Locale
+
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.gateway.cluster.ClusterRef
 import org.apache.kyuubi.gateway.scaling.ClusterScaler
@@ -47,36 +49,45 @@ class AdmissionGate(
 
   case class Admitted(reservation: Option[Reservation], workers: Int)
 
+  /** A statement that touches no data: nothing planned, nothing held, no workers waited for. */
+  private val admittedFree: Either[AdmissionDenial, Admitted] = Right(Admitted(None, 0))
+
+  /** A cluster nobody declared capacity for: the query runs, the ledger never sees it. */
+  private val admittedUnaccounted: Either[AdmissionDenial, Admitted] = Right(Admitted(None, 0))
+
   def admit(
       cluster: ClusterRef,
       queryId: String,
       statement: String,
       planner: QueryPlanner): Either[AdmissionDenial, Admitted] = {
+    if (!needsSizing(statement)) {
+      // Metadata and session statements do not touch the data path: nothing to
+      // plan, nothing to hold, no workers to wait for. Sized as unknown they
+      // would take the default worker count - and on a cluster smaller than
+      // that, a SHOW would scale it up. Decided before the capacity lookup
+      // because it does not depend on it.
+      return admittedFree
+    }
+
     val capacity = capacityOf(cluster).getOrElse {
       // A cluster whose capacity nobody declared cannot be accounted for.
       // Refusing its queries would break every cluster not yet annotated, so
       // it is admitted unaccounted - but noisily, because an unaccounted
       // cluster silently defeats the point of having a gate.
       warnUnaccounted(cluster.name)
-      return Right(Admitted(None, 0))
+      return admittedUnaccounted
     }
 
     val estimate =
-      if (!needsSizing(statement)) {
-        // Metadata and session statements do not touch the data path. Planning
-        // them costs a round trip and tells us nothing.
-        QueryEstimate.unknown
-      } else {
-        try {
-          ExplainParser.parse(planner.explain(statement))
-        } catch {
-          case e: Exception =>
-            // A failed EXPLAIN is not a reason to refuse the query - the
-            // statement may be one the planner cannot plan in isolation. Fall
-            // back to the default size and let the engine judge it.
-            warn(s"EXPLAIN failed for $queryId, sizing with the default: ${e.getMessage}")
-            QueryEstimate.unknown
-        }
+      try {
+        ExplainParser.parse(planner.explain(statementToPlan(statement)))
+      } catch {
+        case e: Exception =>
+          // A failed EXPLAIN is not a reason to refuse the query - the
+          // statement may be one the planner cannot plan in isolation. Fall
+          // back to the default size and let the engine judge it.
+          warn(s"EXPLAIN failed for $queryId, sizing with the default: ${e.getMessage}")
+          QueryEstimate.unknown
       }
 
     val decision = sizer.size(estimate, capacity)
@@ -190,15 +201,44 @@ object AdmissionGate {
    * Whether a statement is worth planning before admission.
    *
    * Everything that reads data is; metadata lookups, session settings and
-   * EXPLAIN itself are not. The list is deliberately a denial list rather than
-   * an allow list: an unrecognised statement gets planned, which is the safe
-   * direction - the cost is one round trip, whereas skipping the estimate on a
-   * real query would admit it as if it were free.
+   * EXPLAIN itself are not. EXPLAIN ANALYZE is the exception among EXPLAINs:
+   * it runs the query in full to annotate the plan, so it is sized as the
+   * query it runs - see [[statementToPlan]]. The list is deliberately a
+   * denial list rather than an allow list: an unrecognised statement gets
+   * planned, which is the safe direction - the cost is one round trip,
+   * whereas skipping the estimate on a real query would admit it as if it
+   * were free.
    */
   def needsSizing(statement: String): Boolean = {
-    val head = statement.trim.takeWhile(!_.isWhitespace).toUpperCase
-    !skipped.contains(head)
+    val words = leadingWords(statement, 2)
+    words.headOption match {
+      case Some("EXPLAIN") => words.lift(1).contains("ANALYZE")
+      case Some(head) => !skipped.contains(head)
+      case None => true
+    }
   }
+
+  /**
+   * The statement the planner is asked about.
+   *
+   * `EXPLAIN ANALYZE [VERBOSE] <query>` executes `<query>`, and that is what
+   * has to be sized: an EXPLAIN of the EXPLAIN would cost nothing and say
+   * nothing. The prefix is dropped so the planner sees the query itself.
+   * Everything else is planned as written.
+   */
+  def statementToPlan(statement: String): String = {
+    val words = leadingWords(statement, 3)
+    if (words.headOption.contains("EXPLAIN") && words.lift(1).contains("ANALYZE")) {
+      val prefix = if (words.lift(2).contains("VERBOSE")) 3 else 2
+      statement.trim.split("\\s+", prefix + 1).lift(prefix).getOrElse("")
+    } else {
+      statement
+    }
+  }
+
+  /** The first `n` words of a statement, upper-cased; fewer if it is shorter. */
+  private def leadingWords(statement: String, n: Int): Seq[String] =
+    statement.trim.split("\\s+", n + 1).take(n).map(_.toUpperCase(Locale.ROOT)).toSeq
 
   private val skipped = Set(
     "EXPLAIN",

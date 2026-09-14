@@ -82,6 +82,23 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     assert(planned === 1, "the safe direction for an unknown statement is to plan it")
   }
 
+  test("EXPLAIN ANALYZE runs its query, so it is planned and sized as that query") {
+    var planned = Seq.empty[String]
+    val g = gate()
+    val recording: QueryPlanner = (statement: String) => { planned :+= statement; planWith(GB) }
+
+    val admitted =
+      g.admit(cluster, "q1", "EXPLAIN ANALYZE VERBOSE SELECT * FROM t", recording).toOption.get
+    assert(
+      planned === Seq("SELECT * FROM t"),
+      "the planner is asked about the query, not the EXPLAIN")
+    assert(admitted.reservation.isDefined, "it holds memory like the query it runs")
+    assert(admitted.workers > 0, "and waits for workers like the query it runs")
+
+    g.admit(cluster, "q2", "EXPLAIN SELECT * FROM t", recording)
+    assert(planned.size === 1, "a plain EXPLAIN runs nothing and is not planned")
+  }
+
   test("a cluster with no declared capacity is admitted unaccounted, not refused") {
     val ungated = new AdmissionGate(
       new CapacityAccountant(AdmissionPolicy.PackByMemory),
@@ -172,6 +189,25 @@ class AdmissionGateSuite extends KyuubiFunSuite {
       .admit(cluster, "q1", "SELECT * FROM t", planner(planWith(60 * GB))).swap.getOrElse(null)
     assert(denial === AdmissionDenial.NeedsScaleUp(6))
     assert(scaler.asked.isEmpty)
+  }
+
+  test("statements that touch no data reserve nothing and never grow the cluster") {
+    val scaler = new RecordingScaler()
+    val scalable = cluster.copy(scaleTarget = Some(target))
+    // One worker and a default size of two: sized as unknown, every SHOW here
+    // would be a scale-up.
+    val g = new AdmissionGate(
+      new CapacityAccountant(AdmissionPolicy.PackByMemory),
+      new QuerySizer(SizingPolicy(memoryFactor = 1.0, defaultWorkers = 2)),
+      _ => Some(capacity.copy(workers = 1)),
+      Some(scaler))
+
+    Seq("SHOW CATALOGS", "EXPLAIN SELECT * FROM t", "SET SESSION x = 1").foreach { statement =>
+      val admitted = g.admit(scalable, statement, statement, planner(planWith(GB))).toOption.get
+      assert(admitted.reservation.isEmpty, s"$statement holds no memory")
+      assert(admitted.workers === 0, s"$statement waits for no workers")
+    }
+    assert(scaler.asked.isEmpty, "a metadata statement is no reason to grow a cluster")
   }
 
   test("a busy cluster is not grown - scaling frees nothing that is in flight") {
