@@ -135,7 +135,7 @@
         <github.archive.dist>https://github.com/arenadata</github.archive.dist>
         <atlas.version>2.3.0</atlas.version>
         <byte-buddy.version>1.17.6</byte-buddy.version>
-        <bouncycastle.version>1.82</bouncycastle.version>
+        <bouncycastle.version>1.84</bouncycastle.version>
         <codahale.metrics.version>4.2.30</codahale.metrics.version>
         <commons-cli.version>1.5.0</commons-cli.version>
         <commons-codec.version>1.17.1</commons-codec.version>
@@ -173,7 +173,7 @@
         <hudi.artifact>hudi-spark${spark.binary.version}-bundle_${scala.binary.version}</hudi.artifact>
         <iceberg.version>1.10.1.1-4.3.0-3</iceberg.version>
         <iceberg.artifact>iceberg-spark-runtime-${spark.binary.version}_${scala.binary.version}</iceberg.artifact>
-        <jackson.version>2.20.1</jackson.version>
+        <jackson.version>2.21.4</jackson.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
         <!-- 6.0.0 requires JDK 11 -->
         <jakarta.servlet-api.version>5.0.0</jakarta.servlet-api.version>
@@ -181,7 +181,7 @@
         <jakarta.activation.version>1.2.2</jakarta.activation.version>
         <jersey.version>2.47</jersey.version>
         <jetcd.version>0.7.7</jetcd.version>
-        <jetty.version>9.4.58.v20250814</jetty.version>
+        <jetty.version>9.4.58.1</jetty.version>
         <jline.version>2.14.6</jline.version>
         <junit.version>4.13.2</junit.version>
         <kafka.version>3.9.2</kafka.version>
@@ -194,13 +194,15 @@
         <log4j.version>2.25.3</log4j.version>
         <mysql.jdbc.version>8.4.0</mysql.jdbc.version>
         <mockito.version>4.11.0</mockito.version>
-        <netty.version>4.2.7.Final</netty.version>
+        <netty.version>4.2.17.Final</netty.version>
+        <!-- CVE-2021-0341: OkHttp before 4.9.2 can accept the wrong certificate. -->
+        <okhttp.version>4.12.0</okhttp.version>
         <openai.java.version>0.12.0</openai.java.version>
         <retrofit.version>2.9.0</retrofit.version>
         <paimon.version>0.8.2</paimon.version>
         <paimon.artifact>paimon-spark-${spark.binary.version}</paimon.artifact>
         <phoenix.version>6.0.0</phoenix.version>
-        <postgresql.version>42.7.2</postgresql.version>
+        <postgresql.version>42.7.12</postgresql.version>
         <ojdbc.version>23.2.0.0</ojdbc.version>
         <prometheus.version>0.16.0</prometheus.version>
         <protobuf.version>3.25.9</protobuf.version>
@@ -742,6 +744,14 @@
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp-bom</artifactId>
+                <version>${okhttp.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
