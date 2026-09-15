@@ -84,6 +84,7 @@
         <module>kyuubi-hive-jdbc-shaded</module>
         <module>kyuubi-metrics</module>
         <module>kyuubi-rest-client</module>
+        <module>kyuubi-routing-gateway</module>
         <module>kyuubi-spark-connect-common</module>
         <module>kyuubi-server</module>
         <module>kyuubi-util</module>
