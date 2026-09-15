@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to You under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.kyuubi</groupId>
+        <artifactId>kyuubi-parent</artifactId>
+        <version>1.11.1.2-4.4.0-0</version>
+    </parent>
+
+    <artifactId>system-tests</artifactId>
+    <name>Kyuubi System Tests</name>
+    <packaging>jar</packaging>
+
+    <properties>
+        <testcontainers.version>1.20.4</testcontainers.version>
+        <junit.jupiter.version>5.10.5</junit.jupiter.version>
+        <allure.version>2.29.0</allure.version>
+        <allure-maven.version>2.15.2</allure-maven.version>
+        <!-- Match TRINO_VERSION in env/.env -->
+        <trino.jdbc.version>481</trino.jdbc.version>
+        <!-- Built by ./build/dist; copied into the Kyuubi Docker build context before IT. -->
+        <kyuubi.dist.dir>${project.basedir}/../dist</kyuubi.dist.dir>
+        <kyuubi.docker.dist.dir>${project.basedir}/env/docker/kyuubi-dist</kyuubi.docker.dist.dir>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.kyuubi</groupId>
+            <artifactId>kyuubi-hive-jdbc</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-jdbc</artifactId>
+            <version>${trino.jdbc.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.jupiter.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.qameta.allure</groupId>
+            <artifactId>allure-junit5</artifactId>
+            <version>${allure.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-bytecode-version</id>
+                        <configuration>
+                            <rules>
+                                <enforceBytecodeVersion>
+                                    <maxJdkVersion>${enforcer.maxJdkVersion}</maxJdkVersion>
+                                    <ignoredScopes>provided</ignoredScopes>
+                                    <ignoredScopes>test</ignoredScopes>
+                                    <ignoreClasses>
+                                        <ignoreClass>com.thoughtworks.paranamer.DefaultParanamer</ignoreClass>
+                                        <ignoreClass>org.jline.terminal.impl.ffm.*</ignoreClass>
+                                        <ignoreClass>io.netty.channel.uring.*</ignoreClass>
+                                        <!-- trino-jdbc 481 ships optional aircompressor v3 (JDK 25); unused on JDK 17 -->
+                                        <ignoreClass>io.trino.jdbc.$internal.airlift.compress.v3.*</ignoreClass>
+                                    </ignoreClasses>
+                                </enforceBytecodeVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>io.qameta.allure</groupId>
+                <artifactId>allure-maven</artifactId>
+                <version>${allure-maven.version}</version>
+                <configuration>
+                    <reportVersion>${allure.version}</reportVersion>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>system-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>prepare-kyuubi-docker-context</id>
+                                <phase>pre-integration-test</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <fail message="Kyuubi dist not found at ${kyuubi.dist.dir}/bin/kyuubi. Build with ./build/dist first.">
+                                            <condition>
+                                                <not>
+                                                    <available file="${kyuubi.dist.dir}/bin/kyuubi"/>
+                                                </not>
+                                            </condition>
+                                        </fail>
+                                        <delete dir="${kyuubi.docker.dist.dir}" quiet="true"/>
+                                        <mkdir dir="${kyuubi.docker.dist.dir}"/>
+                                        <copy todir="${kyuubi.docker.dist.dir}" overwrite="true">
+                                            <fileset dir="${kyuubi.dist.dir}">
+                                                <exclude name="work/**"/>
+                                                <exclude name="logs/**"/>
+                                                <exclude name="pid/**"/>
+                                                <exclude name="spark-binary/**"/>
+                                            </fileset>
+                                        </copy>
+                                        <chmod dir="${kyuubi.docker.dist.dir}/bin" perm="ugo+x" includes="**"/>
+                                        <mkdir dir="${kyuubi.docker.dist.dir}/conf"/>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                                <include>**/*IT.scala</include>
+                                <include>**/*IT.class</include>
+                            </includes>
+                            <!-- Compose stack teardown in shutdown hooks often exceeds the default 30s. -->
+                            <forkedProcessExitTimeoutInSeconds>180</forkedProcessExitTimeoutInSeconds>
+                            <systemPropertyVariables>
+                                <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
+                            </systemPropertyVariables>
+                            <properties>
+                                <property>
+                                    <name>listener</name>
+                                    <value>io.qameta.allure.junit5.AllureJunit5</value>
+                                </property>
+                            </properties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

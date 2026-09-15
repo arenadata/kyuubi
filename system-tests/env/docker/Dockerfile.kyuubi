@@ -1,0 +1,87 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+ARG BASE_IMAGE=eclipse-temurin:17-jdk-jammy
+ARG SPARK3_IMAGE=local/spark:3.5.4-scala2.13
+ARG SPARK4_IMAGE=apache/spark:4.2.0-java17
+ARG HIVE_HOME_IMAGE=apache/hive:4.2.1
+
+FROM ${SPARK3_IMAGE} AS spark3
+FROM ${SPARK4_IMAGE} AS spark4
+FROM ${HIVE_HOME_IMAGE} AS hive4
+FROM eclipse-temurin:21-jdk-jammy AS jdk21
+
+# ---------------------------------------------------------------------------
+# Runtime gateway
+# ---------------------------------------------------------------------------
+FROM ${BASE_IMAGE}
+
+ARG POSTGRES_JDBC_VERSION=42.7.3
+ARG MAVEN_CENTRAL=https://repo1.maven.org/maven2
+
+ENV KYUUBI_HOME=/opt/kyuubi \
+    JAVA_HOME=/opt/java/openjdk \
+    HADOOP_CONF_DIR=/etc/hadoop/conf \
+    HIVE_CONF_DIR=/etc/hive/conf
+
+USER root
+
+RUN set -ex && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends bash tini curl ca-certificates procps python3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /etc/hadoop/conf /etc/hive/conf /etc/spark3/conf /etc/spark4/conf \
+             /usr/lib/spark3 /usr/lib/spark4 /usr/lib/hive \
+             /opt/jdbc-drivers /opt/java/openjdk-21 ${KYUUBI_HOME}
+
+RUN set -ex && \
+    curl -fsSL "${MAVEN_CENTRAL}/org/postgresql/postgresql/${POSTGRES_JDBC_VERSION}/postgresql-${POSTGRES_JDBC_VERSION}.jar" \
+      -o /opt/jdbc-drivers/postgresql.jar
+
+COPY --from=jdk21 /opt/java/openjdk /opt/java/openjdk-21
+COPY --from=spark3 /opt/spark /usr/lib/spark3
+COPY --from=spark4 /opt/spark /usr/lib/spark4
+COPY --from=hive4 /opt/hive /usr/lib/hive
+
+# Fail fast if docker context was not prepared (run mvn verify / pre-integration-test after ./build/dist).
+COPY kyuubi-dist/bin/kyuubi ${KYUUBI_HOME}/bin/kyuubi
+COPY kyuubi-dist/ ${KYUUBI_HOME}/
+
+RUN set -ex && \
+    useradd -u 10009 -g root -m kyuubi || true && \
+    mkdir -p ${KYUUBI_HOME}/logs ${KYUUBI_HOME}/pid ${KYUUBI_HOME}/work && \
+    chmod -R ug+rw ${KYUUBI_HOME} && \
+    chmod a+rwx ${KYUUBI_HOME}/work && \
+    test -f ${KYUUBI_HOME}/bin/kyuubi || ( \
+      echo "ERROR: kyuubi-dist incomplete." >&2; \
+      echo "Build dist and let Maven copy it into the Docker context, e.g.:" >&2; \
+      echo "  ./build/dist ... && mvn -Psystem-tests -pl system-tests -am verify" >&2; \
+      exit 1 \
+    ) && \
+    chmod -R a+x ${KYUUBI_HOME}/bin && \
+    JDBC_ENG=${KYUUBI_HOME}/externals/engines/jdbc && \
+    ln -sfn "$(ls "${JDBC_ENG}"/hadoop-client-api-*.jar | head -1)" \
+      "${JDBC_ENG}/hadoop-client-api.jar" && \
+    ln -sfn "$(ls "${JDBC_ENG}"/hadoop-client-runtime-*.jar | head -1)" \
+      "${JDBC_ENG}/hadoop-client-runtime.jar" && \
+    ln -sfn "$(ls "${JDBC_ENG}"/slf4j-api-*.jar | head -1)" \
+      "${JDBC_ENG}/slf4j-api.jar"
+
+WORKDIR ${KYUUBI_HOME}
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["./bin/kyuubi", "run"]
