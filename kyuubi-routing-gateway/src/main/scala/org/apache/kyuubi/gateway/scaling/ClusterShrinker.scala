@@ -178,9 +178,11 @@ class ClusterShrinker(
   }
 
   /**
-   * Workers are reached on the scheme and port the coordinator is, because they
-   * run the same image with the same configuration. An address that is wrong
-   * shows as a worker that never drains, which the timeout turns back.
+   * Where to reach workers when their pool does not say: the scheme and port
+   * the coordinator is on. The pool is asked first - the Service governing the
+   * workers declares where they listen, and behind a coordinator that
+   * terminates TLS that is usually plain HTTP on another port. An address that
+   * is wrong shows as a worker that never drains, which the timeout turns back.
    */
   private def addressOf(cluster: ClusterRef): (String, Int) = {
     val uri = URI.create(cluster.url)

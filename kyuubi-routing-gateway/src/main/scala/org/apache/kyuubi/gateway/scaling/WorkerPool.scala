@@ -17,8 +17,13 @@
 
 package org.apache.kyuubi.gateway.scaling
 
+import java.util.Locale
+
+import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
+import io.fabric8.kubernetes.api.model.{ContainerPort, ServicePort}
+import io.fabric8.kubernetes.api.model.apps.StatefulSet
 import io.fabric8.kubernetes.client.KubernetesClient
 
 import org.apache.kyuubi.Logging
@@ -49,6 +54,9 @@ trait WorkerPool {
 
   /**
    * The worker that would go, or None when this pool cannot be shrunk safely.
+   *
+   * `scheme` and `port` are where to reach a worker when the pool itself does
+   * not say where its workers listen.
    */
   def departing(namespace: String, statefulSet: String, scheme: String, port: Int)
       : Option[DepartingWorker]
@@ -81,13 +89,99 @@ class KubernetesWorkerPool(client: KubernetesClient) extends WorkerPool with Log
         return None
       }
       val ordinal = replicas - 1
+      val (workerScheme, workerPort) = listening(namespace, service, sts, scheme, port)
       Some(DepartingWorker(
-        s"$scheme://$statefulSet-$ordinal.$service.$namespace.svc.cluster.local:$port",
+        s"$workerScheme://$statefulSet-$ordinal.$service.$namespace.svc.cluster.local:$workerPort",
         replicas))
     } catch {
       case NonFatal(e) =>
         warn(s"Could not read StatefulSet $namespace/$statefulSet", e)
         None
+    }
+  }
+
+  /**
+   * Where the pool's workers listen, as the Service their DNS names go through
+   * declares it. `scheme` and `port` stand when that Service cannot be read.
+   */
+  private def listening(
+      namespace: String,
+      service: String,
+      sts: StatefulSet,
+      scheme: String,
+      port: Int): (String, Int) = {
+    val governing =
+      try Option(client.services().inNamespace(namespace).withName(service).get())
+      catch {
+        case NonFatal(e) =>
+          warn(s"Could not read Service $namespace/$service, reaching workers on $scheme:$port", e)
+          None
+      }
+    governing.map { svc =>
+      val servicePorts = Option(svc.getSpec).flatMap(s => Option(s.getPorts))
+        .map(_.asScala.toSeq).getOrElse(Seq.empty)
+      val containerPorts = (for {
+        spec <- Option(sts.getSpec)
+        template <- Option(spec.getTemplate)
+        podSpec <- Option(template.getSpec)
+        containers <- Option(podSpec.getContainers)
+      } yield containers.asScala.toSeq.flatMap(c =>
+        Option(c.getPorts).map(_.asScala.toSeq).getOrElse(Seq.empty))).getOrElse(Seq.empty)
+      KubernetesWorkerPool.listening(servicePorts, containerPorts, scheme, port)
+    }.getOrElse((scheme, port))
+  }
+}
+
+object KubernetesWorkerPool {
+
+  private val Schemes = Set("http", "https")
+
+  /**
+   * Where workers listen, from the ports of the Service that governs them.
+   *
+   * A port says what it speaks through `appProtocol` - the field Kubernetes has
+   * for exactly this - or, failing that, through its name. A marked port is
+   * taken, the one speaking the coordinator's scheme first.
+   *
+   * Otherwise a Service with a single port still names the port. Workers
+   * listening where the coordinator does are taken to be configured like it; a
+   * port anywhere else is the plain HTTP one Trino nodes talk to each other on,
+   * which is the usual layout behind a coordinator that terminates TLS and
+   * authentication itself. With several unmarked ports there is nothing to go
+   * on, and the coordinator's scheme and port stand.
+   *
+   * The pod's port is what counts, not the Service's: a worker's DNS name
+   * resolves straight to its pod. A target port given by name is looked up
+   * among the pod template's container ports.
+   */
+  private[scaling] def listening(
+      servicePorts: Seq[ServicePort],
+      containerPorts: Seq[ContainerPort],
+      coordinatorScheme: String,
+      coordinatorPort: Int): (String, Int) = {
+    def speaks(p: ServicePort): Option[String] =
+      Seq(p.getAppProtocol, p.getName).flatMap(Option(_))
+        .map(_.trim.toLowerCase(Locale.ROOT)).find(Schemes)
+
+    def podPort(p: ServicePort): Int = {
+      val target = Option(p.getTargetPort)
+      target.flatMap(t => Option(t.getIntVal)).map(_.intValue).filter(_ > 0)
+        .orElse(target.flatMap(t => Option(t.getStrVal))
+          .flatMap(name => containerPorts.find(_.getName == name))
+          .flatMap(c => Option(c.getContainerPort)).map(_.intValue))
+        .orElse(Option(p.getPort).map(_.intValue))
+        .getOrElse(coordinatorPort)
+    }
+
+    val marked = servicePorts.flatMap(p => speaks(p).map(_ -> p))
+    marked.find(_._1 == coordinatorScheme).orElse(marked.headOption) match {
+      case Some((scheme, p)) => (scheme, podPort(p))
+      case None => servicePorts match {
+          case Seq(only) =>
+            val at = podPort(only)
+            (if (at == coordinatorPort) coordinatorScheme else "http", at)
+          case _ => (coordinatorScheme, coordinatorPort)
+        }
     }
   }
 }
