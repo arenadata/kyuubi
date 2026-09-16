@@ -62,11 +62,20 @@ class ClusterShrinkerSuite extends KyuubiFunSuite {
     }
   }
 
-  private class FakeDrain(reaches: String = TrinoWorkerDrain.Drained) extends WorkerDrain {
+  private class FakeDrain(
+      reaches: String = TrinoWorkerDrain.Drained,
+      startState: String = TrinoWorkerDrain.Active) extends WorkerDrain {
     val events = ArrayBuffer.empty[String]
-    override def drain(cluster: ClusterRef, url: String): Unit = events += s"drain $url"
-    override def undrain(cluster: ClusterRef, url: String): Unit = events += s"undrain $url"
-    override def state(cluster: ClusterRef, url: String): Option[String] = Some(reaches)
+    private var currentState: String = startState
+    override def drain(cluster: ClusterRef, url: String): Unit = {
+      events += s"drain $url"
+      currentState = reaches
+    }
+    override def undrain(cluster: ClusterRef, url: String): Unit = {
+      events += s"undrain $url"
+      currentState = TrinoWorkerDrain.Active
+    }
+    override def state(cluster: ClusterRef, url: String): Option[String] = Some(currentState)
   }
 
   private class FakeScale extends ScaleApi {
@@ -161,6 +170,26 @@ class ClusterShrinkerSuite extends KyuubiFunSuite {
 
     assert(scale.requested.isEmpty, "a worker still holding tasks must not be removed")
     assert(drain.events.exists(_.startsWith("undrain ")))
+  }
+
+  test("a worker left drained by an interrupted earlier attempt is picked up, not re-drained") {
+    var now = 1000L
+    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
+    // A previous attempt reached Drained and then the process died before it
+    // could shrink the replica count - the worker is left over, still
+    // Drained, and Trino refuses a second transition to Draining from there.
+    val drain = new FakeDrain(startState = TrinoWorkerDrain.Drained) {
+      override def drain(cluster: ClusterRef, url: String): Unit =
+        throw new IllegalStateException(s"$url refused the transition to DRAINING: HTTP 400")
+    }
+    val scale = new FakeScale()
+    val s = shrinker(accountant, new FakePool(4), drain, scale, Seq(cluster()), () => now)
+
+    s.shrinkAll() // starts the idle clock
+    now += 2000
+    s.shrinkAll()
+
+    assert(scale.requested === Some(3), "the leftover drained worker is still removed")
   }
 
   test("a pool that is not a StatefulSet is refused rather than shrunk on a guess") {

@@ -143,8 +143,21 @@ class ClusterShrinker(
       departing: DepartingWorker,
       target: org.apache.kyuubi.gateway.cluster.ScaleTarget,
       floor: Int): Unit = {
-    info(s"${cluster.name} has been idle, draining ${departing.url}")
-    drain.drain(cluster, departing.url)
+    // A worker already Draining or Drained was left that way by an attempt
+    // this process does not remember - the shrinker restarted mid-drain, say,
+    // or another replica's attempt is still in flight. Trino refuses a second
+    // transition to Draining from either state, so asking again would only
+    // fail; the point of asking was to reach Drained, and it may already be
+    // there or on its way, so that is picked up instead.
+    val alreadyDraining = drain.state(cluster, departing.url)
+      .exists(s => s == TrinoWorkerDrain.Draining || s == TrinoWorkerDrain.Drained)
+    if (alreadyDraining) {
+      info(s"${departing.url} is already draining or drained - picking up where a previous " +
+        "attempt left off rather than draining it again")
+    } else {
+      info(s"${cluster.name} has been idle, draining ${departing.url}")
+      drain.drain(cluster, departing.url)
+    }
 
     if (awaitDrained(cluster, departing.url)) {
       scaleApi.request(target, departing.replicas - 1)
