@@ -537,6 +537,8 @@ jobs:
 
   system-tests:
     name: System Tests
+    # Engine profile coverage runs in the JVM integration jobs.
+    if: false
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
