@@ -511,19 +511,11 @@ jobs:
           -pl externals/kyuubi-download,externals/kyuubi-spark-sql-engine
           install -DskipTests
       - name: Test simultaneous Spark 3 and Spark 4 profiles
-        shell: bash
-        run: |
-          shopt -s nullglob
-          spark3_homes=( "$PWD"/externals/kyuubi-download/target/spark-3.5.*/ )
-          spark4_homes=( "$PWD"/externals/kyuubi-download/target/spark-4.2.*/ )
-          test "${#spark3_homes[@]}" -eq 1
-          test "${#spark4_homes[@]}" -eq 1
-          ./build/mvn \
-            -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
-            -pl kyuubi-server test -Dtest=none \
-            -Dsuites=org.apache.kyuubi.engine.spark.MultiSparkEngineProfileSuite \
-            -Dkyuubi.test.spark3.home="${spark3_homes[0]}" \
-            -Dkyuubi.test.spark4.home="${spark4_homes[0]}"
+        run: >-
+          ./build/mvn
+          -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided
+          -pl kyuubi-server test -Dtest=none
+          -Dsuites=org.apache.kyuubi.engine.spark.MultiSparkEngineProfileSuite
       - name: Upload integration test reports and engine logs
         if: always()
         uses: actions/upload-artifact@v4

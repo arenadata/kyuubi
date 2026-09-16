@@ -47,8 +47,8 @@ class MultiSparkEngineProfileSuite extends WithKyuubiServer with HiveJDBCTestHel
     val moduleRoot = Paths.get(System.getProperty("basedir", ".")).toAbsolutePath.normalize()
     val projectRoot = moduleRoot.getParent
     val homes = Seq(
-      ("spark3", "3.5", requiredHome("kyuubi.test.spark3.home")),
-      ("spark4", "4.2", requiredHome("kyuubi.test.spark4.home")))
+      ("spark3", "3.5", findSparkHome(projectRoot, "3.5")),
+      ("spark4", "4.2", findSparkHome(projectRoot, "4.2")))
     homes.foreach { case (_, version, home) => validateSparkHome(home, version, projectRoot) }
 
     fixtureRoot = Utils.createTempDir("multi-spark-profiles")
@@ -100,15 +100,23 @@ class MultiSparkEngineProfileSuite extends WithKyuubiServer with HiveJDBCTestHel
     }
   }
 
-  private def requiredHome(property: String): Path = {
-    // ScalaTest Maven can stringify an unset forwarded property as the literal "null".
-    val value =
-      sys.props.get(property).map(_.trim).filter(v => v.nonEmpty && v != "null").getOrElse {
-        throw new IllegalArgumentException(s"Set -D$property to the required Spark distribution")
+  private def findSparkHome(projectRoot: Path, version: String): Path = {
+    val downloadDir = projectRoot.resolve("externals/kyuubi-download/target")
+    require(
+      Files.isDirectory(downloadDir),
+      s"Prepare the Spark distributions before running this suite: $downloadDir")
+    val entries = Files.newDirectoryStream(downloadDir, s"spark-$version.*")
+    val homes =
+      try {
+        entries.iterator().asScala.filter(Files.isDirectory(_)).toVector.sortBy(_.toString)
+      } finally {
+        entries.close()
       }
-    val home = Paths.get(value)
-    require(home.isAbsolute, s"-D$property must be an absolute path: $home")
-    home.normalize()
+    require(
+      homes.size == 1,
+      s"Expected exactly one Spark $version distribution in $downloadDir, " +
+        s"found ${homes.size}: ${homes.mkString(", ")}. See testing.md for preparation commands.")
+    homes.head
   }
 
   private def validateSparkHome(home: Path, version: String, projectRoot: Path): Unit = {

@@ -29,11 +29,6 @@
     <name>Kyuubi Project Server</name>
     <url>https://kyuubi.apache.org/</url>
 
-    <properties>
-        <kyuubi.test.spark3.home></kyuubi.test.spark3.home>
-        <kyuubi.test.spark4.home></kyuubi.test.spark4.home>
-    </properties>
-
     <dependencyManagement>
         <dependencies>
             <!--
@@ -484,16 +479,6 @@
         </resources>
 
         <plugins>
-            <plugin>
-                <groupId>org.scalatest</groupId>
-                <artifactId>scalatest-maven-plugin</artifactId>
-                <configuration>
-                    <systemProperties>
-                        <kyuubi.test.spark3.home>${kyuubi.test.spark3.home}</kyuubi.test.spark3.home>
-                        <kyuubi.test.spark4.home>${kyuubi.test.spark4.home}</kyuubi.test.spark4.home>
-                    </systemProperties>
-                </configuration>
-            </plugin>
             <plugin>
                 <groupId>org.antlr</groupId>
                 <artifactId>antlr4-maven-plugin</artifactId>
