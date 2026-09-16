@@ -481,6 +481,60 @@ jobs:
           path: |
             **/target/unit-tests.log
 
+  multi-spark-profile-it:
+    name: Multi-Spark Engine Profile Integration Test
+    runs-on: ubuntu-24.04
+    env:
+      SPARK_LOCAL_IP: localhost
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free up disk space
+        run: ./.github/scripts/free_disk_space.sh
+      - name: Tune Runner VM
+        uses: ./.github/actions/tune-runner-vm
+      - name: Cache Engine Archives
+        uses: ./.github/actions/cache-engine-archives
+      - name: Setup Maven
+        uses: ./.github/actions/setup-maven
+        with:
+          java-version: 21
+      - name: Build server and Spark 3 integration dependencies
+        run: >-
+          ./build/mvn
+          -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided
+          -pl kyuubi-server -am clean install -DskipTests
+      - name: Prepare Spark 4 distribution and engine
+        run: >-
+          ./build/mvn
+          -Pscala-2.13,spark-4.2,java-21,flink-provided,hive-provided
+          -pl externals/kyuubi-download,externals/kyuubi-spark-sql-engine
+          install -DskipTests
+      - name: Test simultaneous Spark 3 and Spark 4 profiles
+        shell: bash
+        run: |
+          shopt -s nullglob
+          spark3_homes=( "$PWD"/externals/kyuubi-download/target/spark-3.5.*/ )
+          spark4_homes=( "$PWD"/externals/kyuubi-download/target/spark-4.2.*/ )
+          test "${#spark3_homes[@]}" -eq 1
+          test "${#spark4_homes[@]}" -eq 1
+          ./build/mvn \
+            -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+            -pl kyuubi-server test -Dtest=none \
+            -Dsuites=org.apache.kyuubi.engine.spark.MultiSparkEngineProfileSuite \
+            -Dkyuubi.test.spark3.home="${spark3_homes[0]}" \
+            -Dkyuubi.test.spark4.home="${spark4_homes[0]}"
+      - name: Upload integration test reports and engine logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-spark-profile-it-reports
+          path: |
+            kyuubi-server/target/surefire-reports/**
+            **/target/unit-tests.log
+            **/kyuubi-spark-sql-engine.log*
+          if-no-files-found: warn
+
   system-tests:
     name: System Tests
     runs-on: ubuntu-24.04

@@ -41,11 +41,15 @@ trait WithKyuubiServerAndTrinoContainer extends WithKyuubiServer with TestContai
       .set(ENGINE_TRINO_CONNECTION_CATALOG, "memory")
   }
 
+  protected def configureTrinoConnection(connectionUrl: String): Unit = {
+    conf.set(ENGINE_TRINO_CONNECTION_URL, connectionUrl)
+  }
+
   override def beforeAll(): Unit = {
     // start trino cluster containers
     withContainers { trinoContainer =>
       val trinoConnectionUrl = trinoContainer.jdbcUrl.replace("jdbc:trino", "http")
-      conf.set(ENGINE_TRINO_CONNECTION_URL, trinoConnectionUrl)
+      configureTrinoConnection(trinoConnectionUrl)
 
       super.beforeAll()
     }

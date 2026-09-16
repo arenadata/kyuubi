@@ -30,26 +30,10 @@ trait WithKyuubiServerAndPostgreSQLContainer extends WithKyuubiServer with WithP
   private val kyuubiHome: String =
     JavaUtils.getCodeSourceLocation(getClass).split("integration-tests").head
 
-  private val postgresqlJdbcConnectorPath: String = {
-    val keyword = "postgresql"
-
-    val jarsDir = Paths.get(kyuubiHome)
-      .resolve("integration-tests")
-      .resolve("kyuubi-jdbc-it")
-      .resolve("target")
-
-    Files.list(jarsDir)
-      .filter { p: Path => p.getFileName.toString contains keyword }
-      .findFirst
-      .orElseThrow { () => new IllegalStateException(s"Can not find $keyword in $jarsDir.") }
-      .toAbsolutePath
-      .toString
-  }
-
   override protected val conf: KyuubiConf = {
     KyuubiConf()
       .set(s"$KYUUBI_ENGINE_ENV_PREFIX.$KYUUBI_HOME", kyuubiHome)
-      .set(ENGINE_JDBC_EXTRA_CLASSPATH, postgresqlJdbcConnectorPath)
+      .set(ENGINE_JDBC_EXTRA_CLASSPATH, PostgreSQLTestUtils.jdbcConnectorPath(kyuubiHome))
       .set(ENGINE_IDLE_TIMEOUT, Duration.ofMinutes(1).toMillis)
   }
 
@@ -57,5 +41,23 @@ trait WithKyuubiServerAndPostgreSQLContainer extends WithKyuubiServer with WithP
     val configs = withKyuubiConf
     configs.foreach(config => conf.set(config._1, config._2))
     super.beforeAll()
+  }
+}
+
+private[postgresql] object PostgreSQLTestUtils {
+
+  def jdbcConnectorPath(kyuubiHome: String): String = {
+    val keyword = "postgresql"
+    val jarsDir = Paths.get(kyuubiHome, "integration-tests", "kyuubi-jdbc-it", "target")
+    val jars = Files.list(jarsDir)
+    try {
+      jars.filter { p: Path => p.getFileName.toString contains keyword }
+        .findFirst
+        .orElseThrow { () => new IllegalStateException(s"Can not find $keyword in $jarsDir.") }
+        .toAbsolutePath
+        .toString
+    } finally {
+      jars.close()
+    }
   }
 }

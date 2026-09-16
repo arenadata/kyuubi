@@ -29,6 +29,11 @@
     <name>Kyuubi Project Server</name>
     <url>https://kyuubi.apache.org/</url>
 
+    <properties>
+        <kyuubi.test.spark3.home></kyuubi.test.spark3.home>
+        <kyuubi.test.spark4.home></kyuubi.test.spark4.home>
+    </properties>
+
     <dependencyManagement>
         <dependencies>
             <!--
@@ -471,13 +476,6 @@
     </dependencies>
 
     <build>
-        <extensions>
-            <extension>
-                <groupId>kr.motd.maven</groupId>
-                <artifactId>os-maven-plugin</artifactId>
-                <version>1.7.1</version>
-            </extension>
-        </extensions>
 
         <resources>
             <resource>
@@ -486,6 +484,16 @@
         </resources>
 
         <plugins>
+            <plugin>
+                <groupId>org.scalatest</groupId>
+                <artifactId>scalatest-maven-plugin</artifactId>
+                <configuration>
+                    <systemProperties>
+                        <kyuubi.test.spark3.home>${kyuubi.test.spark3.home}</kyuubi.test.spark3.home>
+                        <kyuubi.test.spark4.home>${kyuubi.test.spark4.home}</kyuubi.test.spark4.home>
+                    </systemProperties>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.antlr</groupId>
                 <artifactId>antlr4-maven-plugin</artifactId>
@@ -552,6 +560,13 @@
         </plugins>
         <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
         <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
     </build>
 
     <profiles>
