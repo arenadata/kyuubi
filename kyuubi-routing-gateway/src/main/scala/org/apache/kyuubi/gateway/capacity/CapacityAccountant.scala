@@ -64,12 +64,15 @@ class CapacityAccountant(
       } else {
         val reserved = held.values.map(_.memoryBytes).sum
         if (reserved + memoryBytes > capacity.totalMemoryBytes) {
-          // Distinguish the two reasons carefully: they lead to different
-          // actions. Idle but too small means scaling out helps; occupied means
-          // only waiting does, because a bigger cluster still would not free
-          // what is in flight.
-          if (held.isEmpty && needed > capacity.workers) {
-            (held, Left(AdmissionDenial.NeedsScaleUp(needed)))
+          // Growing helps whenever the ceiling has not already been reached,
+          // no matter what else is held: a bigger cluster does not relieve
+          // the memory a running query already holds, but it does make room
+          // for this one alongside it. Only once maxWorkers itself could not
+          // cover what is held plus what is asked does growing stop helping,
+          // and waiting becomes the only option.
+          val neededWorkers = capacity.workersFor(reserved + memoryBytes)
+          if (neededWorkers <= capacity.maxWorkers) {
+            (held, Left(AdmissionDenial.NeedsScaleUp(neededWorkers)))
           } else {
             (held, Left(AdmissionDenial.Busy))
           }

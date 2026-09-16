@@ -210,22 +210,29 @@ class AdmissionGateSuite extends KyuubiFunSuite {
     assert(scaler.asked.isEmpty, "a metadata statement is no reason to grow a cluster")
   }
 
-  test("a busy cluster is not grown - scaling frees nothing that is in flight") {
+  test("a busy cluster is grown when there is room, rather than made to wait") {
     val scaler = new RecordingScaler()
     val scalable = cluster.copy(scaleTarget = Some(target))
     val g = scalingGate(scaler)
     assert(g.admit(scalable, "q1", "SELECT 1", planner(planWith(40 * GB))).isRight)
     scaler.asked = None
-    assert(g.admit(scalable, "q2", "SELECT 1", planner(planWith(40 * GB))).isLeft)
-    assert(scaler.asked.isEmpty)
+    val admitted = g.admit(scalable, "q2", "SELECT 1", planner(planWith(40 * GB)))
+    assert(
+      admitted.isRight,
+      "40 GB more fits within the 10-worker ceiling, so it grows rather than refuses")
+    assert(
+      scaler.asked === Some((target, 8)),
+      "q1's 4 workers plus q2's 4 more, within the ceiling of 10")
   }
 
   test("a busy cluster holds the query until room frees, then admits it") {
+    // No headroom to grow into - room can only come from q1 releasing.
+    val capped = capacity.copy(maxWorkers = capacity.workers)
     val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory)
     val g = new AdmissionGate(
       accountant,
       new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
-      _ => Some(capacity),
+      _ => Some(capped),
       None,
       holdMillis = 30000L)
     val big = planner(planWith(40 * GB))
@@ -251,10 +258,12 @@ class AdmissionGateSuite extends KyuubiFunSuite {
   }
 
   test("holding gives up and says the cluster is busy") {
+    // No headroom to grow into - waiting for a release is the only option.
+    val capped = capacity.copy(maxWorkers = capacity.workers)
     val g = new AdmissionGate(
       new CapacityAccountant(AdmissionPolicy.PackByMemory),
       new QuerySizer(SizingPolicy(memoryFactor = 1.0)),
-      _ => Some(capacity),
+      _ => Some(capped),
       None,
       holdMillis = 150L)
     val big = planner(planWith(40 * GB))

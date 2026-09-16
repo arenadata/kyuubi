@@ -269,14 +269,19 @@ responses:
 
 | Denial | Meaning | What helps |
 |---|---|---|
-| `Busy` | capacity exists but is taken | waiting |
-| `NeedsScaleUp(n)` | cluster idle but too small | scaling to `n` |
-| `TooLarge(n, max)` | beyond the ceiling | neither |
+| `Busy` | even the ceiling could not cover what is held plus what is asked | waiting |
+| `NeedsScaleUp(n)` | growing to `n` workers, within the ceiling, would cover it | scaling to `n` |
+| `TooLarge(n, max)` | beyond the ceiling on its own, before anything else is held | neither |
 
-The gateway acts on the first two. `Busy` holds the query until room frees, up
-to `admission.holdTimeout`; `NeedsScaleUp(n)` raises the cluster's worker count
-and admits the query for that size. `TooLarge` is answered at once - waiting and
-scaling are both futile, and turning that answer into a timeout helps nobody.
+The gateway acts on the first two. `NeedsScaleUp(n)` fires whenever raising the
+worker count to `n` would fit what is held plus this query - whether the
+cluster is idle or other queries are already running on it, since a bigger
+cluster makes room for a new query alongside what is in flight even though it
+does not relieve that query's own memory. `Busy` is what is left once `n` would
+exceed the ceiling itself: nothing to scale into, so the query holds until room
+frees, up to `admission.holdTimeout`. `TooLarge` is answered at once - it is too
+big on its own, before anything else is even considered, so waiting and scaling
+are both futile and turning that answer into a timeout helps nobody.
 
 Admitting against workers that do not exist yet is safe only because the worker
 count travels with the query as `required_workers_count`: Trino holds it in

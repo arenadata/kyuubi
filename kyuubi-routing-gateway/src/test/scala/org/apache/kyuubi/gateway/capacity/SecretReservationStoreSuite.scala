@@ -27,7 +27,9 @@ import org.apache.kyuubi.KyuubiFunSuite
 class SecretReservationStoreSuite extends KyuubiFunSuite {
 
   private val GB = 1024L * 1024 * 1024
-  private val capacity = ClusterCapacity(10 * GB, workers = 4, maxWorkers = 8)
+  // No headroom beyond what exists: a losing write should report Busy, not
+  // ask to scale into room this cluster does not have.
+  private val capacity = ClusterCapacity(10 * GB, workers = 4, maxWorkers = 4)
 
   private var api: FakeApiServer = _
   private var client: KubernetesClient = _

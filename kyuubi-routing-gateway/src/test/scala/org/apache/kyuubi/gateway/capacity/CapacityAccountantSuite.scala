@@ -38,13 +38,16 @@ class CapacityAccountantSuite extends KyuubiFunSuite {
     assert(capacity.workersFor(0) === 0)
   }
 
-  test("admits while memory is left, then reports Busy") {
+  test("admits while memory is left, then asks to scale rather than wait") {
     val a = accountant(AdmissionPolicy.PackByMemory)
     assert(a.admit("c", capacity, "q1", 30 * GB).isRight)
     assert(a.reservedBytes("c") === 30 * GB)
 
     assert(a.admit("c", capacity, "q2", 10 * GB).isRight, "exactly filling the cluster is allowed")
-    assert(a.admit("c", capacity, "q3", 1).swap.getOrElse(null) === AdmissionDenial.Busy)
+    // Full at the current 4 workers, but 10 are allowed - q3 is grown into
+    // rather than made to wait.
+    assert(
+      a.admit("c", capacity, "q3", 1).swap.getOrElse(null) === AdmissionDenial.NeedsScaleUp(5))
   }
 
   test("an idle cluster that is merely too small asks to scale, not to wait") {
@@ -54,12 +57,22 @@ class CapacityAccountantSuite extends KyuubiFunSuite {
       AdmissionDenial.NeedsScaleUp(6))
   }
 
-  test("an occupied cluster reports Busy even when it is also too small") {
+  test("an occupied cluster with room to grow scales instead of waiting") {
     val a = accountant(AdmissionPolicy.PackByMemory)
     a.admit("c", capacity, "q1", 10 * GB)
-    // Scaling out would not release what is already in flight, so waiting is
-    // the only thing that helps and the denial must say so.
-    assert(a.admit("c", capacity, "q2", 60 * GB).swap.getOrElse(null) === AdmissionDenial.Busy)
+    // Together q1 and q2 need 7 workers; 10 are allowed, so growing helps
+    // even though q1 is still in flight - a bigger cluster does not relieve
+    // q1's own memory, but it does make room for q2 alongside it.
+    assert(a.admit("c", capacity, "q2", 60 * GB).swap.getOrElse(null) ===
+      AdmissionDenial.NeedsScaleUp(7))
+  }
+
+  test("an occupied cluster already at its ceiling reports Busy") {
+    val a = accountant(AdmissionPolicy.PackByMemory)
+    val atCeiling = capacity.copy(workers = capacity.maxWorkers) // fully scaled: 10 workers
+    a.admit("c", atCeiling, "q1", 100 * GB) // exactly fills all 10
+    // Nothing more fits even at the ceiling; only waiting helps now.
+    assert(a.admit("c", atCeiling, "q2", 1).swap.getOrElse(null) === AdmissionDenial.Busy)
   }
 
   test("beyond the ceiling is refused outright, not queued") {
