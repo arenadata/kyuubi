@@ -160,9 +160,23 @@ class ClusterShrinker(
     }
 
     if (awaitDrained(cluster, departing.url)) {
-      scaleApi.request(target, departing.replicas - 1)
-      idleSince.remove(cluster.name)
-      info(s"${cluster.name} shrunk to ${departing.replicas - 1} workers, floor is $floor")
+      if (stillIdle(cluster)) {
+        scaleApi.request(target, departing.replicas - 1)
+        idleSince.remove(cluster.name)
+        info(s"${cluster.name} shrunk to ${departing.replicas - 1} workers, floor is $floor")
+      } else {
+        // A query was admitted while this worker drained. Kubernetes still
+        // counts it as ready the whole time a drain is in flight - draining
+        // and removing are two separate steps - so an admission racing this
+        // one has no way to tell it apart from a worker that will stay, and
+        // may already be relying on it for the workers it was told it has.
+        // Removing it now would pull that capacity out from under such a
+        // query; putting it back leaves the next idle pass to try again once
+        // this one has actually gone quiet.
+        warn(s"${cluster.name} is no longer idle, returning ${departing.url} to service " +
+          "instead of removing it - a query may be relying on it")
+        drain.undrain(cluster, departing.url)
+      }
     } else {
       // Put it back rather than remove it anyway. A worker that did not finish
       // draining still has tasks on it, and the whole point of draining is not
@@ -172,6 +186,10 @@ class ClusterShrinker(
       drain.undrain(cluster, departing.url)
     }
   }
+
+  /** Whether the only thing held on `cluster` is still this shrink's own hold. */
+  private def stillIdle(cluster: ClusterRef): Boolean =
+    accountant.reservationsOn(cluster.name).values.forall(_.synthetic)
 
   private def awaitDrained(cluster: ClusterRef, workerUrl: String): Boolean = {
     val deadline = clock() + drainTimeoutMillis

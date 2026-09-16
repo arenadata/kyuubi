@@ -192,6 +192,30 @@ class ClusterShrinkerSuite extends KyuubiFunSuite {
     assert(scale.requested === Some(3), "the leftover drained worker is still removed")
   }
 
+  test("a query admitted while draining keeps the worker, instead of losing it") {
+    var now = 1000L
+    val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
+    // Kubernetes still counts a draining worker as ready the whole time it is
+    // in flight, so a query admitted right now would be told it has this
+    // worker - simulated here as a real reservation landing the moment the
+    // drain is observed to have reached Drained.
+    val drain = new FakeDrain() {
+      override def state(cluster: ClusterRef, url: String): Option[String] = {
+        accountant.admit(cluster.name, capacity, "q1", GB)
+        Some(TrinoWorkerDrain.Drained)
+      }
+    }
+    val scale = new FakeScale()
+    val s = shrinker(accountant, new FakePool(4), drain, scale, Seq(cluster()), () => now)
+
+    s.shrinkAll() // starts the idle clock
+    now += 2000
+    s.shrinkAll()
+
+    assert(scale.requested.isEmpty, "a worker a query now relies on must not be removed")
+    assert(drain.events.exists(_.startsWith("undrain ")), "it must be put back, not left drained")
+  }
+
   test("a pool that is not a StatefulSet is refused rather than shrunk on a guess") {
     var now = 1000L
     val accountant = new CapacityAccountant(AdmissionPolicy.PackByMemory, clock = () => now)
