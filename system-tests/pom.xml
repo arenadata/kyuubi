@@ -30,10 +30,8 @@
     <properties>
         <testcontainers.version>1.20.4</testcontainers.version>
         <junit.jupiter.version>5.10.5</junit.jupiter.version>
-        <allure.version>2.29.0</allure.version>
-        <allure-maven.version>2.15.2</allure-maven.version>
         <!-- Match TRINO_VERSION in env/.env -->
-        <trino.jdbc.version>481</trino.jdbc.version>
+        <trino.jdbc.version>435</trino.jdbc.version>
         <!-- Built by ./build/dist; copied into the Kyuubi Docker build context before IT. -->
         <kyuubi.dist.dir>${project.basedir}/../dist</kyuubi.dist.dir>
         <kyuubi.docker.dist.dir>${project.basedir}/env/docker/kyuubi-dist</kyuubi.docker.dist.dir>
@@ -85,17 +83,45 @@
             <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>io.qameta.allure</groupId>
-            <artifactId>allure-junit5</artifactId>
-            <version>${allure.version}</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-kyuubi-docker-context</id>
+                        <phase>pre-integration-test</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <fail message="Kyuubi dist not found at ${kyuubi.dist.dir}/bin/kyuubi. Build with ./build/dist first.">
+                                    <condition>
+                                        <not>
+                                            <available file="${kyuubi.dist.dir}/bin/kyuubi"/>
+                                        </not>
+                                    </condition>
+                                </fail>
+                                <delete dir="${kyuubi.docker.dist.dir}" quiet="true"/>
+                                <mkdir dir="${kyuubi.docker.dist.dir}"/>
+                                <copy todir="${kyuubi.docker.dist.dir}" overwrite="true">
+                                    <fileset dir="${kyuubi.dist.dir}">
+                                        <exclude name="work/**"/>
+                                        <exclude name="logs/**"/>
+                                        <exclude name="pid/**"/>
+                                        <exclude name="spark-binary/**"/>
+                                    </fileset>
+                                </copy>
+                                <mkdir dir="${kyuubi.docker.dist.dir}/conf"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -104,90 +130,27 @@
                 </configuration>
             </plugin>
             <plugin>
-                <groupId>io.qameta.allure</groupId>
-                <artifactId>allure-maven</artifactId>
-                <version>${allure-maven.version}</version>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
                 <configuration>
-                    <reportVersion>${allure.version}</reportVersion>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*IT.scala</include>
+                        <include>**/*IT.class</include>
+                    </includes>
+                    <!-- Compose stack teardown in shutdown hooks often exceeds the default 30s. -->
+                    <forkedProcessExitTimeoutInSeconds>180</forkedProcessExitTimeoutInSeconds>
                 </configuration>
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>system-tests</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-antrun-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>prepare-kyuubi-docker-context</id>
-                                <phase>pre-integration-test</phase>
-                                <goals>
-                                    <goal>run</goal>
-                                </goals>
-                                <configuration>
-                                    <target>
-                                        <fail message="Kyuubi dist not found at ${kyuubi.dist.dir}/bin/kyuubi. Build with ./build/dist first.">
-                                            <condition>
-                                                <not>
-                                                    <available file="${kyuubi.dist.dir}/bin/kyuubi"/>
-                                                </not>
-                                            </condition>
-                                        </fail>
-                                        <delete dir="${kyuubi.docker.dist.dir}" quiet="true"/>
-                                        <mkdir dir="${kyuubi.docker.dist.dir}"/>
-                                        <copy todir="${kyuubi.docker.dist.dir}" overwrite="true">
-                                            <fileset dir="${kyuubi.dist.dir}">
-                                                <exclude name="work/**"/>
-                                                <exclude name="logs/**"/>
-                                                <exclude name="pid/**"/>
-                                                <exclude name="spark-binary/**"/>
-                                            </fileset>
-                                        </copy>
-                                        <chmod dir="${kyuubi.docker.dist.dir}/bin" perm="ugo+x" includes="**"/>
-                                        <mkdir dir="${kyuubi.docker.dist.dir}/conf"/>
-                                    </target>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-failsafe-plugin</artifactId>
-                        <version>3.3.1</version>
-                        <executions>
-                            <execution>
-                                <goals>
-                                    <goal>integration-test</goal>
-                                    <goal>verify</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                        <configuration>
-                            <includes>
-                                <include>**/*IT.java</include>
-                                <include>**/*IT.scala</include>
-                                <include>**/*IT.class</include>
-                            </includes>
-                            <!-- Compose stack teardown in shutdown hooks often exceeds the default 30s. -->
-                            <forkedProcessExitTimeoutInSeconds>180</forkedProcessExitTimeoutInSeconds>
-                            <systemPropertyVariables>
-                                <allure.results.directory>${project.build.directory}/allure-results</allure.results.directory>
-                            </systemPropertyVariables>
-                            <properties>
-                                <property>
-                                    <name>listener</name>
-                                    <value>io.qameta.allure.junit5.AllureJunit5</value>
-                                </property>
-                            </properties>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>

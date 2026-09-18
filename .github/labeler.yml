@@ -184,12 +184,6 @@
       'integration-tests/**/*'
     ]
 
-"module:system-tests":
-  - changed-files:
-    - any-glob-to-any-file: [
-      'system-tests/**/*'
-    ]
-
 "module:authz":
   - changed-files:
     - any-glob-to-any-file: [

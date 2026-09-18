@@ -17,14 +17,12 @@
 
 package org.apache.kyuubi.system.tests
 
-import io.qameta.allure.Feature
 import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
 import org.apache.kyuubi.system.tests.model.EngineProfile
 import org.apache.kyuubi.system.tests.util.constant.ConfConstants._
 
-@Feature("Engine profile session override")
 class ProfileSessionOverrideIT extends KyuubiSystemContainerizedIT {
 
   @Test

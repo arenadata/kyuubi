@@ -17,7 +17,6 @@
 
 package org.apache.kyuubi.system.tests
 
-import io.qameta.allure.Epic
 import org.junit.jupiter.api.{BeforeAll, TestInstance}
 import org.junit.jupiter.api.TestInstance.Lifecycle
 import org.junit.jupiter.api.extension.ExtendWith
@@ -33,7 +32,6 @@ import org.apache.kyuubi.system.tests.service.{
   WarehouseJdbcService
 }
 
-@Epic("Kyuubi system tests")
 @ExtendWith(Array(classOf[SystemComposeExtension]))
 @TestInstance(Lifecycle.PER_CLASS)
 abstract class KyuubiSystemContainerizedIT {

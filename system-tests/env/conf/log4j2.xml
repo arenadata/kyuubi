@@ -24,6 +24,8 @@
         <Property name="logDir">${env:KYUUBI_LOG_DIR}</Property>
         <Property name="restAuditLogPath">rest-audit.log</Property>
         <Property name="restAuditLogFilePattern">rest-audit-%d{yyyy-MM-dd}-%i.log</Property>
+        <Property name="k8sAuditLogPath">k8s-audit.log</Property>
+        <Property name="k8sAuditLogFilePattern">k8s-audit-%d{yyyy-MM-dd}-%i.log</Property>
         <Property name="opAuditLogPath">operation-audit.log</Property>
         <Property name="opAuditLogFilePattern">operation-audit-%d{yyyy-MM-dd}-%i.log</Property>
     </Properties>
@@ -39,6 +41,14 @@
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
+        <RollingFile name="k8sAudit" fileName="${sys:logDir}/${sys:k8sAuditLogPath}"
+                     filePattern="${sys:logDir}/${sys:k8sAuditLogFilePattern}">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %p %c{1}: %m%n%ex"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="51200KB" />
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
         <RollingFile name="opAudit" fileName="${sys:logDir}/${sys:opAuditLogPath}"
                      filePattern="${sys:logDir}/${sys:opAuditLogFilePattern}">
             <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %p %c{1}: %m%n%ex"/>
@@ -47,6 +57,17 @@
             </Policies>
             <DefaultRolloverStrategy max="10"/>
         </RollingFile>
+        <!-- Kafka appender with Elastic Common Schema(ECS) JSON template layout
+        <Kafka name="kafka" topic="ecs-json-logs" syncSend="false">
+            <JsonTemplateLayout>
+                <EventTemplateAdditionalField key="app" value="kyuubi"/>
+                <EventTemplateAdditionalField key="cluster" value="kyuubi-cluster"/>
+                <EventTemplateAdditionalField key="host" value="${hostName}"/>
+            </JsonTemplateLayout>
+            <Property name="bootstrap.servers" value="kafka-1:9092,kafka-2:9092,kafka-3:9092"/>
+            <Property name="compression.type" value="gzip"/>
+        </Kafka>
+        -->
     </Appenders>
     <Loggers>
         <Root level="INFO">
@@ -55,12 +76,19 @@
         <Logger name="org.apache.kyuubi.ctl" level="error" additivity="false">
             <AppenderRef ref="stdout"/>
         </Logger>
-
+        <!--
+        <Logger name="org.apache.kyuubi.server.mysql.codec" level="trace" additivity="false">
+            <AppenderRef ref="stdout"/>
+        </Logger>
+        -->
         <Logger name="org.apache.hive.beeline.KyuubiBeeLine" level="error" additivity="false">
             <AppenderRef ref="stdout"/>
         </Logger>
         <Logger name="org.apache.kyuubi.server.http.authentication.AuthenticationAuditLogger" additivity="false">
             <AppenderRef ref="restAudit" />
+        </Logger>
+        <Logger name="org.apache.kyuubi.engine.KubernetesApplicationAuditLogger" additivity="false">
+            <AppenderRef ref="k8sAudit" />
         </Logger>
         <Logger name="org.apache.kyuubi.operation.OperationAuditLogger" additivity="false">
             <AppenderRef ref="opAudit" />

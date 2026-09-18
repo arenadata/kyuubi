@@ -17,13 +17,11 @@
 
 package org.apache.kyuubi.system.tests
 
-import io.qameta.allure.Feature
 import org.junit.jupiter.api.Assertions.{assertTrue, fail}
 import org.junit.jupiter.api.Test
 
 import org.apache.kyuubi.system.tests.util.constant.ConfConstants._
 
-@Feature("Engine profile fallback")
 class ProfileFallbackIT extends KyuubiSystemContainerizedIT {
 
   @Test
