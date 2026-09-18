@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -74,8 +74,8 @@ class DockerComposeService(components: Seq[Component]) {
     container.withLocalCompose(true)
     container.start()
     compose = container
-    val elapsedSec = (System.currentTimeMillis() - millisBeforeStart) / 1000
-    log.info(s"##### TEST CONTAINERS HAVE STARTED IN $elapsedSec sec #####")
+    log.info(
+      s"##### TEST CONTAINERS HAVE STARTED IN ${(System.currentTimeMillis() - millisBeforeStart) / 1000} sec #####")
   }
 
   def getServiceHost(component: Component): String = {
