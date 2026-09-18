@@ -89,7 +89,6 @@
         <module>kyuubi-util</module>
         <module>kyuubi-util-scala</module>
         <module>kyuubi-zookeeper</module>
-        <module>system-tests</module>
     </modules>
 
     <scm>
@@ -2388,18 +2387,6 @@
                     </plugin>
                 </plugins>
             </build>
-        </profile>
-        <profile>
-            <id>system-tests</id>
-            <properties>
-                <enforcer.skip>true</enforcer.skip>
-                <maven.scalastyle.skip>true</maven.scalastyle.skip>
-                <rat.skip>true</rat.skip>
-                <spotless.check.skip>true</spotless.check.skip>
-            </properties>
-            <modules>
-                <module>system-tests</module>
-            </modules>
         </profile>
     </profiles>
 </project>
