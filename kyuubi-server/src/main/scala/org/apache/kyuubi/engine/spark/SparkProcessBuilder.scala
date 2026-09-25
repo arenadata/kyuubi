@@ -27,9 +27,11 @@ import scala.collection.mutable
 
 import com.google.common.annotations.VisibleForTesting
 import org.apache.commons.lang3.StringUtils
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.fs.permission.FsPermission
 import org.apache.hadoop.security.UserGroupInformation
+import org.apache.hadoop.security.alias.CredentialProviderFactory
 
 import org.apache.kyuubi._
 import org.apache.kyuubi.config.KyuubiConf
@@ -167,6 +169,7 @@ class SparkProcessBuilder(
     if (AuthTypes.withName(conf.get(HA_ZK_ENGINE_AUTH_TYPE)) == AuthTypes.KERBEROS) {
       allConf = allConf ++ zkAuthKeytabFileConf(allConf)
     }
+    allConf = mergeCredentialProviderPath(allConf, engineCredentialProviderPath)
     // pass spark engine log path to spark conf
     (allConf ++
       engineLogPathConf ++
@@ -245,6 +248,31 @@ class SparkProcessBuilder(
       }
     } else {
       Map()
+    }
+  }
+
+  /** Credential providers the engine resolves aliases through without the server's. */
+  private[spark] def engineCredentialProviderPath: Option[String] =
+    defaultsConf.get(SPARK_CREDENTIAL_PROVIDER_PATH).orElse(hadoopConfCredentialProviderPath)
+
+  /** Reads the engine's own core-site.xml, which is the one under its `HADOOP_CONF_DIR`. */
+  private def hadoopConfCredentialProviderPath: Option[String] = {
+    env.get(HADOOP_CONF_DIR).flatMap { confDir =>
+      val coreSite = new File(confDir, CORE_SITE_FILE_NAME)
+      if (coreSite.isFile) {
+        try {
+          val hadoopConf = new Configuration(false)
+          hadoopConf.addResource(coreSite.toURI.toURL)
+          // raw: Hadoop variables in the value must be expanded by the engine, not here
+          Option(hadoopConf.getRaw(CREDENTIAL_PROVIDER_PATH))
+        } catch {
+          case e: Exception =>
+            warn(s"Failed to read $coreSite", e)
+            None
+        }
+      } else {
+        None
+      }
     }
   }
 
@@ -491,6 +519,36 @@ object SparkProcessBuilder {
   final private[spark] val SPARK_FILES = "spark.files"
   final private[spark] val PRINCIPAL = "spark.kerberos.principal"
   final private[spark] val KEYTAB = "spark.kerberos.keytab"
+  final private[spark] val CREDENTIAL_PROVIDER_PATH =
+    CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH
+  final private[spark] val SPARK_CREDENTIAL_PROVIDER_PATH =
+    "spark.hadoop." + CREDENTIAL_PROVIDER_PATH
+  final private val HADOOP_CONF_DIR = "HADOOP_CONF_DIR"
+  final private val CORE_SITE_FILE_NAME = "core-site.xml"
+
+  /**
+   * Merges the server's `hadoop.security.credential.provider.path` into the providers the engine
+   * would use otherwise rather than replacing them, since those hold Spark's own aliases such as
+   * `spark.ssl.keyPassword`. The server's providers go last, so an alias the engine resolves
+   * locally never depends on a remote provider, whose failure aborts the whole lookup. The bare
+   * key is always dropped, as `convertConfigKey` maps it onto the same `spark.hadoop.` key; an
+   * explicit `spark.hadoop.` entry, which only server-side configuration may set, wins outright.
+   */
+  private[spark] def mergeCredentialProviderPath(
+      sparkConf: Map[String, String],
+      enginePath: => Option[String]): Map[String, String] = {
+    sparkConf.get(CREDENTIAL_PROVIDER_PATH) match {
+      case Some(serverPath) if !sparkConf.contains(SPARK_CREDENTIAL_PROVIDER_PATH) =>
+        val merged = (enginePath.toSeq :+ serverPath)
+          .flatMap(Utils.strToSeq(_)).distinct.mkString(",")
+        if (merged.isEmpty) {
+          sparkConf - CREDENTIAL_PROVIDER_PATH
+        } else {
+          sparkConf - CREDENTIAL_PROVIDER_PATH + (SPARK_CREDENTIAL_PROVIDER_PATH -> merged)
+        }
+      case _ => sparkConf - CREDENTIAL_PROVIDER_PATH
+    }
+  }
   // Get the appropriate spark-submit file
   final private val SPARK_SUBMIT_FILE =
     if (JavaUtils.isWindows) "spark-submit.cmd" else "spark-submit"
