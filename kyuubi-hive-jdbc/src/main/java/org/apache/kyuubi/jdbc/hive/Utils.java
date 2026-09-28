@@ -225,6 +225,9 @@ public class Utils {
     JdbcConnectionParams connParams = extractURLComponents(uri, info);
     if (ZooKeeperHiveClientHelper.isZkDynamicDiscoveryMode(connParams.getSessionVars())) {
       configureConnParamsFromZooKeeper(connParams);
+
+    } else if (ListDiscoveryHelper.isListDiscoveryMode(connParams.getSessionVars())) {
+      configureConnParamsFromList(connParams);
     }
     handleAllDeprecations(connParams);
     return connParams;
@@ -381,6 +384,9 @@ public class Utils {
       uri = uri.replace(dummyAuthorityString, authorityStr);
       // Set ZooKeeper ensemble in connParams for later use
       connParams.setZooKeeperEnsemble(authorityStr);
+    } else if (ListDiscoveryHelper.isListDiscoveryMode(connParams.getSessionVars())) {
+      // The authority is a list of servers; one of them is chosen by configureConnParamsFromList
+      uri = uri.replace(dummyAuthorityString, authorityStr);
     } else {
       URI jdbcBaseURI = URI.create(URI_HIVE_PREFIX + "//" + authorityStr);
       // Check to prevent unintentional use of embedded mode. A missing "/"
@@ -413,6 +419,16 @@ public class Utils {
 
     connParams.setJdbcUriString(uri);
     return connParams;
+  }
+
+  // Configure using a list of servers in the URL
+  static void configureConnParamsFromList(JdbcConnectionParams connParams)
+      throws ZooKeeperHiveClientException {
+    ListDiscoveryHelper.configureConnParams(connParams);
+    String authorityStr = connParams.getHost() + ":" + connParams.getPort();
+    String jdbcUriString = connParams.getJdbcUriString();
+    connParams.setJdbcUriString(
+        jdbcUriString.replace(getAuthorityFromJdbcURL(jdbcUriString), authorityStr));
   }
 
   // Configure using ZooKeeper
@@ -540,6 +556,41 @@ public class Utils {
       return false;
     }
 
+    return true;
+  }
+
+  /** Move to the next server of the URL's list that has not failed yet. */
+  static boolean updateConnParamsFromList(JdbcConnectionParams connParams) {
+    return updateConnParamsClientSide(connParams, ListDiscoveryHelper::configureConnParams);
+  }
+
+  interface ClientSideSelector {
+    void select(JdbcConnectionParams connParams) throws ZooKeeperHiveClientException;
+  }
+
+  /**
+   * Reject the server in use, choose another one with the selector, and update host, port and
+   * jdbcUriString.
+   *
+   * @return true if another server was found
+   */
+  private static boolean updateConnParamsClientSide(
+      JdbcConnectionParams connParams, ClientSideSelector selector) {
+    connParams.getRejectedAddresses().add(connParams.getCurrentAddress());
+    String oldHost = connParams.getHost();
+    int oldPort = connParams.getPort();
+    try {
+      selector.select(connParams);
+      connParams.setJdbcUriString(
+          connParams
+              .getJdbcUriString()
+              .replace(
+                  oldHost + ":" + oldPort, connParams.getHost() + ":" + connParams.getPort()));
+      LOG.info("Selected Kyuubi server with uri: " + connParams.getJdbcUriString());
+    } catch (ZooKeeperHiveClientException e) {
+      LOG.error(e.getMessage());
+      return false;
+    }
     return true;
   }
 

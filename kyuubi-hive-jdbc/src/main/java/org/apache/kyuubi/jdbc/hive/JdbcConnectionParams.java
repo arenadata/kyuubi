@@ -80,6 +80,8 @@ public class JdbcConnectionParams {
   static final String SERVICE_DISCOVERY_MODE_NONE = "none";
   // Use ZooKeeper for indirection while using dynamic service discovery
   static final String SERVICE_DISCOVERY_MODE_ZOOKEEPER = "zooKeeper";
+  // The URL lists every server (host1:port1,host2:port2); the driver picks one and fails over
+  static final String SERVICE_DISCOVERY_MODE_LIST = "list";
   static final String ZOOKEEPER_NAMESPACE = "zooKeeperNamespace";
   static final String SERVER_SELECT_STRATEGY = "serverSelectStrategy";
   // Default namespace value on ZooKeeper.
@@ -140,6 +142,9 @@ public class JdbcConnectionParams {
   private String suppliedURLAuthority;
   private String zooKeeperEnsemble = null;
   private String currentHostZnodePath;
+  // list discovery: the server in use, and the servers that failed
+  private String currentAddress;
+  private final List<String> rejectedAddresses = new ArrayList<>();
   private final List<String> rejectedHostZnodePaths = new ArrayList<>();
 
   public JdbcConnectionParams() {}
@@ -156,6 +161,8 @@ public class JdbcConnectionParams {
     this.suppliedURLAuthority = params.suppliedURLAuthority;
     this.zooKeeperEnsemble = params.zooKeeperEnsemble;
     this.currentHostZnodePath = params.currentHostZnodePath;
+    this.currentAddress = params.currentAddress;
+    this.rejectedAddresses.addAll(params.rejectedAddresses);
     this.rejectedHostZnodePaths.addAll(params.rejectedHostZnodePaths);
   }
 
@@ -201,6 +208,18 @@ public class JdbcConnectionParams {
 
   public List<String> getRejectedHostZnodePaths() {
     return rejectedHostZnodePaths;
+  }
+
+  public String getCurrentAddress() {
+    return currentAddress;
+  }
+
+  public List<String> getRejectedAddresses() {
+    return rejectedAddresses;
+  }
+
+  public void setCurrentAddress(String currentAddress) {
+    this.currentAddress = currentAddress;
   }
 
   public String getCurrentHostZnodePath() {

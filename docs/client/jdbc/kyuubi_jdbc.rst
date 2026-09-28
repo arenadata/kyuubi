@@ -147,6 +147,21 @@ Connection URL over Service Discovery
 - zookeeper quorum is the corresponding zookeeper cluster configured by `kyuubi.ha.addresses` at the server side.
 - zooKeeperNamespace is  the corresponding namespace configured by `kyuubi.ha.namespace` at the server side.
 
+Connection URL over a list of servers
+*************************************
+
+For deployments without ZooKeeper, e.g. Kyuubi pods in Kubernetes reached from outside the cluster,
+where every pod has its own NodePort or LoadBalancer address.
+
+.. code-block::
+
+   jdbc:subprotocol://<host1>:<port1>,<host2>:<port2>,<host3>:<port3>/;serviceDiscoveryMode=list
+
+- The driver picks one server of the list at random and connects to it directly. If it does not
+  answer, the next one is tried; after all failed the list is tried again, up to ``retries`` times.
+- Every entry must lead to one particular pod. A single NodePort or LoadBalancer Service in front of
+  all pods balances by itself and does not need this mode.
+
 HiveServer2 Compatibility
 *************************
 
