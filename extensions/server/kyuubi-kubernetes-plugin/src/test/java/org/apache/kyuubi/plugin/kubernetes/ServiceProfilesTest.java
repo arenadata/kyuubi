@@ -61,7 +61,8 @@ public class ServiceProfilesTest {
     assertEquals("trino/analytics", p.source());
     assertEquals("TRINO", p.conf().get("kyuubi.engine.type"));
     assertEquals(
-        "http://analytics.trino.svc:8080", p.conf().get("kyuubi.engine.trino.connection.url"));
+        "http://analytics.trino.svc:8080",
+        p.conf().get("kyuubi.session.engine.trino.connection.url"));
     assertEquals("analytics", p.conf().get("kyuubi.engine.share.level.subdomain"));
     assertTrue(p.users().isEmpty());
     assertFalse(p.isDefault());
@@ -105,7 +106,7 @@ public class ServiceProfilesTest {
     assertEquals("https://analytics.trino.svc:8443", p.conf().get("some.url"));
     assertFalse(
         "a JDBC profile gets no Trino url",
-        p.conf().containsKey("kyuubi.engine.trino.connection.url"));
+        p.conf().containsKey("kyuubi.session.engine.trino.connection.url"));
   }
 
   @Test

@@ -39,7 +39,7 @@ public class ClusterProfileAdvisorTest {
           Map.of(
               "kyuubi.engine.type",
               "TRINO",
-              "kyuubi.engine.trino.connection.url",
+              "kyuubi.session.engine.trino.connection.url",
               "http://a:8080"));
   private static final ClusterProfile SHARED =
       new ClusterProfile(

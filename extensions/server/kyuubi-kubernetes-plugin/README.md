@@ -161,6 +161,35 @@ locks, one directory per lock path.
 
 The registry does not outlive the pod, and does not need to: nothing in it is worth keeping.
 
+## Deployment
+
+`deploy/` brings up two Kyuubi servers with this plugin, a Trino and a PostgreSQL declared on their
+Services, and beeline, in the namespace `kyuubi-stand`, from images pushed to the kind registry at
+`localhost:5001`:
+
+```sh
+mvn -pl kyuubi-assembly,externals/kyuubi-trino-engine,externals/kyuubi-jdbc-engine,\
+  extensions/server/kyuubi-kubernetes-plugin,kyuubi-hive-beeline -am clean install -DskipTests
+extensions/server/kyuubi-kubernetes-plugin/deploy/setup.sh
+extensions/server/kyuubi-kubernetes-plugin/deploy/check.sh
+extensions/server/kyuubi-kubernetes-plugin/deploy/stop.sh
+```
+
+`check.sh` runs through beeline:
+
+- no server starts a ZooKeeper, REST or a metadata store;
+- a session with no profile gets the default one, Trino, from its Service;
+- a named profile gets PostgreSQL through the JDBC engine;
+- an unknown name is refused, listing the names that exist;
+- engines are registered only on the pod that started them, and are processes of that pod;
+- a second session of the same user finds the running engine;
+- a changed annotation takes effect without a restart;
+- an idle engine stops and removes its registration;
+- a deleted server costs only its own sessions.
+
+Build with `clean`: `kyuubi-assembly/target` keeps jars from earlier builds, and two Jackson
+versions side by side break the server.
+
 ## Not covered
 
 - Engines that run outside the pod - Spark in cluster mode - register from another pod and cannot

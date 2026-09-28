@@ -65,7 +65,7 @@ public final class ServiceProfiles {
   static final String ENGINE_ENV_PREFIX = "kyuubi.engineEnv.";
   static final String SESSION_PREFIX = "kyuubi.session.";
   static final String SUBDOMAIN_KEY = "kyuubi.engine.share.level.subdomain";
-  static final String TRINO_URL_KEY = "kyuubi.engine.trino.connection.url";
+  static final String TRINO_URL_KEY = "kyuubi.session.engine.trino.connection.url";
 
   private static final int DEFAULT_PORT = 8080;
   private static final Set<String> OWN_KEYS =
