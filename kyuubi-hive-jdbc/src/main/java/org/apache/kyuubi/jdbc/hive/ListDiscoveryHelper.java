@@ -27,8 +27,9 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Client-side load balancing over a fixed list of servers: {@code serviceDiscoveryMode=list}.
  *
- * <p>The URL carries every server, {@code jdbc:hive2://h1:p1,h2:p2,h3:p3/;serviceDiscoveryMode=list}.
- * The driver picks one at random and connects to it directly. If it does not answer, the next one
+ * <p>The URL carries every server:
+ * {@code jdbc:hive2://h1:p1,h2:p2,h3:p3/;serviceDiscoveryMode=list}. The driver picks one at random
+ * and connects to it directly. If it does not answer, the next one
  * is tried; once all are rejected the list is tried again (up to {@code retries} times).
  *
  * <p>Meant for clients outside Kubernetes, where pod IPs and headless Service names are not
