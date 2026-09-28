@@ -225,7 +225,6 @@ public class Utils {
     JdbcConnectionParams connParams = extractURLComponents(uri, info);
     if (ZooKeeperHiveClientHelper.isZkDynamicDiscoveryMode(connParams.getSessionVars())) {
       configureConnParamsFromZooKeeper(connParams);
-
     } else if (ListDiscoveryHelper.isListDiscoveryMode(connParams.getSessionVars())) {
       configureConnParamsFromList(connParams);
     }
@@ -423,7 +422,7 @@ public class Utils {
 
   // Configure using a list of servers in the URL
   static void configureConnParamsFromList(JdbcConnectionParams connParams)
-      throws ZooKeeperHiveClientException {
+      throws ZooKeeperHiveClientException, JdbcUriParseException {
     ListDiscoveryHelper.configureConnParams(connParams);
     String authorityStr = connParams.getHost() + ":" + connParams.getPort();
     String jdbcUriString = connParams.getJdbcUriString();
