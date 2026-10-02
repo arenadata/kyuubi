@@ -112,8 +112,61 @@ class TrinoSessionImpl(
       .build()
   }
 
-  private def createHttpClient(): OkHttpClient = {
-    val serverScheme = clientSession.getServer.getScheme
+  private def createHttpClient(): OkHttpClient =
+    TrinoSessionImpl.createHttpClient(sessionConf, clientSession.getServer.getScheme, sessionUser)
+
+  override protected def runOperation(operation: Operation): OperationHandle = {
+    sessionEvent.totalOperations += 1
+    super.runOperation(operation)
+  }
+
+  override def getInfo(infoType: TGetInfoType): TGetInfoValue = withAcquireRelease() {
+    infoType match {
+      case TGetInfoType.CLI_SERVER_NAME | TGetInfoType.CLI_DBMS_NAME =>
+        TGetInfoValue.stringValue("Trino")
+      case TGetInfoType.CLI_DBMS_VER => TGetInfoValue.stringValue(getTrinoServerVersion)
+      case TGetInfoType.CLI_ODBC_KEYWORDS => TGetInfoValue.stringValue("Unimplemented")
+      case TGetInfoType.CLI_MAX_COLUMN_NAME_LEN |
+          TGetInfoType.CLI_MAX_SCHEMA_NAME_LEN |
+          TGetInfoType.CLI_MAX_TABLE_NAME_LEN => TGetInfoValue.lenValue(0)
+      case _ => throw KyuubiSQLException(s"Unrecognized GetInfoType value: $infoType")
+    }
+  }
+
+  private def getTrinoServerVersion: String = {
+    val trinoStatement =
+      TrinoStatement(trinoContext, sessionManager.getConf, "SELECT version()")
+    val resultSet = trinoStatement.execute()
+
+    assert(resultSet.hasNext)
+    resultSet.next().head.toString
+  }
+
+  private def getTrinoSessionConf(sessionConf: KyuubiConf): Map[String, String] = {
+    val trinoSessionConf = sessionConf.getAll.filterKeys(_.startsWith("trino."))
+      .map { case (k, v) => (k.stripPrefix("trino."), v) }
+    trinoSessionConf.toMap
+  }
+
+  override def close(): Unit = {
+    sessionEvent.endTime = System.currentTimeMillis()
+    EventBus.post(sessionEvent)
+    super.close()
+  }
+}
+
+object TrinoSessionImpl {
+
+  /**
+   * The HTTP client a session reaches Trino with: TLS, Kerberos and password
+   * authentication as the connection settings say. Shared so that anything
+   * else that talks to the same cluster - the routing gateway's reconciler and
+   * its worker drain, for two - authenticates exactly as a session does.
+   */
+  def createHttpClient(
+      sessionConf: KyuubiConf,
+      serverScheme: String,
+      sessionUser: String): OkHttpClient = {
     val builder = new OkHttpClient.Builder()
 
     val insecureEnabled = sessionConf.get(KyuubiConf.ENGINE_TRINO_CONNECTION_INSECURE_ENABLED)
@@ -189,44 +242,5 @@ class TrinoSessionImpl(
       }
 
     builder.build()
-  }
-
-  override protected def runOperation(operation: Operation): OperationHandle = {
-    sessionEvent.totalOperations += 1
-    super.runOperation(operation)
-  }
-
-  override def getInfo(infoType: TGetInfoType): TGetInfoValue = withAcquireRelease() {
-    infoType match {
-      case TGetInfoType.CLI_SERVER_NAME | TGetInfoType.CLI_DBMS_NAME =>
-        TGetInfoValue.stringValue("Trino")
-      case TGetInfoType.CLI_DBMS_VER => TGetInfoValue.stringValue(getTrinoServerVersion)
-      case TGetInfoType.CLI_ODBC_KEYWORDS => TGetInfoValue.stringValue("Unimplemented")
-      case TGetInfoType.CLI_MAX_COLUMN_NAME_LEN |
-          TGetInfoType.CLI_MAX_SCHEMA_NAME_LEN |
-          TGetInfoType.CLI_MAX_TABLE_NAME_LEN => TGetInfoValue.lenValue(0)
-      case _ => throw KyuubiSQLException(s"Unrecognized GetInfoType value: $infoType")
-    }
-  }
-
-  private def getTrinoServerVersion: String = {
-    val trinoStatement =
-      TrinoStatement(trinoContext, sessionManager.getConf, "SELECT version()")
-    val resultSet = trinoStatement.execute()
-
-    assert(resultSet.hasNext)
-    resultSet.next().head.toString
-  }
-
-  private def getTrinoSessionConf(sessionConf: KyuubiConf): Map[String, String] = {
-    val trinoSessionConf = sessionConf.getAll.filterKeys(_.startsWith("trino."))
-      .map { case (k, v) => (k.stripPrefix("trino."), v) }
-    trinoSessionConf.toMap
-  }
-
-  override def close(): Unit = {
-    sessionEvent.endTime = System.currentTimeMillis()
-    EventBus.post(sessionEvent)
-    super.close()
   }
 }
