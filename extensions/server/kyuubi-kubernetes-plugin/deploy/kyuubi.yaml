@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# Two Kyuubi servers, each on its own: no ZooKeeper, no REST, no metadata store.
+# Two Kyuubi servers, each on its own: no ZooKeeper, no REST, no metadata store, no engines.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -60,25 +60,16 @@ data:
     kyuubi.frontend.thrift.binary.bind.port=10009
 
     # The plugin in place of ZooKeeper. The address is any value: empty starts an embedded one.
-    kyuubi.ha.addresses=pod
-    kyuubi.ha.client.class=org.apache.kyuubi.plugin.kubernetes.PodDiscoveryClient
-    kyuubi.ha.pod.dir=/tmp/kyuubi-discovery
+    kyuubi.ha.addresses=kubernetes
+    kyuubi.ha.client.class=org.apache.kyuubi.plugin.kubernetes.KubernetesDiscoveryClient
 
-    # Engine profiles from the clusters' Services.
+    # Engine profiles, and where their engines run, from the Services.
     kyuubi.session.conf.advisor=org.apache.kyuubi.plugin.kubernetes.ClusterProfileAdvisor
     kyuubi.plugin.kubernetes.namespaces=kyuubi-stand
     kyuubi.engine.profiles.unknown.strategy=LOG
 
-    # Engines are JVMs of their own and load the plugin too.
-    kyuubi.engine.trino.extra.classpath=/opt/kyuubi/plugins/*
-    kyuubi.engine.jdbc.extra.classpath=/opt/kyuubi/plugins/*:/opt/kyuubi/drivers/*
-    kyuubi.engine.trino.memory=256m
-    kyuubi.engine.jdbc.memory=256m
-
-    kyuubi.engine.share.level=USER
-    # Short, so check.sh sees an idle engine go and take its registration with it.
-    kyuubi.session.engine.idle.timeout=PT45S
-    kyuubi.session.engine.check.interval=PT5S
+    # Engines run by operators are shared by every user.
+    kyuubi.engine.share.level=SERVER
     kyuubi.metrics.enabled=false
 ---
 apiVersion: apps/v1
@@ -117,8 +108,7 @@ spec:
               memory: 512Mi
             limits:
               cpu: "1"
-              # The server and the engines it starts, which are processes of this pod.
-              memory: 1536Mi
+              memory: 768Mi
           volumeMounts:
             - name: conf
               mountPath: /opt/kyuubi/conf/kyuubi-defaults.conf

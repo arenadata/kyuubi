@@ -17,7 +17,8 @@
 #
 
 # Brings the stand up in kind: a Kyuubi image from what the build left in target/,
-# pushed to the kind registry at localhost:5001, then Trino, PostgreSQL and two
+# pushed to the kind registry at localhost:5001, then Trino, PostgreSQL, an engine for each
+# as an operator would run it, and two
 # Kyuubi servers in the namespace kyuubi-stand. Build first, from the repository root:
 #
 #   mvn -pl kyuubi-assembly,externals/kyuubi-trino-engine,externals/kyuubi-jdbc-engine,\
@@ -79,12 +80,12 @@ for image in trinodb/trino:483 postgres:16-alpine; do
 done
 
 step "Clusters and Kyuubi in $NS"
-kubectl apply -f "$HERE/clusters.yaml" -f "$HERE/kyuubi.yaml" >/dev/null
+kubectl apply -f "$HERE/clusters.yaml" -f "$HERE/engines.yaml" -f "$HERE/kyuubi.yaml" >/dev/null
 # A new image under the same tag reaches only new pods.
-kubectl -n "$NS" rollout restart deploy/kyuubi >/dev/null
+kubectl -n "$NS" rollout restart deploy/kyuubi deploy/trino-engine deploy/warehouse-engine >/dev/null
 kubectl -n "$NS" delete pod client --ignore-not-found >/dev/null
 kubectl apply -f "$HERE/kyuubi.yaml" >/dev/null
-for workload in deploy/trino deploy/warehouse deploy/kyuubi; do
+for workload in deploy/trino deploy/warehouse deploy/trino-engine deploy/warehouse-engine deploy/kyuubi; do
   kubectl -n "$NS" rollout status "$workload" --timeout=600s
 done
 kubectl -n "$NS" wait --for=condition=Ready pod/client --timeout=300s

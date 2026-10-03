@@ -16,7 +16,8 @@
 # limitations under the License.
 #
 
-# What a stateless Kyuubi has to do, checked on the stand setup.sh brought up.
+# What a stateless Kyuubi has to do, checked on the stand setup.sh brought up:
+# no ZooKeeper, no metadata store, and no engine of its own - engines are the operators'.
 # Every session goes through beeline, as a client's would.
 set -uo pipefail
 
@@ -44,11 +45,15 @@ A=${pods[0]}
 B=${pods[1]}
 A_IP=$(k get pod "$A" -o jsonpath='{.status.podIP}')
 
-registry() { k exec "$1" -- sh -c 'cd /tmp/kyuubi-discovery 2>/dev/null && find . -type d -name "serverUri=*" | grep -v "^./kyuubi/" | sort'; }
-engines() { # engine JVMs running in a Kyuubi pod
+engines() { # engine JVMs running in a pod
   k exec "$1" -- sh -c 'for c in /proc/[0-9]*/cmdline; do tr "\0" " " < "$c" 2>/dev/null; echo; done' \
     | grep -oE "org\.apache\.kyuubi\.engine\.[a-z]+\.[A-Za-z]+Engine" | sort | uniq -c
 }
+TRINO_ENGINE=$(k get pod -l app.kubernetes.io/name=trino-engine -o jsonpath='{.items[0].metadata.name}')
+sessions_on_engine() { # client addresses of the sessions the Trino engine has opened
+  k logs "$TRINO_ENGINE" | grep -oE "Opening session for [a-z]+@[0-9.]+" | sed 's/.*@//' | sort -u
+}
+B_IP=$(k get pod "$B" -o jsonpath='{.status.podIP}')
 
 scenario "0. Two servers, and not a ZooKeeper among them"
 for p in "$A" "$B"; do
@@ -79,43 +84,42 @@ expect "PostgreSQL answered through the JDBC engine" "$out" "postgres,2"
 scenario "3. A profile nobody declared is refused, naming the ones that exist"
 out=$(sql "$A_IP" alice "select 1" "kyuubi.engine.profile=nope")
 expect "refused" "$out" "Engine profile 'nope' is not defined"
-expect "with what exists" "$out" "[trino, warehouse]"
+expect "with what exists" "$out" "[impala, trino, warehouse]"
 
-scenario "4. The engines are registered on the pod that started them, and only there"
-reg=$(registry "$A")
-expect "the Trino engine of bob" "$reg" "_USER_TRINO/bob/trino/serverUri="
-expect "the JDBC engine of alice" "$reg" "_USER_JDBC/alice/warehouse/serverUri="
-running=$(engines "$A")
-expect "both are processes of the pod" "$running" "TrinoSqlEngine"
-expect "the JDBC engine too" "$running" "JdbcSQLEngine"
-[ -z "$(registry "$B")" ] && ok "$B has nothing registered" || fail "$B has: $(registry "$B")"
+scenario "4. Engines are the operators': Kyuubi starts none, and every server shares them"
+out=$(sql "$B_IP" carol "select count(*) from tpch.tiny.region")
+expect "a session through the other server ran too" "$out" "5"
+for p in "$A" "$B"; do
+  [ -z "$(engines "$p")" ] && ok "$p runs no engine process" || fail "$p runs: $(engines "$p")"
+done
+seen=$(sessions_on_engine)
+expect "the Trino engine served the first server" "$seen" "$A_IP"
+expect "and the second" "$seen" "$B_IP"
 
-scenario "5. A second session of the same user finds the engine instead of starting one"
-out=$(sql "$A_IP" bob "select name from tpch.tiny.nation where nationkey = 0")
-expect "answered" "$out" "ALGERIA"
-n=$(registry "$A" | grep -c "_USER_TRINO/bob/")
-[ "$n" = "1" ] && ok "still one Trino engine for bob" || fail "$n Trino engines for bob"
+scenario "5. A profile whose engine nobody runs is refused, and nothing is started for it"
+out=$(sql "$A_IP" alice "select 1" "kyuubi.engine.profile=impala")
+expect "refused, saying why" "$out" "has no port named 'kyuubi'"
+[ -z "$(engines "$A")" ] && ok "no engine was started for it" || fail "started: $(engines "$A")"
 
 scenario "6. A cluster re-declared on its Service takes effect without a restart"
-k annotate service warehouse kyuubi/users=alice --overwrite >/dev/null
+k annotate service warehouse-engine kyuubi/users=alice --overwrite >/dev/null
 sleep 3
 out=$(sql "$A_IP" bob "select 1" "kyuubi.engine.profile=warehouse")
 expect "bob is no longer let onto warehouse" "$out" "Engine profile 'warehouse' is not allowed for user bob"
 out=$(sql "$A_IP" alice "select 3" "kyuubi.engine.profile=warehouse")
 expect "alice still is" "$out" "3"
-k annotate service warehouse kyuubi/users- >/dev/null
+k annotate service warehouse-engine kyuubi/users- >/dev/null
 
-scenario "7. An idle engine stops, and takes its registration with it"
-started=$(date +%s)
-for _ in $(seq 1 60); do [ -z "$(registry "$A")" ] && break; sleep 3; done
-if [ -z "$(registry "$A")" ]; then
-  ok "the registry of $A is empty after $(( $(date +%s) - started ))s"
-else
-  fail "still registered: $(registry "$A")"
-fi
-# The registration goes first; the engine then takes a few seconds to stop its services.
-for _ in $(seq 1 30); do [ -z "$(engines "$A")" ] && break; sleep 2; done
-[ -z "$(engines "$A")" ] && ok "and no engine process is left" || fail "left running: $(engines "$A")"
+scenario "7. An engine that is down fails its sessions; Kyuubi does not start one in its place"
+k scale deploy/trino-engine --replicas=0 >/dev/null
+k wait --for=delete pod -l app.kubernetes.io/name=trino-engine --timeout=120s >/dev/null 2>&1
+out=$(sql "$A_IP" bob "select 1")
+expect "the session fails" "$out" "Error"
+[ -z "$(engines "$A")" ] && ok "and no engine was started for it" || fail "started: $(engines "$A")"
+k scale deploy/trino-engine --replicas=1 >/dev/null
+k rollout status deploy/trino-engine --timeout=300s >/dev/null
+out=$(sql "$A_IP" bob "select count(*) from tpch.tiny.nation")
+expect "once the operator brings it back, sessions run again" "$out" "25"
 
 scenario "8. A server that dies costs only itself"
 k delete pod "$A" --wait=true >/dev/null

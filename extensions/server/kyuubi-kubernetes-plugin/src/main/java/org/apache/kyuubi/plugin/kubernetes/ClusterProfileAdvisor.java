@@ -17,7 +17,6 @@
 
 package org.apache.kyuubi.plugin.kubernetes;
 
-import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -131,16 +130,7 @@ public class ClusterProfileAdvisor implements SessionConfAdvisor {
       }
       KyuubiConf conf = new KyuubiConf(true).loadFileDefaults();
       declaredProfiles = declaredProfilesIn(conf);
-      KubernetesClusterCatalog started =
-          new KubernetesClusterCatalog(new KubernetesClientBuilder().build(), settingsFrom(conf));
-      started.start();
-      Runtime.getRuntime().addShutdownHook(new Thread(started::close, "cluster-catalog-stop"));
-      LOG.info(
-          "Watching Services for engine profiles in {}; {} known at start",
-          settingsFrom(conf).namespaces().isEmpty()
-              ? "all namespaces"
-              : settingsFrom(conf).namespaces(),
-          started.profiles().size());
+      ClusterCatalog started = SharedCatalog.get(conf);
       catalog = started;
     }
   }

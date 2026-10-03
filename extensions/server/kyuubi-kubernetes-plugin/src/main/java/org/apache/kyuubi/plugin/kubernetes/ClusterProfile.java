@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -38,6 +39,41 @@ public final class ClusterProfile {
   private final Set<String> users;
   private final boolean isDefault;
   private final Map<String, String> conf;
+  private final Optional<Engine> engine;
+
+  /** Where an engine started for this profile by somebody else - an operator - is reached. */
+  public static final class Engine {
+    private final String host;
+    private final int port;
+
+    public Engine(String host, int port) {
+      this.host = host;
+      this.port = port;
+    }
+
+    public String host() {
+      return host;
+    }
+
+    public int port() {
+      return port;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      return o instanceof Engine && ((Engine) o).host.equals(host) && ((Engine) o).port == port;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(host, port);
+    }
+
+    @Override
+    public String toString() {
+      return host + ":" + port;
+    }
+  }
 
   /**
    * @param name the profile name a session asks for with {@code kyuubi.engine.profile}
@@ -48,6 +84,18 @@ public final class ClusterProfile {
    */
   public ClusterProfile(
       String name, String source, Set<String> users, boolean isDefault, Map<String, String> conf) {
+    this(name, source, users, isDefault, conf, Optional.empty());
+  }
+
+  /** @param engine where the profile's engine runs, when it runs as a Service of its own */
+  public ClusterProfile(
+      String name,
+      String source,
+      Set<String> users,
+      boolean isDefault,
+      Map<String, String> conf,
+      Optional<Engine> engine) {
+    this.engine = engine;
     this.name = name;
     this.source = source;
     this.users = Collections.unmodifiableSet(new LinkedHashSet<>(users));
@@ -75,6 +123,10 @@ public final class ClusterProfile {
     return conf;
   }
 
+  public Optional<Engine> engine() {
+    return engine;
+  }
+
   public boolean allows(String user) {
     return users.isEmpty() || users.contains(user);
   }
@@ -89,12 +141,13 @@ public final class ClusterProfile {
         && source.equals(other.source)
         && users.equals(other.users)
         && isDefault == other.isDefault
-        && conf.equals(other.conf);
+        && conf.equals(other.conf)
+        && engine.equals(other.engine);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name, source, users, isDefault, conf);
+    return Objects.hash(name, source, users, isDefault, conf, engine);
   }
 
   @Override

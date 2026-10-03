@@ -17,26 +17,26 @@
 
 package org.apache.kyuubi.plugin.kubernetes;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import java.io.File;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.function.BooleanSupplier;
-import java.util.stream.Collectors;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.apache.kyuubi.config.KyuubiConf;
-import org.apache.kyuubi.ha.client.ServiceNodeInfo;
 import org.apache.kyuubi.server.KyuubiServer;
 import org.junit.AfterClass;
 import org.junit.Assume;
@@ -46,146 +46,173 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 /**
- * A Kyuubi server with nothing but this plugin behind it: no ZooKeeper, embedded or otherwise. A
- * session opens, the server starts an engine in a process of its own, the engine registers through
- * {@link PodDiscoveryClient}, the server finds it there and runs the statement, and once the engine
- * has been idle it stops and its registration goes with it.
+ * A Kyuubi server that starts no engine and runs no ZooKeeper.
  *
- * <p>The engine is the chat engine with its echo provider, because it needs nothing outside the
- * pod. It is found the way a packaged server finds one, under {@code KYUUBI_HOME}, which is the
- * repository root here: the test is skipped when the engine has not been built.
+ * <p>An engine is started here the way an operator would start one - a process of its own, on a
+ * port of its own, registered nowhere - and declared as a profile whose Service names that port. A
+ * session asking for the profile runs on it; a session asking for a profile with no engine is
+ * refused, and no engine process is started for it.
+ *
+ * <p>The engine is the chat engine with its echo provider, because it needs nothing else. The test
+ * is skipped when it has not been built.
  */
 public class StandaloneServerTest {
 
-  @ClassRule public static final Timeout WHOLE_CLASS = Timeout.seconds(600);
+  @ClassRule public static final Timeout WHOLE_CLASS = Timeout.seconds(300);
 
   private static final Path REPO =
       Paths.get("").toAbsolutePath().getParent().getParent().getParent();
-  private static Path registry;
+  private static Process engine;
   private static KyuubiServer server;
 
   @BeforeClass
-  public static void startServer() throws Exception {
-    Path engineTarget = REPO.resolve("externals/kyuubi-chat-engine/target");
-    boolean engineBuilt;
-    try (Stream<Path> files =
-        Files.exists(engineTarget) ? Files.list(engineTarget) : Stream.empty()) {
-      engineBuilt =
-          files.anyMatch(f -> f.getFileName().toString().matches("kyuubi-chat-engine_.*\\.jar"));
+  public static void start() throws Exception {
+    Path target = REPO.resolve("externals/kyuubi-chat-engine/target");
+    Optional<Path> jar;
+    try (Stream<Path> files = Files.exists(target) ? Files.list(target) : Stream.empty()) {
+      jar =
+          files
+              .filter(
+                  f ->
+                      f.getFileName()
+                          .toString()
+                          .matches("kyuubi-chat-engine_[0-9.]+-.*[0-9]\\.jar"))
+              .findFirst();
     }
-    Assume.assumeTrue("the chat engine is not built: " + engineTarget, engineBuilt);
+    Path deps = target.resolve("scala-2.13/jars");
+    Assume.assumeTrue(
+        "the chat engine is not built: " + target, jar.isPresent() && Files.isDirectory(deps));
 
-    registry = Files.createTempDirectory("kyuubi-discovery");
-    Path work = Files.createTempDirectory("kyuubi-work");
-    Path pluginClasses = Paths.get("target/scala-2.13/classes").toAbsolutePath();
-    if (!Files.isDirectory(pluginClasses)) {
-      pluginClasses = Paths.get("target/scala-2.12/classes").toAbsolutePath();
+    int port;
+    try (ServerSocket free = new ServerSocket(0)) {
+      port = free.getLocalPort();
     }
+    Path work = Files.createTempDirectory("kyuubi-engine");
+    List<String> command = new ArrayList<>();
+    command.add(Paths.get(System.getProperty("java.home"), "bin", "java").toString());
+    command.add("-Xmx256m");
+    command.add("-cp");
+    command.add(jar.get() + File.pathSeparator + deps + File.separator + "*");
+    command.add("org.apache.kyuubi.engine.chat.ChatEngine");
+    for (String kv :
+        new String[] {
+          "kyuubi.frontend.thrift.binary.bind.host=127.0.0.1",
+          "kyuubi.frontend.thrift.binary.bind.port=" + port,
+          "kyuubi.engine.chat.provider=ECHO",
+          "kyuubi.engine.share.level=SERVER",
+          // Kept up between sessions, as an engine an operator runs is.
+          "kyuubi.session.engine.idle.timeout=PT0S",
+          "kyuubi.session.user=kyuubi",
+          "kyuubi.operation.log.dir.root=" + work.resolve("logs")
+        }) {
+      command.add("--conf");
+      command.add(kv);
+    }
+    engine =
+        new ProcessBuilder(command)
+            .directory(work.toFile())
+            .redirectErrorStream(true)
+            .redirectOutput(work.resolve("engine.out").toFile())
+            .start();
+    awaitPort(port);
+
+    // The Service that would declare it; an informer would fill the same catalog.
+    SharedCatalog.set(
+        () ->
+            List.of(
+                new ClusterProfile(
+                    "echo",
+                    "engines/echo",
+                    Set.of(),
+                    true,
+                    Map.of(
+                        "kyuubi.engine.type", "CHAT",
+                        "kyuubi.engine.share.level.subdomain", "echo"),
+                    Optional.of(new ClusterProfile.Engine("127.0.0.1", port))),
+                new ClusterProfile(
+                    "stopped",
+                    "engines/stopped",
+                    Set.of(),
+                    false,
+                    Map.of(
+                        "kyuubi.engine.type", "CHAT",
+                        "kyuubi.engine.share.level.subdomain", "stopped"),
+                    Optional.empty())));
 
     KyuubiConf conf = new KyuubiConf(false);
     conf.set("kyuubi.frontend.protocols", "THRIFT_BINARY");
     conf.set("kyuubi.frontend.thrift.binary.bind.port", "0");
-    // The plugin in place of ZooKeeper. The address is any value: empty starts an embedded one.
-    conf.set("kyuubi.ha.addresses", "pod");
-    conf.set("kyuubi.ha.client.class", PodDiscoveryClient.class.getName());
-    conf.set(PodDiscoveryClient.DIR_KEY, registry.toString());
-    // An engine the pod can run on its own, found where a packaged server would find it.
-    conf.set("kyuubi.engine.type", "CHAT");
-    conf.set("kyuubi.engine.chat.provider", "ECHO");
-    conf.set("kyuubi.engine.share.level", "USER");
-    conf.set("kyuubi.engineEnv.KYUUBI_HOME", REPO.toString());
-    conf.set("kyuubi.engineEnv.KYUUBI_WORK_DIR_ROOT", work.toString());
-    // The engine is a separate JVM and registers through the plugin too.
-    conf.set("kyuubi.engine.chat.extra.classpath", pluginClasses.toString());
-    conf.set("kyuubi.engine.chat.memory", "256m");
-    // Short, so the test sees the engine go away on its own.
-    conf.set("kyuubi.session.engine.idle.timeout", "PT5S");
-    conf.set("kyuubi.session.engine.check.interval", "PT1S");
-    conf.set("kyuubi.operation.log.dir.root", work.resolve("operation_logs").toString());
+    conf.set("kyuubi.ha.addresses", "kubernetes");
+    conf.set("kyuubi.ha.client.class", KubernetesDiscoveryClient.class.getName());
+    conf.set("kyuubi.session.conf.advisor", ClusterProfileAdvisor.class.getName());
+    conf.set("kyuubi.engine.profiles.unknown.strategy", "LOG");
+    conf.set("kyuubi.engine.share.level", "SERVER");
+    conf.set("kyuubi.session.engine.launch.async", "false");
+    conf.set("kyuubi.operation.log.dir.root", work.resolve("server-logs").toString());
     conf.set("kyuubi.metrics.enabled", "false");
-
     server = KyuubiServer.startServer(conf);
   }
 
   @AfterClass
-  public static void stopServer() {
+  public static void stop() {
     if (server != null) {
       server.stop();
     }
-  }
-
-  private static String jdbcUrl(String user) {
-    return "jdbc:kyuubi://" + server.frontendServices().head().connectionUrl() + "/;user=" + user;
-  }
-
-  private static PodDiscoveryClient registryClient() {
-    KyuubiConf conf = new KyuubiConf(false);
-    conf.set(PodDiscoveryClient.DIR_KEY, registry.toString());
-    PodDiscoveryClient client = new PodDiscoveryClient(conf);
-    client.createClient();
-    return client;
-  }
-
-  /** The discovery namespace of alice's chat engine, once anything is registered under it. */
-  private static Optional<String> engineNamespace() throws Exception {
-    try (Stream<Path> dirs = Files.walk(registry)) {
-      return dirs.filter(Files::isDirectory)
-          .map(d -> "/" + registry.relativize(d).toString().replace(File.separatorChar, '/'))
-          .filter(p -> p.contains("_USER_CHAT/alice/") && !p.contains("serverUri="))
-          .filter(p -> p.endsWith("/default"))
-          .findFirst();
+    if (engine != null) {
+      engine.destroy();
     }
+    SharedCatalog.set(null);
   }
 
-  private static void await(String what, BooleanSupplier condition) throws InterruptedException {
+  private static void awaitPort(int port) throws Exception {
     for (int i = 0; i < 600; i++) {
-      if (condition.getAsBoolean()) {
+      try (Socket s = new Socket("127.0.0.1", port)) {
         return;
+      } catch (java.io.IOException e) {
+        if (!engine.isAlive()) {
+          throw new IllegalStateException("the engine exited: " + engine.exitValue());
+        }
+        Thread.sleep(100);
       }
-      Thread.sleep(100);
     }
-    fail(what);
+    throw new IllegalStateException("the engine never opened port " + port);
+  }
+
+  private static String url(String profile) {
+    return "jdbc:kyuubi://"
+        + server.frontendServices().head().connectionUrl()
+        + "/;user=alice"
+        + (profile == null ? "" : "#kyuubi.engine.profile=" + profile);
+  }
+
+  private static String ask(String profile, String sql) throws SQLException {
+    try (Connection c = DriverManager.getConnection(url(profile));
+        Statement s = c.createStatement();
+        ResultSet rows = s.executeQuery(sql)) {
+      assertTrue(rows.next());
+      return rows.getString(1);
+    }
   }
 
   @Test
-  public void aSessionRunsOnAnEngineRegisteredThroughThePod() throws Exception {
+  public void sessionsRunOnTheEngineTheServiceNamesAndNoneIsLaunched() throws Exception {
     Class.forName("org.apache.kyuubi.jdbc.KyuubiHiveDriver");
-    String answer;
-    try (Connection connection = DriverManager.getConnection(jdbcUrl("alice"));
-        Statement statement = connection.createStatement();
-        ResultSet rows = statement.executeQuery("hello from a pod")) {
-      assertTrue(rows.next());
-      answer = rows.getString(1);
+    String echoed = ask("echo", "hello from an operator's engine");
+    assertTrue(echoed, echoed != null && !echoed.isEmpty());
+    // The default profile, for a session that asks for none.
+    assertTrue(ask(null, "again") != null);
+
+    SQLException refused = null;
+    try {
+      ask("stopped", "nobody runs this");
+    } catch (SQLException e) {
+      refused = e;
     }
-    assertFalse("the echo engine answered", answer == null || answer.isEmpty());
+    assertTrue("a profile with no engine is refused", refused != null);
+    assertTrue(refused.getMessage(), refused.getMessage().contains("has no port named 'kyuubi'"));
 
-    // The engine, a separate process, is in the registry under the path the server looked in.
-    String namespace =
-        engineNamespace().orElseThrow(() -> new AssertionError("no engine registered"));
-    PodDiscoveryClient client = registryClient();
-    List<ServiceNodeInfo> engines = client.nodesIn(namespace, Optional.empty(), false);
-    assertEquals(1, engines.size());
-    assertTrue(client.getServerHost(namespace).isDefined());
-    assertEquals(engines.get(0).port(), client.getServerHost(namespace).get()._2());
-
-    // A second session of the same user finds that engine rather than starting another.
-    try (Connection connection = DriverManager.getConnection(jdbcUrl("alice"));
-        Statement statement = connection.createStatement();
-        ResultSet rows = statement.executeQuery("again")) {
-      assertTrue(rows.next());
-    }
-    assertEquals(1, client.nodesIn(namespace, Optional.empty(), false).size());
-
-    // Idle, the engine stops itself and takes its registration with it.
-    await(
-        "the idle engine never left the registry: " + describe(),
-        () -> client.nodesIn(namespace, Optional.empty(), true).isEmpty());
-    assertTrue(client.getServerHost(namespace).isEmpty());
-  }
-
-  private static String describe() throws Exception {
-    try (Stream<Path> all = Files.walk(registry)) {
-      return all.map(registry::relativize).map(Path::toString).collect(Collectors.joining(", "));
-    }
+    long launched =
+        ProcessHandle.current().descendants().filter(p -> !p.equals(engine.toHandle())).count();
+    assertTrue("the server started no process of its own, it started " + launched, launched == 0);
   }
 }

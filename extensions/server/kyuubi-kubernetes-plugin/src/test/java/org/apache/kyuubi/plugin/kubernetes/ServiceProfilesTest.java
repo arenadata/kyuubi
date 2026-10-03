@@ -146,4 +146,36 @@ public class ServiceProfilesTest {
             service(Map.of("trino-as/type", "ignored", "kyuubi/type", "trino")), "kyuubi/");
     assertEquals(3, p.conf().size());
   }
+
+  @Test
+  public void aPortNamedKyuubiIsWhereTheProfilesEngineRuns() {
+    Service withEngine =
+        new ServiceBuilder(service(Map.of("kyuubi/type", "SPARK_SQL")))
+            .editSpec()
+            .addNewPort()
+            .withName("kyuubi")
+            .withPort(10009)
+            .endPort()
+            .endSpec()
+            .build();
+    ClusterProfile p = ServiceProfiles.toProfile(withEngine, "kyuubi/");
+    assertEquals("analytics.trino.svc", p.engine().get().host());
+    assertEquals(10009, p.engine().get().port());
+    assertFalse(profile(Map.of("kyuubi/type", "TRINO")).engine().isPresent());
+
+    // The Service of a Trino engine is not Trino: no connection url is made up from it.
+    Service trinoEngine =
+        new ServiceBuilder(service(Map.of("kyuubi/type", "TRINO")))
+            .editSpec()
+            .addNewPort()
+            .withName("kyuubi")
+            .withPort(10009)
+            .endPort()
+            .endSpec()
+            .build();
+    assertFalse(
+        ServiceProfiles.toProfile(trinoEngine, "kyuubi/")
+            .conf()
+            .containsKey("kyuubi.session.engine.trino.connection.url"));
+  }
 }

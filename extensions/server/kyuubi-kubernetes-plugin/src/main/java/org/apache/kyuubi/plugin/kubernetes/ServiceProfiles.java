@@ -67,6 +67,9 @@ public final class ServiceProfiles {
   static final String SUBDOMAIN_KEY = "kyuubi.engine.share.level.subdomain";
   static final String TRINO_URL_KEY = "kyuubi.session.engine.trino.connection.url";
 
+  /** The Service port an engine started by an operator listens behind. */
+  public static final String ENGINE_PORT_NAME = "kyuubi";
+
   private static final int DEFAULT_PORT = 8080;
   private static final Set<String> OWN_KEYS =
       Set.of("profile", "users", "default", "scheme", "port");
@@ -132,7 +135,10 @@ public final class ServiceProfiles {
     if (!conf.containsKey(ENGINE_TYPE_KEY)) {
       throw new IllegalArgumentException("'" + prefix + "type' is missing");
     }
-    if ("TRINO".equals(conf.get(ENGINE_TYPE_KEY))) {
+    Optional<ClusterProfile.Engine> engine = engineOf(service, host);
+    // A Service in front of Trino itself is where the engine connects. A Service in front of an
+    // engine is not Trino, and the engine knows where its cluster is.
+    if ("TRINO".equals(conf.get(ENGINE_TYPE_KEY)) && !engine.isPresent()) {
       conf.putIfAbsent(TRINO_URL_KEY, url);
     }
 
@@ -151,7 +157,8 @@ public final class ServiceProfiles {
         namespace + "/" + serviceName,
         csv(ann.get("users")),
         Boolean.parseBoolean(ann.getOrDefault("default", "false")),
-        conf);
+        conf,
+        engine);
   }
 
   /** A profile name as a path segment: a subdomain ends up in a discovery path. */
@@ -168,6 +175,20 @@ public final class ServiceProfiles {
       throw new IllegalArgumentException("'" + prefix + key + "' needs a sub-key");
     }
     return parts[1];
+  }
+
+  /**
+   * The engine behind the Service, when one of its ports is named {@value #ENGINE_PORT_NAME}: the
+   * Service's own address, so Kubernetes picks a Ready pod, as for any client.
+   */
+  private static Optional<ClusterProfile.Engine> engineOf(Service service, String host) {
+    if (service.getSpec() == null || service.getSpec().getPorts() == null) {
+      return Optional.empty();
+    }
+    return service.getSpec().getPorts().stream()
+        .filter(p -> ENGINE_PORT_NAME.equals(p.getName()))
+        .map(p -> new ClusterProfile.Engine(host, p.getPort()))
+        .findFirst();
   }
 
   private static int resolvePort(Service service, Optional<String> requested) {

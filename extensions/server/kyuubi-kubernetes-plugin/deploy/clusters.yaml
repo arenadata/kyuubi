@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-# The clusters Kyuubi sends sessions to, declared on their Services and nowhere else.
+# The clusters: a Trino and a PostgreSQL. Kyuubi does not talk to them; their engines do.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -93,14 +93,6 @@ kind: Service
 metadata:
   name: trino
   namespace: kyuubi-stand
-  labels:
-    kyuubi/enabled: "true"
-  annotations:
-    # An engine profile, as kyuubi.engine.profile.trino.* would declare it. The
-    # connection url is the Service's own, filled in by the plugin.
-    kyuubi/type: TRINO
-    kyuubi/session.engine.trino.connection.catalog: tpch
-    kyuubi/default: "true"
 spec:
   selector:
     app.kubernetes.io/name: trino
@@ -148,16 +140,6 @@ kind: Service
 metadata:
   name: warehouse
   namespace: kyuubi-stand
-  labels:
-    kyuubi/enabled: "true"
-  annotations:
-    kyuubi/type: JDBC
-    kyuubi/conf.kyuubi.engine.jdbc.type: postgresql
-    kyuubi/conf.kyuubi.engine.jdbc.driver.class: org.postgresql.Driver
-    kyuubi/conf.kyuubi.engine.jdbc.connection.url: "jdbc:postgresql://{host}:{port}/postgres"
-    kyuubi/conf.kyuubi.engine.jdbc.connection.user: postgres
-    # A stand only: a real cluster's password does not belong in an annotation.
-    kyuubi/conf.kyuubi.engine.jdbc.connection.password: stand-only-password
 spec:
   selector:
     app.kubernetes.io/name: warehouse
