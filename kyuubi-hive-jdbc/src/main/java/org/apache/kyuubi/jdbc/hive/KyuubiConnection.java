@@ -119,6 +119,9 @@ public class KyuubiConnection implements SQLConnection, KyuubiLoggable {
     // if zk is disabled or if HA service discovery is enabled we return the already populated
     // params.
     // in HA mode, params is already populated with Active server host info.
+    if (ListDiscoveryHelper.isListDiscoveryMode(params.getSessionVars())) {
+      return ListDiscoveryHelper.getDirectParamsList(params);
+    }
     if (params.getZooKeeperEnsemble() == null) {
       return Collections.singletonList(params);
     }
@@ -216,6 +219,19 @@ public class KyuubiConnection implements SQLConnection, KyuubiLoggable {
             connParams.getRejectedHostZnodePaths().clear();
           }
           // Update with new values
+          jdbcUriString = connParams.getJdbcUriString();
+          if (isKerberosAuthMode() && isEnableCanonicalHostnameCheck()) {
+            host = Utils.getCanonicalHostName(connParams.getHost());
+          } else {
+            host = connParams.getHost();
+          }
+          port = connParams.getPort();
+        } else if (ListDiscoveryHelper.isListDiscoveryMode(sessConfMap)) {
+          errMsg = "Could not open client transport for any of the servers: ";
+          // Try the next server, or start over if retry is enabled
+          while (!Utils.updateConnParamsFromList(connParams) && ++numRetries < maxRetries) {
+            connParams.getRejectedAddresses().clear();
+          }
           jdbcUriString = connParams.getJdbcUriString();
           if (isKerberosAuthMode() && isEnableCanonicalHostnameCheck()) {
             host = Utils.getCanonicalHostName(connParams.getHost());
@@ -1035,7 +1051,8 @@ public class KyuubiConnection implements SQLConnection, KyuubiLoggable {
   }
 
   private void logZkDiscoveryMessage(String message) {
-    if (ZooKeeperHiveClientHelper.isZkDynamicDiscoveryMode(sessConfMap)) {
+    if (ZooKeeperHiveClientHelper.isZkDynamicDiscoveryMode(sessConfMap)
+        || ListDiscoveryHelper.isListDiscoveryMode(sessConfMap)) {
       LOG.info(message);
     }
   }
