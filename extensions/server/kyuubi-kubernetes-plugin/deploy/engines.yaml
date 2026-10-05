@@ -166,11 +166,13 @@ metadata:
   annotations:
     kyuubi/profile: warehouse
     kyuubi/type: JDBC
+    # The engine's port keeps its own name; this says which one it is.
+    kyuubi/port-name: thrift
 spec:
   selector:
     app.kubernetes.io/name: warehouse-engine
   ports:
-    - name: kyuubi
+    - name: thrift
       port: 10009
       targetPort: kyuubi
 ---

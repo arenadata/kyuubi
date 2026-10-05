@@ -178,4 +178,36 @@ public class ServiceProfilesTest {
             .conf()
             .containsKey("kyuubi.session.engine.trino.connection.url"));
   }
+
+  @Test
+  public void portNameNamesAnotherPortForTheEngine() {
+    Service hs2 =
+        new ServiceBuilder(
+                service(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", " thrift ")))
+            .editSpec()
+            .addNewPort()
+            .withName("kyuubi")
+            .withPort(10009)
+            .endPort()
+            .addNewPort()
+            .withName("thrift")
+            .withPort(10000)
+            .endPort()
+            .endSpec()
+            .build();
+    ClusterProfile p = ServiceProfiles.toProfile(hs2, "kyuubi/");
+    assertEquals("analytics.trino.svc", p.engine().get().host());
+    assertEquals(10000, p.engine().get().port());
+    assertFalse(p.conf().keySet().stream().anyMatch(k -> k.contains("port-name")));
+
+    // Asked for and missing is a typo: the Service is refused, not left without an engine.
+    IllegalArgumentException missing =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> profile(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", "thirft")));
+    assertTrue(missing.getMessage(), missing.getMessage().contains("no port named thirft"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> profile(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", " ")));
+  }
 }

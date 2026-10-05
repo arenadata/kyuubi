@@ -67,12 +67,15 @@ public final class ServiceProfiles {
   static final String SUBDOMAIN_KEY = "kyuubi.engine.share.level.subdomain";
   static final String TRINO_URL_KEY = "kyuubi.session.engine.trino.connection.url";
 
-  /** The Service port an engine started by an operator listens behind. */
+  /**
+   * The Service port an engine started by an operator listens behind, unless the Service names
+   * another with {@code <prefix>port-name}.
+   */
   public static final String ENGINE_PORT_NAME = "kyuubi";
 
   private static final int DEFAULT_PORT = 8080;
   private static final Set<String> OWN_KEYS =
-      Set.of("profile", "users", "default", "scheme", "port");
+      Set.of("profile", "users", "default", "scheme", "port", "port-name");
 
   private ServiceProfiles() {}
 
@@ -129,13 +132,14 @@ public final class ServiceProfiles {
                   + prefix
                   + key
                   + "' is not a profile key; expected type, env.<VAR>, session.<key>,"
-                  + " conf.<key>, profile, users, default, scheme or port");
+                  + " conf.<key>, profile, users, default, scheme, port or port-name");
       }
     }
     if (!conf.containsKey(ENGINE_TYPE_KEY)) {
       throw new IllegalArgumentException("'" + prefix + "type' is missing");
     }
-    Optional<ClusterProfile.Engine> engine = engineOf(service, host);
+    Optional<ClusterProfile.Engine> engine =
+        engineOf(service, host, prefix, Optional.ofNullable(ann.get("port-name")));
     // A Service in front of Trino itself is where the engine connects. A Service in front of an
     // engine is not Trino, and the engine knows where its cluster is.
     if ("TRINO".equals(conf.get(ENGINE_TYPE_KEY)) && !engine.isPresent()) {
@@ -178,17 +182,34 @@ public final class ServiceProfiles {
   }
 
   /**
-   * The engine behind the Service, when one of its ports is named {@value #ENGINE_PORT_NAME}: the
-   * Service's own address, so Kubernetes picks a Ready pod, as for any client.
+   * The engine behind the Service, when one of its ports is named {@value #ENGINE_PORT_NAME}, or
+   * what {@code <prefix>port-name} says: the Service's own address, so Kubernetes picks a Ready
+   * pod, as for any client.
+   *
+   * <p>Without the annotation a Service with no such port is a profile without an engine. With it,
+   * a missing port is a typo and refuses the Service, as an unknown key does: the Service asked for
+   * an engine, and a profile that quietly has none would be refused per session instead.
    */
-  private static Optional<ClusterProfile.Engine> engineOf(Service service, String host) {
-    if (service.getSpec() == null || service.getSpec().getPorts() == null) {
-      return Optional.empty();
+  private static Optional<ClusterProfile.Engine> engineOf(
+      Service service, String host, String prefix, Optional<String> requested) {
+    List<ServicePort> ports =
+        service.getSpec() == null || service.getSpec().getPorts() == null
+            ? List.of()
+            : service.getSpec().getPorts();
+    String wanted = requested.map(String::trim).orElse(ENGINE_PORT_NAME);
+    if (wanted.isEmpty()) {
+      throw new IllegalArgumentException("'" + prefix + "port-name' is empty");
     }
-    return service.getSpec().getPorts().stream()
-        .filter(p -> ENGINE_PORT_NAME.equals(p.getName()))
-        .map(p -> new ClusterProfile.Engine(host, p.getPort()))
-        .findFirst();
+    Optional<ClusterProfile.Engine> engine =
+        ports.stream()
+            .filter(p -> wanted.equals(p.getName()))
+            .map(p -> new ClusterProfile.Engine(host, p.getPort()))
+            .findFirst();
+    if (requested.isPresent() && !engine.isPresent()) {
+      throw new IllegalArgumentException(
+          "'" + prefix + "port-name': the Service has no port named " + wanted);
+    }
+    return engine;
   }
 
   private static int resolvePort(Service service, Optional<String> requested) {

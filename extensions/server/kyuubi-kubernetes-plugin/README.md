@@ -119,6 +119,7 @@ Annotation keys, all under the configured prefix:
 | `users` | who may use it, comma separated; anyone who asks for it by name, unless set |
 | `default` | `"true"` on the one profile users who ask for nothing get |
 | `scheme`, `port` | how to reach the cluster through this Service: `http` and its first port unless set; `port` is a number or a port name |
+| `port-name` | the name of the port the profile's engine listens behind, `kyuubi` unless set; see [Engines](#engines) |
 
 Every value may say `{host}`, `{port}` and `{url}` for the Service's own address, and `{user}`
 for the session user, filled in per session. A `TRINO` profile that names no connection url gets
@@ -147,7 +148,8 @@ A Service whose annotations do not make a profile - an unknown key, a port it do
 
 ## Engines
 
-A Service runs the engine of its profile when one of its ports is named `kyuubi`:
+A Service runs the engine of its profile when one of its ports is named `kyuubi`, or as its
+`port-name` annotation says:
 
 ```yaml
 apiVersion: v1
@@ -168,7 +170,21 @@ spec:
 ```
 
 A session of the profile `spark4` is connected to `spark4.engines.svc:10009`; Kubernetes picks a
-Ready pod behind it. The engine runs registered nowhere - no `kyuubi.ha.addresses` in its own
+Ready pod behind it. A Service whose port already has a name keeps it and says which one it is:
+
+```yaml
+  annotations:
+    kyuubi/type: SPARK_SQL
+    kyuubi/port-name: thrift
+spec:
+  ports:
+    - name: thrift
+      port: 10000
+```
+
+Without `port-name`, a Service with no port named `kyuubi` is a profile without an engine. With
+it, a port the Service does not have is a typo, and the Service is skipped like one with an unknown
+key. The engine runs registered nowhere - no `kyuubi.ha.addresses` in its own
 configuration - and kept up between sessions.
 
 The server asks for an engine before it would start one, by its engine space:
