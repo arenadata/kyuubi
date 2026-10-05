@@ -1,0 +1,125 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+#
+# Example cluster declarations.
+#
+# A cluster is a Service that carries the label the gateway selects on and the
+# annotations describing it. Nothing else registers a cluster: there is no
+# operator of the gateway's own and no configuration file listing backends, so
+# adding a cluster means adding a Service and removing one means deleting it.
+#
+# The Services here point at hosts that need not exist. Discovery reads
+# annotations and never connects, so these are enough to watch the cluster set
+# change in the metrics; only an actual query needs a Trino behind them.
+#
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-analytics
+  namespace: gateway
+  labels:
+    # What the gateway selects on. A Service without it is invisible, which is
+    # how an ordinary Service in the same namespace avoids being mistaken for a
+    # cluster.
+    kyuubi.gateway/enabled: "true"
+  annotations:
+    kyuubi.gateway/engine: trino
+    # Who may be routed here. A user in no cluster's list and with no default
+    # available is refused - never sent somewhere else.
+    kyuubi.gateway/users: alice,bob
+    kyuubi.gateway/scheme: http
+    kyuubi.gateway/port: "8080"
+
+    # Capacity, for admission. All three or none: a partial declaration would
+    # have the gateway size queries against a ceiling it invented.
+    kyuubi.gateway/max-memory-per-node-bytes: "10737418240"
+    kyuubi.gateway/workers: "4"
+    kyuubi.gateway/max-workers: "10"
+
+    # The custom resource whose scale subresource the gateway may write. Naming
+    # it explicitly, rather than deriving it from an owner reference, means a
+    # Service the gateway happens to see cannot hand it write access to an
+    # object nobody meant to expose.
+    kyuubi.gateway/scale-target: trino-analytics
+
+    # Session settings for anyone routed here. Note the spelling: Trino's
+    # connection settings are kyuubi.session.engine.trino.connection.*, and the
+    # other one is accepted silently and fails late.
+    kyuubi.gateway/session.kyuubi.session.engine.trino.connection.catalog: hive
+spec:
+  # Whatever the coordinator pods carry. The gateway reads the Service, not the
+  # endpoints, so this may select nothing while the cluster is being created.
+  selector:
+    app: trino-analytics
+    component: coordinator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-etl
+  namespace: gateway
+  labels:
+    kyuubi.gateway/enabled: "true"
+  annotations:
+    kyuubi.gateway/engine: trino
+    kyuubi.gateway/users: carol
+    # Where users with no cluster of their own land. Without one, an unmapped
+    # user is refused - which is the safer default and why this is opt-in.
+    kyuubi.gateway/default: "true"
+    kyuubi.gateway/port: "8080"
+    kyuubi.gateway/max-memory-per-node-bytes: "21474836480"
+    kyuubi.gateway/workers: "2"
+    kyuubi.gateway/max-workers: "20"
+    kyuubi.gateway/scale-target: trino-etl
+    kyuubi.gateway/session.kyuubi.session.engine.trino.connection.catalog: hive
+spec:
+  selector:
+    app: trino-etl
+    component: coordinator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# An Impala cluster, for a gateway deployed with kyuubi.gateway.engine=impala.
+# A gateway serves one engine, so this Service is ignored by the Trino gateway
+# above - it refuses a cluster whose engine is not its own rather than trying.
+apiVersion: v1
+kind: Service
+metadata:
+  name: impala-reporting
+  namespace: gateway
+  labels:
+    kyuubi.gateway/enabled: "true"
+  annotations:
+    kyuubi.gateway/engine: impala
+    kyuubi.gateway/users: dave
+    kyuubi.gateway/port: "21050"
+spec:
+  selector:
+    app: impala-reporting
+    component: coordinator
+  ports:
+    - name: hs2
+      port: 21050
+      targetPort: 21050

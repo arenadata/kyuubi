@@ -1,0 +1,134 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+#
+# A client that authenticates with a ticket and opens one session.
+#
+# Run in the cluster rather than through a port-forward, because Kerberos
+# service principals are host-based: a client reaching the gateway as
+# `localhost` asks for a principal named after localhost, which nobody created.
+# Inside the cluster the name the client resolves and the name in the keytab are
+# the same one.
+#
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: krb-client
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: krb-client
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: krb-client
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: probe
+          image: localhost:5001/kyuubi-krb-probe:latest
+          imagePullPolicy: Always
+          args:
+            # The principal in the url is the gateway's, not the caller's: it is
+            # who the client expects to be talking to. The caller's identity
+            # comes from the ticket and never appears here.
+            # `principal` is the gateway's - who the client expects to be
+            # talking to. `kyuubiClientPrincipal` and `kyuubiClientKeytab` are
+            # the caller's: the driver builds its own JAAS configuration from
+            # them and gets a ticket itself, which is why this image needs no
+            # kinit and no krb5 tools.
+            - jdbc:hive2://kyuubi-routing-gateway.gateway.svc.cluster.local:10009/;principal=hive/kyuubi-routing-gateway.gateway.svc.cluster.local@EXAMPLE.COM;kyuubiClientPrincipal=alice@EXAMPLE.COM;kyuubiClientKeytab=/etc/krb-client/keytab/alice.keytab
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: -Djava.security.krb5.conf=/etc/krb-client/krb5/krb5.conf
+          volumeMounts:
+            - name: krb5
+              mountPath: /etc/krb-client/krb5
+              readOnly: true
+            - name: keytab
+              mountPath: /etc/krb-client/keytab
+              readOnly: true
+      volumes:
+        - name: krb5
+          secret:
+            # The same realm description the gateway uses. One definition, so
+            # the two cannot disagree about where the KDC is.
+            secretName: kyuubi-routing-gateway-krb5
+            defaultMode: 0444
+        - name: keytab
+          secret:
+            secretName: krb-client-keytab
+            items:
+              - key: alice.keytab
+                path: alice.keytab
+            defaultMode: 0400
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: krb-client-carol
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: krb-client-carol
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: krb-client-carol
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: probe
+          image: localhost:5001/kyuubi-krb-probe:latest
+          imagePullPolicy: Always
+          args:
+            # The principal in the url is the gateway's, not the caller's: it is
+            # who the client expects to be talking to. The caller's identity
+            # comes from the ticket and never appears here.
+            # `principal` is the gateway's - who the client expects to be
+            # talking to. `kyuubiClientPrincipal` and `kyuubiClientKeytab` are
+            # the caller's: the driver builds its own JAAS configuration from
+            # them and gets a ticket itself, which is why this image needs no
+            # kinit and no krb5 tools.
+            - jdbc:hive2://kyuubi-routing-gateway.gateway.svc.cluster.local:10009/;principal=hive/kyuubi-routing-gateway.gateway.svc.cluster.local@EXAMPLE.COM;kyuubiClientPrincipal=carol@EXAMPLE.COM;kyuubiClientKeytab=/etc/krb-client/keytab/carol.keytab
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: -Djava.security.krb5.conf=/etc/krb-client/krb5/krb5.conf
+          volumeMounts:
+            - name: krb5
+              mountPath: /etc/krb-client/krb5
+              readOnly: true
+            - name: keytab
+              mountPath: /etc/krb-client/keytab
+              readOnly: true
+      volumes:
+        - name: krb5
+          secret:
+            # The same realm description the gateway uses. One definition, so
+            # the two cannot disagree about where the KDC is.
+            secretName: kyuubi-routing-gateway-krb5
+            defaultMode: 0444
+        - name: keytab
+          secret:
+            secretName: krb-client-keytab
+            items:
+              - key: carol.keytab
+                path: carol.keytab
+            defaultMode: 0400
