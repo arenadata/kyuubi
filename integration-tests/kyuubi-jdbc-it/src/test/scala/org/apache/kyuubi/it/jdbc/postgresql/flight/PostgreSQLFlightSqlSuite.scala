@@ -31,6 +31,7 @@ class PostgreSQLFlightSqlSuite
   override protected val frontendProtocols = Seq(FrontendProtocols.FLIGHT_SQL)
 
   override def beforeAll(): Unit = {
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
     conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
     conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
     conf.set(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, 10)

@@ -32,6 +32,7 @@ class TrinoFlightSqlSuite
     Seq(FrontendProtocols.THRIFT_BINARY, FrontendProtocols.FLIGHT_SQL)
 
   override def beforeAll(): Unit = {
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
     conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
     conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
     conf.set(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, 10)
@@ -54,18 +55,18 @@ class TrinoFlightSqlSuite
     }
     try {
       withJdbcStatement() { statement =>
-        statement.execute(s"CREATE TABLE $table (id BIGINT, label VARCHAR)")
-        statement.execute(s"INSERT INTO $table VALUES (1, 'first'), (2, 'second')")
+        statement.execute(s"CREATE TABLE $table (id BIGINT, active BOOLEAN)")
+        statement.execute(s"INSERT INTO $table VALUES (1, true), (2, false)")
       }
       withFlightSqlClient() { (_, sqlClient) =>
         val rows = executeAndCollect(
           sqlClient,
-          s"SELECT id, label FROM $table ORDER BY id")
+          s"SELECT id, active FROM $table ORDER BY id")
         assert(rows.size === 2)
         assert(rows(0)(0).toString.toLong === 1L)
-        assert(rows(0)(1).toString === "first")
+        assert(java.lang.Boolean.parseBoolean(rows(0)(1).toString))
         assert(rows(1)(0).toString.toLong === 2L)
-        assert(rows(1)(1).toString === "second")
+        assert(!java.lang.Boolean.parseBoolean(rows(1)(1).toString))
       }
     } finally {
       withJdbcStatement() { statement =>

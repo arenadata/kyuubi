@@ -18,6 +18,7 @@
 package org.apache.kyuubi
 
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.server.KyuubiFlightSqlFrontendService
 
 trait WithFlightSqlServer extends WithKyuubiServer {
 
@@ -25,10 +26,14 @@ trait WithFlightSqlServer extends WithKyuubiServer {
     Seq(FrontendProtocols.FLIGHT_SQL)
 
   override def beforeAll(): Unit = {
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
     conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
     conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
     super.beforeAll()
   }
 
-  protected def flightSqlUrl: String = server.frontendServices.head.connectionUrl
+  protected def flightSqlUrl: String =
+    server.frontendServices.collectFirst {
+      case frontend: KyuubiFlightSqlFrontendService => frontend.connectionUrl
+    }.getOrElse(throw new IllegalStateException("Flight SQL frontend is not running"))
 }

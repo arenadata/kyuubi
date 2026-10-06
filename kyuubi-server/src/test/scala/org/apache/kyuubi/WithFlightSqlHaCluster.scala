@@ -26,6 +26,11 @@ trait WithFlightSqlHaCluster extends WithKyuubiHaCluster {
 
   override protected def serverNamePrefix: String = "kyuubi-flight-ha"
 
+  override def beforeAll(): Unit = {
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
+    super.beforeAll()
+  }
+
   override protected def configureFrontends(conf: KyuubiConf): Unit = {
     conf.set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
     conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")

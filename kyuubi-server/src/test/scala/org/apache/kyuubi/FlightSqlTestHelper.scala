@@ -73,6 +73,7 @@ trait FlightSqlTestHelper extends Assertions {
       f: (FlightClient, FlightSqlClient) => T): T = {
     val host = endpoint.substring(0, endpoint.lastIndexOf(':'))
     val port = endpoint.substring(endpoint.lastIndexOf(':') + 1).toInt
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
     val allocator = new RootAllocator()
     val builder =
       if (trustedCert.isDefined) {
@@ -229,6 +230,54 @@ trait FlightSqlTestHelper extends Assertions {
 
   protected def assertFlightStatus(status: CallStatus)(body: => Any): Unit =
     assertFlightStatus(status.code())(body)
+}
+
+object FlightSqlTestHelper {
+
+  /**
+   * Prefer Arrow's Unsafe allocator for unshaded Flight SQL tests.
+   *
+   * Arrow 16's Netty buffer-patch assumes Netty 4.1 `PooledUnsafeDirectByteBuf`.
+   * With Netty 4.2 the arena returns `PooledDirectByteBuf`, and allocation fails
+   * with ClassCastException during Flight streaming.
+   *
+   * Must run before the first in-process server or client [[RootAllocator]].
+   *
+   * Do not leave [[System]] property `arrow.allocation.manager.type=Unsafe` set:
+   * Spark Connect uses relocated `org.sparkproject.org.apache.arrow`, which reads the
+   * same property and has no Unsafe factory on the classpath. Unsafe is pinned only
+   * on unshaded `org.apache.arrow.memory.DefaultAllocationManagerOption` via reflection;
+   * the property is cleared before this method returns.
+   */
+  def ensureArrowUnsafeAllocator(): Unit = synchronized {
+    val prop = "arrow.allocation.manager.type"
+    // Temporary: BaseAllocator <clinit> must be outermost when resolving Unsafe.
+    // Loading UnsafeAllocationManager first deadlocks factory init (ArrowBuf reads
+    // BaseAllocator.DEBUG while Unsafe FACTORY is still unset).
+    System.setProperty(prop, "Unsafe")
+    try {
+      Class.forName("org.apache.arrow.memory.BaseAllocator")
+      val optionClass =
+        Class.forName("org.apache.arrow.memory.DefaultAllocationManagerOption")
+      val factoryField =
+        optionClass.getDeclaredField("DEFAULT_ALLOCATION_MANAGER_FACTORY")
+      factoryField.setAccessible(true)
+      if (factoryField.get(null) == null) {
+        val getFactory =
+          optionClass.getDeclaredMethod("getDefaultAllocationManagerFactory")
+        getFactory.setAccessible(true)
+        getFactory.invoke(null)
+      }
+      val unsafeFactory = Class
+        .forName("org.apache.arrow.memory.unsafe.UnsafeAllocationManager")
+        .getField("FACTORY")
+        .get(null)
+      factoryField.set(null, unsafeFactory)
+    } finally {
+      // Critical for Spark Connect suites sharing this JVM.
+      System.clearProperty(prop)
+    }
+  }
 }
 
 case class FlightStreamPages(rows: Seq[Seq[AnyRef]], batchRowCounts: Seq[Int])

@@ -154,6 +154,13 @@
             <version>3.0.8</version>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-unsafe</artifactId>
+            <version>${arrow.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
