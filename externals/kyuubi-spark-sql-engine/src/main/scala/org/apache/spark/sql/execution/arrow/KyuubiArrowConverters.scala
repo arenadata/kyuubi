@@ -95,6 +95,26 @@ object KyuubiArrowConverters extends SQLConfHelper with Logging {
     }
   }
 
+  /** Row count of one Kyuubi Arrow IPC batch, without retaining the vectors. */
+  def batchRowCount(bytes: Array[Byte]): Int = {
+    val allocator = ArrowUtils.rootAllocator.newChildAllocator(
+      "batchRowCount",
+      0,
+      Long.MaxValue)
+    try {
+      val batch = MessageSerializer.deserializeRecordBatch(
+        new ReadChannel(Channels.newChannel(new ByteArrayInputStream(bytes))),
+        allocator)
+      try {
+        batch.getLength
+      } finally {
+        batch.close()
+      }
+    } finally {
+      allocator.close()
+    }
+  }
+
   /**
    * Forked from `org.apache.spark.sql.execution.SparkPlan#executeTake()`, the algorithm can be
    * summarized in the following steps:
