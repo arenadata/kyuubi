@@ -29,7 +29,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.server.flight.{KyuubiFlightAuthHandler, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
+import org.apache.kyuubi.server.flight.{KyuubiFlightAllocator, KyuubiFlightAuthHandler, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.util.{JavaUtils, NamedThreadFactory}
 
@@ -75,6 +75,8 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
     configuredPort = this.conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT)
+    KyuubiFlightAllocator.useUnsafeAllocator()
+    info("Flight SQL Arrow allocator pinned to Unsafe")
     allocator = new RootAllocator()
     producer = new KyuubiFlightSqlProducer(
       serverable.backendService,

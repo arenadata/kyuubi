@@ -23,7 +23,7 @@ import scala.util.control.NonFatal
 
 import org.apache.arrow.flight.FlightProducer.ServerStreamListener
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
+import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot, VectorUnloader}
 import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.Logging
@@ -50,6 +50,11 @@ class FlightResultIterator(
   private val closed = new AtomicBoolean(false)
   private var started = false
   private var finished = false
+  // Backend Arrow batches can be longer than pageSize (Spark ignores the fetch
+  // size and returns one IPC batch per partition). The listener is bound to
+  // `root`, so an oversized batch is parked here and copied back one page at a time.
+  private var pending: VectorSchemaRoot = _
+  private var pendingOffset: Int = 0
 
   def start(listener: ServerStreamListener): VectorSchemaRoot = {
     if (!started) {
@@ -67,6 +72,11 @@ class FlightResultIterator(
     ensureOpen()
     if (finished || isCancelled()) {
       return false
+    }
+    if (hasPendingPage) {
+      publishPendingPage()
+      markPublishedPage()
+      return root.getRowCount > 0
     }
 
     while (!finished && !isCancelled()) {
@@ -90,10 +100,10 @@ class FlightResultIterator(
         }
 
       if (loadedRows > 0) {
-        MetricsSystem.tracing { ms =>
-          ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_BATCHES)
-          ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_ROWS, loadedRows)
+        if (pageSize > 0 && root.getRowCount > pageSize) {
+          stashOverflow()
         }
+        markPublishedPage()
         return true
       }
 
@@ -119,6 +129,65 @@ class FlightResultIterator(
       try root.close()
       catch {
         case NonFatal(e) => warn("Failed to close Flight result VectorSchemaRoot", e)
+      }
+      if (pending != null) {
+        try pending.close()
+        catch {
+          case NonFatal(e) => warn("Failed to close Flight result overflow batch", e)
+        }
+        pending = null
+      }
+    }
+  }
+
+  private def hasPendingPage: Boolean =
+    pending != null && pendingOffset < pending.getRowCount
+
+  private def stashOverflow(): Unit = {
+    val rows = root.getRowCount
+    if (pending == null) {
+      pending = VectorSchemaRoot.create(schema, allocator)
+    }
+    pending.clear()
+    var i = 0
+    while (i < root.getFieldVectors.size()) {
+      root.getVector(i).makeTransferPair(pending.getVector(i)).transfer()
+      i += 1
+    }
+    pending.setRowCount(rows)
+    pendingOffset = 0
+    publishPendingPage()
+  }
+
+  private def publishPendingPage(): Unit = {
+    val rows = math.min(pageSize, pending.getRowCount - pendingOffset)
+    val sliced = pending.slice(pendingOffset, rows)
+    try {
+      val batch = new VectorUnloader(sliced).getRecordBatch()
+      try {
+        root.clear()
+        loader.load(batch)
+        root.setRowCount(batch.getLength)
+      } finally {
+        batch.close()
+      }
+    } finally {
+      sliced.close()
+    }
+    pendingOffset += rows
+    if (pendingOffset >= pending.getRowCount) {
+      pending.close()
+      pending = null
+      pendingOffset = 0
+    }
+  }
+
+  private def markPublishedPage(): Unit = {
+    val published = root.getRowCount
+    if (published > 0) {
+      MetricsSystem.tracing { ms =>
+        ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_BATCHES)
+        ms.markMeter(MetricsConstants.FLIGHT_SQL_STREAM_ROWS, published)
       }
     }
   }
