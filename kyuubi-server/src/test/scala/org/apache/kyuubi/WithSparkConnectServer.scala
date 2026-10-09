@@ -26,6 +26,7 @@ trait WithSparkConnectServer extends WithKyuubiServer {
     Seq(FrontendProtocols.SPARK_CONNECT)
 
   override def beforeAll(): Unit = {
+    System.clearProperty("arrow.allocation.manager.type")
     conf.set(FRONTEND_SPARK_CONNECT_BIND_PORT, 0)
     super.beforeAll()
   }

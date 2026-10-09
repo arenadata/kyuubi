@@ -74,6 +74,8 @@ public class ArrowUtils {
       case DOUBLE_TYPE:
         return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
       case STRING_TYPE:
+      case VARCHAR_TYPE:
+      case CHAR_TYPE:
         return ArrowType.Utf8.INSTANCE;
       case DECIMAL_TYPE:
         if (jdbcColumnAttributes != null) {

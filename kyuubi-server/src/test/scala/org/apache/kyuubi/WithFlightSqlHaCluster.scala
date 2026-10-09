@@ -17,23 +17,31 @@
 
 package org.apache.kyuubi
 
+import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.server.KyuubiFlightSqlFrontendService
+import org.apache.kyuubi.ha.HighAvailabilityConf.HA_FLIGHT_SQL_NAMESPACE
+import org.apache.kyuubi.server.{KyuubiFlightSqlFrontendService, KyuubiServer}
 
-trait WithFlightSqlServer extends WithKyuubiServer {
+trait WithFlightSqlHaCluster extends WithKyuubiHaCluster {
 
-  override protected val frontendProtocols =
-    Seq(FrontendProtocols.FLIGHT_SQL)
+  override protected def serverNamePrefix: String = "kyuubi-flight-ha"
 
   override def beforeAll(): Unit = {
     FlightSqlTestHelper.ensureArrowUnsafeAllocator()
-    conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
-    conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
     super.beforeAll()
   }
 
-  protected def flightSqlUrl: String =
+  override protected def configureFrontends(conf: KyuubiConf): Unit = {
+    conf.set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
+    conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
+    conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
+  }
+
+  protected def flightSqlNamespace: String = conf.get(HA_FLIGHT_SQL_NAMESPACE)
+
+  protected def flightSqlUrl(server: KyuubiServer): String =
     server.frontendServices.collectFirst {
       case frontend: KyuubiFlightSqlFrontendService => frontend.connectionUrl
-    }.getOrElse(throw new IllegalStateException("Flight SQL frontend is not running"))
+    }.getOrElse(throw new IllegalStateException(
+      s"Flight SQL frontend is not running on ${server.getName}"))
 }
