@@ -19,6 +19,8 @@ package org.apache.kyuubi.it.trino.flight
 
 import java.util.UUID
 
+import org.apache.arrow.vector.util.Text
+
 import org.apache.kyuubi.FlightSqlTestHelper
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.it.trino.WithKyuubiServerAndTrinoContainer
@@ -55,18 +57,18 @@ class TrinoFlightSqlSuite
     }
     try {
       withJdbcStatement() { statement =>
-        statement.execute(s"CREATE TABLE $table (id BIGINT, active BOOLEAN)")
-        statement.execute(s"INSERT INTO $table VALUES (1, true), (2, false)")
+        statement.execute(s"CREATE TABLE $table (id INTEGER, label VARCHAR)")
+        statement.execute(s"INSERT INTO $table VALUES (1, 'first'), (2, 'second')")
       }
       withFlightSqlClient() { (_, sqlClient) =>
         val rows = executeAndCollect(
           sqlClient,
-          s"SELECT id, active FROM $table ORDER BY id")
+          s"SELECT id, label FROM $table ORDER BY id")
         assert(rows.size === 2)
-        assert(rows(0)(0).toString.toLong === 1L)
-        assert(java.lang.Boolean.parseBoolean(rows(0)(1).toString))
-        assert(rows(1)(0).toString.toLong === 2L)
-        assert(!java.lang.Boolean.parseBoolean(rows(1)(1).toString))
+        assert(rows(0)(0) === Integer.valueOf(1))
+        assert(rows(0)(1) === new Text("first"))
+        assert(rows(1)(0) === Integer.valueOf(2))
+        assert(rows(1)(1) === new Text("second"))
       }
     } finally {
       withJdbcStatement() { statement =>
