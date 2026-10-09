@@ -381,7 +381,12 @@ abstract class SessionManager(name: String) extends CompositeService(name) {
 
 object SessionManager {
   // Session conf prefixes that clients must never set, because they steer credential-provider
-  // password resolution (KyuubiHadoopUtils.getPassword) at a client-chosen store.
+  // password resolution (KyuubiHadoopUtils.getPassword) at a client-chosen store. The
+  // `spark.hadoop.` spelling does the same for the engine's Hadoop configuration.
   val ALWAYS_RESTRICTED_CONF_PREFIXES: Set[String] =
-    Set("hadoop.security.credential.*", "hadoop.security.credstore.*")
+    Set(
+      "hadoop.security.credential.*",
+      "hadoop.security.credstore.*",
+      "spark.hadoop.hadoop.security.credential.*",
+      "spark.hadoop.hadoop.security.credstore.*")
 }
