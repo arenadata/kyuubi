@@ -34,10 +34,14 @@ class SessionManagerSuite extends KyuubiFunSuite {
       Seq(
         "hadoop.security.credential.provider.path",
         "hadoop.security.credential.vault.token",
-        "hadoop.security.credstore.java-keystore-provider.password-file").foreach { key =>
-        val e = intercept[KyuubiSQLException](m.validateKey(key, "x"))
-        assert(e.getMessage.contains("restrict"))
-      }
+        "hadoop.security.credstore.java-keystore-provider.password-file",
+        "spark.hadoop.hadoop.security.credential.provider.path",
+        "spark.hadoop.hadoop.security.credential.vault.token",
+        "spark.hadoop.hadoop.security.credstore.java-keystore-provider.password-file")
+        .foreach { key =>
+          val e = intercept[KyuubiSQLException](m.validateKey(key, "x"))
+          assert(e.getMessage.contains("restrict"))
+        }
     } finally {
       m.stop()
     }
@@ -46,10 +50,12 @@ class SessionManagerSuite extends KyuubiFunSuite {
   test("credential-store conf keys are always restricted on the batch path") {
     val m = newManager()
     try {
-      val e = intercept[KyuubiSQLException] {
-        m.validateBatchConf(Map("hadoop.security.credential.provider.path" -> "vault://x:8200/y"))
+      Seq(
+        "hadoop.security.credential.provider.path",
+        "spark.hadoop.hadoop.security.credential.provider.path").foreach { key =>
+        val e = intercept[KyuubiSQLException](m.validateBatchConf(Map(key -> "vault://x:8200/y")))
+        assert(e.getMessage.contains("restrict"))
       }
-      assert(e.getMessage.contains("restrict"))
     } finally {
       m.stop()
     }

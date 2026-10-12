@@ -571,6 +571,101 @@ class SparkProcessBuilderSuite extends KerberizedTestHelper with MockitoSugar {
       defaultsBuilder.engineSecurityGrpcInterceptorConf(Map.empty) ===
         Map(key -> s"com.example.Bar,$cls"))
   }
+
+  test("server credential providers are appended to the engine's own") {
+    val kyuubiStore = "jceks://file/etc/kyuubi/conf/kyuubi.jceks"
+    val vaultStore = "vault://vault:8200/kv/kyuubi"
+    val sparkStore = "jceks://file/etc/spark/conf/spark.jceks"
+    val serverConf = Map(CREDENTIAL_PROVIDER_PATH -> kyuubiStore)
+
+    // absent from the server conf: nothing to forward, the engine reads its own providers itself
+    assert(
+      mergeCredentialProviderPath(Map("kyuubi.on" -> "off"), Some(sparkStore)) ===
+        Map("kyuubi.on" -> "off"))
+
+    // nothing on the engine side: the server's providers only
+    assert(
+      mergeCredentialProviderPath(serverConf, None) ===
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> kyuubiStore))
+
+    // the engine's own providers come first and are kept
+    assert(
+      mergeCredentialProviderPath(serverConf, Some(sparkStore)) ===
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> s"$sparkStore,$kyuubiStore"))
+
+    // every server entry is forwarded, in order, ignoring blanks
+    assert(
+      mergeCredentialProviderPath(
+        Map(CREDENTIAL_PROVIDER_PATH -> s" $vaultStore ,, $kyuubiStore ,"),
+        Some(sparkStore)) ===
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> s"$sparkStore,$vaultStore,$kyuubiStore"))
+
+    // surrounding whitespace is dropped
+    assert(
+      mergeCredentialProviderPath(serverConf, Some(s"  $sparkStore  ")) ===
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> s"$sparkStore,$kyuubiStore"))
+
+    // a store on both sides is listed once, where the engine has it
+    assert(
+      mergeCredentialProviderPath(serverConf, Some(s"$kyuubiStore,$sparkStore")) ===
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> s"$kyuubiStore,$sparkStore"))
+
+    // blank server value: no override, so the engine keeps its own Hadoop configuration
+    assert(mergeCredentialProviderPath(Map(CREDENTIAL_PROVIDER_PATH -> " "), None) === Map.empty)
+
+    // explicit spark.hadoop. entry: wins outright, the bare key never reaches spark-submit
+    assert(
+      mergeCredentialProviderPath(
+        serverConf + (SPARK_CREDENTIAL_PROVIDER_PATH -> sparkStore),
+        Some(vaultStore)) === Map(SPARK_CREDENTIAL_PROVIDER_PATH -> sparkStore))
+
+    // end to end: a single --conf carrying the merged path
+    val conf = KyuubiConf(false).set(CREDENTIAL_PROVIDER_PATH, kyuubiStore)
+    val commands = new SparkProcessBuilder("kyuubi", true, conf) {
+      override protected lazy val defaultsConf: Map[String, String] =
+        Map(SPARK_CREDENTIAL_PROVIDER_PATH -> sparkStore)
+    }.toString.split(' ')
+    assert(
+      commands.filter(_.contains(CREDENTIAL_PROVIDER_PATH)).toSeq ===
+        Seq(s"$SPARK_CREDENTIAL_PROVIDER_PATH=$sparkStore,$kyuubiStore"))
+  }
+
+  test("engine credential providers come from spark-defaults.conf, else its core-site.xml") {
+    val sparkStore = "jceks://file/etc/spark/conf/spark.jceks"
+    val clusterStore = "jceks://file/${user.home}/cluster.jceks"
+    val hadoopConfDir = Utils.createTempDir("hadoop-conf")
+    Files.write(
+      hadoopConfDir.resolve("core-site.xml"),
+      s"""<?xml version="1.0"?>
+         |<configuration>
+         |  <property>
+         |    <name>$CREDENTIAL_PROVIDER_PATH</name>
+         |    <value>$clusterStore</value>
+         |  </property>
+         |</configuration>""".stripMargin.getBytes)
+    val conf = KyuubiConf(false)
+      .set("kyuubi.engineEnv.HADOOP_CONF_DIR", hadoopConfDir.toString)
+
+    // the engine's core-site.xml, left unexpanded for the engine to resolve
+    assert(
+      new SparkProcessBuilder("kyuubi", true, conf) {
+        override protected lazy val defaultsConf: Map[String, String] = Map.empty
+      }.engineCredentialProviderPath === Some(clusterStore))
+
+    // spark-defaults.conf takes precedence over it
+    assert(
+      new SparkProcessBuilder("kyuubi", true, conf) {
+        override protected lazy val defaultsConf: Map[String, String] =
+          Map(SPARK_CREDENTIAL_PROVIDER_PATH -> sparkStore)
+      }.engineCredentialProviderPath === Some(sparkStore))
+
+    // no HADOOP_CONF_DIR for the engine: nothing to preserve
+    assert(
+      new SparkProcessBuilder("kyuubi", true, KyuubiConf(false)) {
+        override protected lazy val defaultsConf: Map[String, String] = Map.empty
+        override def env: Map[String, String] = super.env - "HADOOP_CONF_DIR"
+      }.engineCredentialProviderPath.isEmpty)
+  }
 }
 
 class FakeSparkProcessBuilder(config: KyuubiConf)
