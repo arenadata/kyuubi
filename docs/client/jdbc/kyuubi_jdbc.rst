@@ -150,8 +150,9 @@ Connection URL over Service Discovery
 Connection URL over a list of servers
 *************************************
 
-For deployments without ZooKeeper, e.g. Kyuubi pods in Kubernetes reached from outside the cluster,
-where every pod has its own NodePort or LoadBalancer address.
+For deployments without ZooKeeper and without a load balancer in front of the servers, e.g.
+servers on hosts of their own. In Kubernetes a Service already balances connections and drops
+servers that are down, so connect to the Service instead: ``jdbc:hive2://<service>:10009/``.
 
 .. code-block::
 
@@ -159,8 +160,7 @@ where every pod has its own NodePort or LoadBalancer address.
 
 - The driver picks one server of the list at random and connects to it directly. If it does not
   answer, the next one is tried; after all failed the list is tried again, up to ``retries`` times.
-- Every entry must lead to one particular pod. A single NodePort or LoadBalancer Service in front of
-  all pods balances by itself and does not need this mode.
+- Every entry must lead to one particular server; entries leading to one balancer gain nothing.
 
 HiveServer2 Compatibility
 *************************

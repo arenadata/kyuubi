@@ -17,10 +17,16 @@
 
 The chart has been installed!
 
+{{ .Values.replicaCount }} stateless Kyuubi server(s): no ZooKeeper, no metadata store, no engines of their own.
+Engines are read from Services labelled {{ .Values.discovery.labelSelector }} in: {{ include "kyuubi.discovery.namespaces" . }}
+
 In order to check the release status, use:
   helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
     or for more detailed info
   helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+To see which profiles the servers found:
+  kubectl get services -l {{ .Values.discovery.labelSelector }} -A
 
 ************************
 ******* Services *******
@@ -29,19 +35,15 @@ In order to check the release status, use:
 {{- if $frontend.enabled }}
 {{ $name | snakecase | upper }}:
 - To access {{ $.Release.Name }}-{{ $name | kebabcase }} service within the cluster, use the following URL:
-    {{ $.Release.Name }}-{{ $name | kebabcase }}.{{ $.Release.Namespace }}.svc.cluster.local
-{{- if $.Values.kyuubiConf.kyuubiDefaults }}
-{{- if regexMatch "(^|\\s)kyuubi.frontend.bind.host\\s*=?\\s*(localhost|127\\.0\\.0\\.1)($|\\s)" $.Values.kyuubiConf.kyuubiDefaults }}
-- To access {{ $.Release.Name }}-{{ $name | kebabcase }} service from outside the cluster for debugging, run the following command:
+    {{ $.Release.Name }}-{{ $name | kebabcase }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ tpl $frontend.service.port $ }}
+- To access it from outside the cluster for debugging, run the following command:
     kubectl port-forward svc/{{ $.Release.Name }}-{{ $name | kebabcase }} {{ tpl $frontend.service.port $ }}:{{ tpl $frontend.service.port $ }} -n {{ $.Release.Namespace }}
   and use 127.0.0.1:{{ tpl $frontend.service.port $ }}
-{{- end }}
-{{- end }}
 {{- if eq $frontend.service.type "NodePort" }}
 - To access {{ $.Release.Name }}-{{ $name | kebabcase }} service from outside the cluster through configured NodePort, run the following commands:
     export NODE_PORT=$(kubectl get service {{ $.Release.Name }}-{{ $name | kebabcase }} -n {{ $.Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}")
     export NODE_IP=$(kubectl get nodes -n {{ $.Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
-    echo http://$NODE_IP:$NODE_PORT
+    echo $NODE_IP:$NODE_PORT
 {{- end }}
 {{- end }}
 {{- end }}
