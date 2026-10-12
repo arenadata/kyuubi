@@ -251,9 +251,6 @@ object FlightSqlTestHelper {
    */
   def ensureArrowUnsafeAllocator(): Unit = synchronized {
     val prop = "arrow.allocation.manager.type"
-    // Temporary: BaseAllocator <clinit> must be outermost when resolving Unsafe.
-    // Loading UnsafeAllocationManager first deadlocks factory init (ArrowBuf reads
-    // BaseAllocator.DEBUG while Unsafe FACTORY is still unset).
     System.setProperty(prop, "Unsafe")
     try {
       Class.forName("org.apache.arrow.memory.BaseAllocator")
