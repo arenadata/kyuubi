@@ -29,7 +29,7 @@ RUN useradd -u 10009 -g root -m -d /home/kyuubi kyuubi && \
     chown -R 10009:0 /opt/kyuubi && chmod -R g+rwX /opt/kyuubi
 # Owner and mode set while copying: a chown afterwards would copy every file into a
 # layer of its own and double the image.
-COPY --chown=10009:0 --chmod=0775 stage/ /opt/kyuubi/
+COPY --chown=10009:0 --chmod=0644 stage/ /opt/kyuubi/
 
 WORKDIR /opt/kyuubi
 USER 10009
