@@ -17,9 +17,11 @@
 
 package org.apache.kyuubi.server.ui
 
-import org.eclipse.jetty.server.{Handler, HttpConfiguration, HttpConnectionFactory, Server, ServerConnector}
+import org.eclipse.jetty.http.HttpVersion
+import org.eclipse.jetty.server.{ConnectionFactory, Handler, HttpConfiguration, HttpConnectionFactory, SecureRequestCustomizer, Server, ServerConnector, SslConnectionFactory}
 import org.eclipse.jetty.server.handler.{ContextHandlerCollection, ErrorHandler}
 import org.eclipse.jetty.util.component.LifeCycle
+import org.eclipse.jetty.util.ssl.SslContextFactory
 import org.eclipse.jetty.util.thread.{QueuedThreadPool, ScheduledExecutorScheduler}
 
 import org.apache.kyuubi.Logging
@@ -29,6 +31,10 @@ private[kyuubi] class JettyServer(
     server: Server,
     connector: ServerConnector,
     rootHandler: ContextHandlerCollection) extends Logging {
+
+  /** The URL scheme of the server, `https` when the connector terminates TLS. */
+  val scheme: String =
+    if (connector.getConnectionFactory(classOf[SslConnectionFactory]) != null) "https" else "http"
 
   def start(): Unit = synchronized {
     try {
@@ -89,7 +95,8 @@ object JettyServer {
       port: Int,
       poolSize: Int,
       stopTimeout: Long,
-      sendServerVersion: Boolean): JettyServer = {
+      sendServerVersion: Boolean,
+      sslContextFactory: Option[SslContextFactory.Server] = None): JettyServer = {
     val pool = new QueuedThreadPool(poolSize)
     pool.setName(name)
     pool.setDaemon(true)
@@ -107,6 +114,18 @@ object JettyServer {
     val serverExecutor = new ScheduledExecutorScheduler(s"$name-JettyScheduler", true)
     val httpConf = new HttpConfiguration()
     httpConf.setSendServerVersion(sendServerVersion)
+    val connectionFactories: Seq[ConnectionFactory] = sslContextFactory match {
+      case Some(factory) =>
+        // The SNI host check rejects requests whose Host header differs from the SNI name that
+        // matched the certificate (400 "Host does not match SNI"), e.g. behind a re-encrypting
+        // reverse proxy. It is disabled as in Hadoop HttpServer2.
+        httpConf.addCustomizer(new SecureRequestCustomizer(false))
+        Seq(
+          new SslConnectionFactory(factory, HttpVersion.HTTP_1_1.asString()),
+          new HttpConnectionFactory(httpConf))
+      case None =>
+        Seq(new HttpConnectionFactory(httpConf))
+    }
     val connector = new ServerConnector(
       server,
       null,
@@ -114,7 +133,7 @@ object JettyServer {
       null,
       -1,
       -1,
-      new HttpConnectionFactory(httpConf))
+      connectionFactories: _*)
     connector.setHost(host)
     connector.setPort(port)
     connector.setReuseAddress(!JavaUtils.isWindows)

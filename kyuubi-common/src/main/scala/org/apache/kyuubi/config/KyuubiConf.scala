@@ -702,6 +702,57 @@ object KyuubiConf {
       .booleanConf
       .createWithDefault(false)
 
+  val FRONTEND_REST_SSL_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.rest.ssl.enabled")
+      .serverOnly
+      .doc("Set this to true for using SSL encryption in the RESTful frontend service, " +
+        "which serves both the REST API and the Web UI. The keystore is configured by " +
+        "kyuubi.frontend.rest.ssl.keystore.path and kyuubi.frontend.rest.ssl.keystore.password, " +
+        "the keystore type and algorithm are taken from kyuubi.frontend.ssl.keystore.type and " +
+        "kyuubi.frontend.ssl.keystore.algorithm.")
+      .version("1.11.1")
+      .booleanConf
+      .createWithDefault(false)
+
+  val FRONTEND_REST_SSL_KEYSTORE_PATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.frontend.rest.ssl.keystore.path")
+      .serverOnly
+      .doc("SSL certificate keystore location for the RESTful frontend service. " +
+        "Falls back to kyuubi.frontend.ssl.keystore.path when not set.")
+      .version("1.11.1")
+      .withAlternative("kyuubi.frontend.ssl.keystore.path")
+      .stringConf
+      .createOptional
+
+  val FRONTEND_REST_SSL_KEYSTORE_PASSWORD: OptionalConfigEntry[String] =
+    buildConf("kyuubi.frontend.rest.ssl.keystore.password")
+      .serverOnly
+      .doc("SSL certificate keystore password for the RESTful frontend service. " +
+        "Falls back to kyuubi.frontend.ssl.keystore.password when not set.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
+  val FRONTEND_REST_SSL_DISALLOWED_PROTOCOLS: ConfigEntry[Set[String]] =
+    buildConf("kyuubi.frontend.rest.ssl.disallowed.protocols")
+      .serverOnly
+      .doc("SSL versions to disallow for the RESTful frontend service, in addition to " +
+        "the ones disabled by Jetty by default.")
+      .version("1.11.1")
+      .stringConf
+      .toSet()
+      .createWithDefault(Set("SSLv2", "SSLv3"))
+
+  val FRONTEND_REST_SSL_EXCLUDE_CIPHER_SUITES: ConfigEntry[Seq[String]] =
+    buildConf("kyuubi.frontend.rest.ssl.exclude.ciphersuites")
+      .serverOnly
+      .doc("A comma-separated list of SSL cipher suite names or regular expressions to exclude " +
+        "for the RESTful frontend service, in addition to the ones excluded by Jetty by default.")
+      .version("1.11.1")
+      .stringConf
+      .toSequence()
+      .createWithDefault(Nil)
+
   val FRONTEND_WORKER_KEEPALIVE_TIME: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.worker.keepalive.time")
       .doc("(deprecated) Keep-alive time (in milliseconds) for an idle worker thread")
@@ -2130,6 +2181,35 @@ object KyuubiConf {
       .version("1.10.0")
       .timeConf
       .createWithDefault(Duration.ofSeconds(3).toMillis)
+
+  val BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.batch.internal.rest.client.ssl.truststore.path")
+      .serverOnly
+      .doc("The truststore used by the internal rest client to verify the certificate and " +
+        "the host name of other Kyuubi instances, when batch requests are redirected across " +
+        "Kyuubi instances over https. If it is not set, all the certificates are trusted.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
+  val BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD: OptionalConfigEntry[String] =
+    buildConf("kyuubi.batch.internal.rest.client.ssl.truststore.password")
+      .serverOnly
+      .doc("The password of the truststore set by " +
+        "kyuubi.batch.internal.rest.client.ssl.truststore.path.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
+  val BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_TYPE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.batch.internal.rest.client.ssl.truststore.type")
+      .serverOnly
+      .doc("The type of the truststore set by " +
+        "kyuubi.batch.internal.rest.client.ssl.truststore.path. " +
+        "If it is not set, the JVM default keystore type is used.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
 
   val BATCH_CHECK_INTERVAL: ConfigEntry[Long] =
     buildConf("kyuubi.batch.check.interval")

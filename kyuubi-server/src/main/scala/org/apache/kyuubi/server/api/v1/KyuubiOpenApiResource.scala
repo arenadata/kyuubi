@@ -85,8 +85,7 @@ class KyuubiOpenApiResource extends BaseOpenApiResource with ApiRequestContext {
   }
 
   private def setKyuubiOpenAPIDefinition(openApi: OpenAPI): OpenAPI = {
-    // TODO: to improve when https is enabled.
-    val apiUrl = s"http://${fe.connectionUrl}/api"
+    val apiUrl = s"${fe.connectionScheme}://${fe.connectionUrl}/api"
     openApi.info(
       new Info().title("Apache Kyuubi REST API Documentation")
         .version(org.apache.kyuubi.KYUUBI_VERSION)

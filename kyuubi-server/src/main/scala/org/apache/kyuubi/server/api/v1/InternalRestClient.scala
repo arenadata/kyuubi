@@ -34,20 +34,29 @@ import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
  * redirected to the same Kyuubi instance.
  *
  * @param kyuubiInstance the kyuubi instance host:port.
+ * @param connectionScheme the URL scheme of the kyuubi instance, either http or https.
  * @param socketTimeout the socket timeout for http client.
  * @param connectTimeout the connect timeout for http client.
  * @param securityEnabled if enable secure access.
  * @param requestMaxAttempts the request max attempts for http client.
  * @param requestAttemptWait the request attempt wait for http client.
+ * @param trustStorePath the truststore to verify the certificate of the kyuubi instance over
+ *                       https, all the certificates are trusted if it is not set.
+ * @param trustStorePassword the truststore password.
+ * @param trustStoreType the truststore type.
  */
 class InternalRestClient(
     kyuubiInstance: String,
+    connectionScheme: String,
     proxyClientIpHeader: String,
     socketTimeout: Int,
     connectTimeout: Int,
     securityEnabled: Boolean,
     requestMaxAttempts: Int,
-    requestAttemptWait: Int) extends Logging {
+    requestAttemptWait: Int,
+    trustStorePath: Option[String] = None,
+    trustStorePassword: Option[String] = None,
+    trustStoreType: Option[String] = None) extends Logging {
   if (securityEnabled) {
     require(
       InternalSecurityAccessor.get() != null,
@@ -96,12 +105,15 @@ class InternalRestClient(
   }
 
   private def initKyuubiRestClient(): KyuubiRestClient = {
-    val builder = KyuubiRestClient.builder(s"http://$kyuubiInstance")
+    val builder = KyuubiRestClient.builder(s"$connectionScheme://$kyuubiInstance")
       .apiVersion(KyuubiRestClient.ApiVersion.V1)
       .socketTimeout(socketTimeout)
       .connectionTimeout(connectTimeout)
       .maxAttempts(requestMaxAttempts)
       .attemptWaitTime(requestAttemptWait)
+      .trustStorePath(trustStorePath.orNull)
+      .trustStorePassword(trustStorePassword.orNull)
+      .trustStoreType(trustStoreType.orNull)
     if (securityEnabled) {
       builder.authHeaderGenerator(InternalRestClient.internalAuthHeaderGenerator)
     }

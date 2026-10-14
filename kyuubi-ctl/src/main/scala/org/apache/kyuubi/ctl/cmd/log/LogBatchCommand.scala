@@ -24,6 +24,7 @@ import org.apache.commons.lang3.StringUtils
 
 import org.apache.kyuubi.client.BatchRestApi
 import org.apache.kyuubi.client.api.v1.dto.{Batch, OperationLog}
+import org.apache.kyuubi.client.exception.KyuubiRestException
 import org.apache.kyuubi.client.util.BatchUtils
 import org.apache.kyuubi.ctl.CtlConf._
 import org.apache.kyuubi.ctl.RestClientFactory.{withKyuubiInstanceRestClient, withKyuubiRestClient}
@@ -56,10 +57,22 @@ class LogBatchCommand(
       val kyuubiInstance = batch.getKyuubiInstance
 
       withKyuubiInstanceRestClient(kyuubiRestClient, kyuubiInstance) { kyuubiInstanceRestClient =>
-        val kyuubiInstanceBatchRestApi: BatchRestApi = new BatchRestApi(kyuubiInstanceRestClient)
+        var kyuubiInstanceBatchRestApi: BatchRestApi = new BatchRestApi(kyuubiInstanceRestClient)
 
         def retrieveOperationLog(): OperationLog = {
-          val log = kyuubiInstanceBatchRestApi.getBatchLocalLog(batchId, from, size)
+          val log =
+            try {
+              kyuubiInstanceBatchRestApi.getBatchLocalLog(batchId, from, size)
+            } catch {
+              // the scheme of the kyuubi instance is taken from the rest base url and may not
+              // match it, e.g. an https base url of a TLS-terminating proxy in front of plain
+              // http instances, while the rest base url redirects the request to the instance
+              case e: KyuubiRestException if kyuubiInstanceBatchRestApi ne batchRestApi =>
+                warn(s"Failed to fetch batch logs from kyuubi instance $kyuubiInstance, " +
+                  s"fetching them via the rest base url: ${e.getMessage}")
+                kyuubiInstanceBatchRestApi = batchRestApi
+                kyuubiInstanceBatchRestApi.getBatchLocalLog(batchId, from, size)
+            }
           from += log.getLogRowSet.size
           log.getLogRowSet.asScala.foreach(x => info(x))
           log
