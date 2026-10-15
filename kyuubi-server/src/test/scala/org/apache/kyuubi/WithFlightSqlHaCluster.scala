@@ -1,0 +1,47 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.kyuubi
+
+import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.ha.HighAvailabilityConf.HA_FLIGHT_SQL_NAMESPACE
+import org.apache.kyuubi.server.{KyuubiFlightSqlFrontendService, KyuubiServer}
+
+trait WithFlightSqlHaCluster extends WithKyuubiHaCluster {
+
+  override protected def serverNamePrefix: String = "kyuubi-flight-ha"
+
+  override def beforeAll(): Unit = {
+    FlightSqlTestHelper.ensureArrowUnsafeAllocator()
+    super.beforeAll()
+  }
+
+  override protected def configureFrontends(conf: KyuubiConf): Unit = {
+    conf.set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
+    conf.set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "localhost")
+    conf.set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
+  }
+
+  protected def flightSqlNamespace: String = conf.get(HA_FLIGHT_SQL_NAMESPACE)
+
+  protected def flightSqlUrl(server: KyuubiServer): String =
+    server.frontendServices.collectFirst {
+      case frontend: KyuubiFlightSqlFrontendService => frontend.connectionUrl
+    }.getOrElse(throw new IllegalStateException(
+      s"Flight SQL frontend is not running on ${server.getName}"))
+}

@@ -25,6 +25,7 @@ import org.apache.spark.kyuubi.SparkUtilsHelper.redact
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.catalyst.CurrentUserContext.CURRENT_USER
 import org.apache.spark.sql.execution.SparkSQLExecutionHelper
+import org.apache.spark.sql.execution.arrow.KyuubiArrowConverters
 import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
 import org.apache.spark.ui.SparkUIUtils.formatDuration
 
@@ -60,6 +61,16 @@ abstract class SparkOperation(session: Session)
   protected var iter: FetchIterator[_] = _
 
   protected var result: DataFrame = _
+
+  // Remainder of the current Arrow IPC batch. Spark emits one batch per partition
+  // (bounded by spark.sql.execution.arrow.maxRecordsPerBatch), which ignores the
+  // thrift fetch size. Flight SQL passes kyuubi.frontend.flight.sql.fetch.max.rows
+  // as that size, so pages are sliced here.
+  private var arrowCarryBytes: Array[Byte] = _
+  private var arrowCarryRows: Int = 0
+  private var arrowCarryOffset: Int = 0
+  private var arrowNextRowOffset: Long = 0
+  private var arrowPageStart: Long = 0
 
   protected def resultSchema: StructType = {
     if (!hasResultSet) {
@@ -276,15 +287,7 @@ abstract class SparkOperation(session: Session)
         }
         resultRowSet =
           if (isArrowBasedOperation) {
-            if (iter.hasNext) {
-              val taken = iter.next().asInstanceOf[Array[Byte]]
-              new SparkArrowTRowSetGenerator().toTRowSet(
-                Seq(taken),
-                new StructType().add(StructField(null, BinaryType)),
-                getProtocolVersion)
-            } else {
-              ThriftUtils.newEmptyRowSet
-            }
+            fetchArrowRowSet(order, rowSetSize)
           } else {
             val taken = iter.take(rowSetSize)
             new SparkTRowSetGenerator().toTRowSet(
@@ -292,7 +295,9 @@ abstract class SparkOperation(session: Session)
               resultSchema,
               getProtocolVersion)
           }
-        resultRowSet.setStartRowOffset(iter.getPosition)
+        val startRowOffset =
+          if (isArrowBasedOperation) arrowPageStart else iter.getPosition
+        resultRowSet.setStartRowOffset(startRowOffset)
       }
     } catch onError(cancel = true)
 
@@ -305,6 +310,94 @@ abstract class SparkOperation(session: Session)
   override def shouldRunAsync: Boolean = false
 
   protected def isArrowBasedOperation: Boolean = false
+
+  /**
+   * Return at most `rowSetSize` rows from the Arrow IPC iterator.
+   *
+   * FETCH_NEXT slices a batch that is longer than the requested page and keeps the
+   * tail for the next fetch. FETCH_PRIOR and FETCH_FIRST stay batch-oriented, matching
+   * the previous Arrow cursor, and drop any in-progress slice.
+   */
+  private def fetchArrowRowSet(order: FetchOrientation, rowSetSize: Int): TRowSet = {
+    val batch = order match {
+      case FETCH_NEXT =>
+        nextArrowPage(rowSetSize)
+      case FETCH_PRIOR =>
+        clearArrowCarry()
+        nextWholeArrowBatch()
+      case FETCH_FIRST =>
+        clearArrowCarry()
+        arrowNextRowOffset = 0L
+        nextWholeArrowBatch()
+    }
+    batch.map(arrowBatchRowSet).getOrElse(ThriftUtils.newEmptyRowSet)
+  }
+
+  private def nextArrowPage(rowSetSize: Int): Option[Array[Byte]] = {
+    if (rowSetSize <= 0 || !ensureArrowCarry()) {
+      return None
+    }
+    val take = math.min(rowSetSize, arrowCarryRows - arrowCarryOffset)
+    val page =
+      if (arrowCarryOffset == 0 && take == arrowCarryRows) {
+        arrowCarryBytes
+      } else {
+        KyuubiArrowConverters.slice(
+          resultSchema,
+          spark.sessionState.conf.sessionLocalTimeZone,
+          arrowCarryBytes,
+          arrowCarryOffset,
+          take)
+      }
+    arrowPageStart = arrowNextRowOffset
+    arrowCarryOffset += take
+    arrowNextRowOffset += take
+    if (arrowCarryOffset >= arrowCarryRows) {
+      clearArrowCarry()
+    }
+    Some(page)
+  }
+
+  private def ensureArrowCarry(): Boolean = {
+    while (arrowCarryBytes == null || arrowCarryOffset >= arrowCarryRows) {
+      iter.fetchNext()
+      if (!iter.hasNext) {
+        clearArrowCarry()
+        return false
+      }
+      arrowCarryBytes = iter.next().asInstanceOf[Array[Byte]]
+      arrowCarryRows = KyuubiArrowConverters.batchRowCount(arrowCarryBytes)
+      arrowCarryOffset = 0
+      if (arrowCarryRows <= 0) {
+        clearArrowCarry()
+      }
+    }
+    true
+  }
+
+  private def nextWholeArrowBatch(): Option[Array[Byte]] = {
+    if (!iter.hasNext) {
+      None
+    } else {
+      val batch = iter.next().asInstanceOf[Array[Byte]]
+      arrowPageStart = iter.getPosition
+      arrowNextRowOffset = arrowPageStart
+      Some(batch)
+    }
+  }
+
+  private def clearArrowCarry(): Unit = {
+    arrowCarryBytes = null
+    arrowCarryRows = 0
+    arrowCarryOffset = 0
+  }
+
+  private def arrowBatchRowSet(batch: Array[Byte]): TRowSet = {
+    new SparkArrowTRowSetGenerator().toTRowSet(
+      Seq(batch),
+      new StructType().add(StructField(null, BinaryType)),
+      getProtocolVersion)
+  }
 
   protected def resultFormat: String = "thrift"
 
