@@ -478,6 +478,8 @@ private[kyuubi] object KyuubiSyncThriftClient extends Logging {
       connectionTimeout: Int,
       maxMessageSize: Int): TProtocol = {
     val tConf = TConfiguration.custom().setMaxMessageSize(maxMessageSize).build()
+    // A SASL frame carries a whole message, and Thrift rejects frames above the max frame size.
+    tConf.setMaxFrameSize(math.max(tConf.getMaxFrameSize, tConf.getMaxMessageSize))
     val tSocket = new TSocket(tConf, host, port, socketTimeout, connectionTimeout)
     val tTransport = PlainSASLHelper.getPlainTransport(user, passwd, tSocket)
     tTransport.open()
