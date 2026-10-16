@@ -17,9 +17,10 @@
 
 package org.apache.kyuubi.server
 
-import java.io.{ByteArrayOutputStream, File, PrintStream}
+import java.io.{ByteArrayOutputStream, File, IOException, PrintStream}
 import java.net.{HttpURLConnection, URL}
 import java.nio.charset.StandardCharsets
+import java.security.NoSuchAlgorithmException
 import java.util.UUID
 import javax.net.ssl.{SSLContext, SSLHandshakeException}
 import javax.servlet.http.{HttpServletRequest, HttpServletResponse}
@@ -56,7 +57,11 @@ class KyuubiRestFrontendServiceSslSuite extends RestFrontendTestHelper {
   // a certificate not trusted by the truststore
   private lazy val otherKeyStore = generateKeyStore(Utils.createTempDir().toFile)
   private lazy val otherTrustStore = generateTrustStore(otherKeyStore)
+  // a JCEKS truststore is loaded only with its type set, unlike the JKS and PKCS12 ones
+  private lazy val jceksTrustStore = generateTrustStore(keyStore, "JCEKS")
+  private lazy val otherJceksTrustStore = generateTrustStore(otherKeyStore, "JCEKS")
 
+  // the internal rest client reads the truststore password from the credential provider
   override protected lazy val conf: KyuubiConf = sslConf(
     KyuubiConf()
       .set(AUTHENTICATION_METHOD, Seq("NONE"))
@@ -64,8 +69,13 @@ class KyuubiRestFrontendServiceSslSuite extends RestFrontendTestHelper {
       .set(BATCH_SUBMITTER_ENABLED, true)
       .set(BATCH_INTERNAL_REST_CLIENT_REQUEST_MAX_ATTEMPTS, 1)
       .set(BATCH_INTERNAL_REST_CLIENT_REQUEST_ATTEMPT_WAIT, 100L)
-      .set(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PATH, trustStore.getAbsolutePath)
-      .set(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD, KEYSTORE_PASSWORD),
+      .set(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PATH, jceksTrustStore.getAbsolutePath)
+      .set(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_TYPE, "JCEKS")
+      .set(
+        CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH,
+        createCredentialProvider(
+          Utils.createTempDir().toFile,
+          BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD.key -> KEYSTORE_PASSWORD)),
     keyStore)
 
   private def restFe: KyuubiRestFrontendService = fe.asInstanceOf[KyuubiRestFrontendService]
@@ -305,7 +315,8 @@ class KyuubiRestFrontendServiceSslSuite extends RestFrontendTestHelper {
           batchOpts = BatchOpts(batchId = metadata.identifier, size = 10),
           conf = Map(
             CTL_REST_CLIENT_SSL_TRUSTSTORE_PATH.key -> trustStore.getAbsolutePath,
-            CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD.key -> KEYSTORE_PASSWORD))
+            CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD.key -> KEYSTORE_PASSWORD,
+            CTL_REST_CLIENT_SSL_TRUSTSTORE_TYPE.key -> "JCEKS"))
         val batch = new Batch()
         batch.setId(metadata.identifier)
         batch.setKyuubiInstance(fe.connectionUrl)
@@ -313,11 +324,11 @@ class KyuubiRestFrontendServiceSslSuite extends RestFrontendTestHelper {
       }
 
       val expectedLog = s"Batch ${metadata.identifier} is waiting for submitting"
-      val printed = runCtlCommand(logBatchCommand(trustStore))
+      val printed = runCtlCommand(logBatchCommand(jceksTrustStore))
       assert(printed.split(System.lineSeparator()).contains(expectedLog), printed)
 
       // the command reports the failure instead of throwing it
-      val failed = runCtlCommand(logBatchCommand(otherTrustStore))
+      val failed = runCtlCommand(logBatchCommand(otherJceksTrustStore))
       assert(!failed.split(System.lineSeparator()).contains(expectedLog), failed)
       assert(failed.contains("Error fetching batch logs"), failed)
     }
@@ -411,6 +422,30 @@ class KyuubiRestFrontendServiceSslConfSuite extends KyuubiFunSuite {
       .set(FRONTEND_REST_SSL_KEYSTORE_PASSWORD, "rest-password")
     assert(conf.get(FRONTEND_REST_SSL_KEYSTORE_PATH) === Some("/rest/keystore.jks"))
     assert(KyuubiRestFrontendService.keyStorePassword(conf) === Some("rest-password"))
+  }
+
+  test("SSL: keystore type and algorithm are taken from kyuubi.frontend.ssl.keystore.*") {
+    // a JCEKS keystore is loaded only with its type set, unlike the JKS and PKCS12 ones
+    val keyStore = generateKeyStore(Utils.createTempDir().toFile, "JCEKS")
+    val conf = sslConf(KyuubiConf(loadSysDefault = false), keyStore)
+
+    def startSslContextFactory(): Unit = {
+      val sslContextFactory = KyuubiRestFrontendService.createSslContextFactory(conf)
+      sslContextFactory.start()
+      sslContextFactory.stop()
+    }
+
+    intercept[IOException](startSslContextFactory())
+
+    conf.set(FRONTEND_SSL_KEYSTORE_TYPE, "JCEKS")
+      .set(FRONTEND_SSL_KEYSTORE_ALGORITHM, "PKIX")
+    val sslContextFactory = KyuubiRestFrontendService.createSslContextFactory(conf)
+    assert(sslContextFactory.getKeyStoreType === "JCEKS")
+    assert(sslContextFactory.getKeyManagerFactoryAlgorithm === "PKIX")
+    startSslContextFactory()
+
+    conf.set(FRONTEND_SSL_KEYSTORE_ALGORITHM, "unknown")
+    intercept[NoSuchAlgorithmException](startSslContextFactory())
   }
 
   test("SSL: keystore password of the RESTful frontend takes precedence over the shared one") {

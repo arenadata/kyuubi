@@ -31,6 +31,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.servlet.http.HttpServletRequest;
@@ -54,6 +55,7 @@ public class HttpClientFactoryTest {
   @ClassRule public static final TemporaryFolder TEMP_DIR = new TemporaryFolder();
 
   private static File trustStore;
+  private static File jceksTrustStore;
   private static File otherTrustStore;
   private static Server server;
   private static int port;
@@ -63,6 +65,7 @@ public class HttpClientFactoryTest {
     // the server certificate is valid for localhost, but not for 127.0.0.1
     File keyStore = generateKeyStore("server");
     trustStore = generateTrustStore(keyStore, "server");
+    jceksTrustStore = generateTrustStore(keyStore, "server", "JCEKS");
     otherTrustStore = generateTrustStore(generateKeyStore("other"), "other");
 
     SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
@@ -108,6 +111,15 @@ public class HttpClientFactoryTest {
     try (KyuubiRestClient client = newClient("localhost", trustStore, "JKS")) {
       assertEquals("pong", new BaseRestApi(client).ping());
     }
+  }
+
+  @Test
+  public void testTrustStoreType() throws Exception {
+    // a JCEKS truststore is loaded only with its type set, unlike the JKS and PKCS12 ones
+    try (KyuubiRestClient client = newClient("localhost", jceksTrustStore, "JCEKS")) {
+      assertEquals("pong", new BaseRestApi(client).ping());
+    }
+    assertBuildFails(jceksTrustStore, PASSWORD, IOException.class);
   }
 
   @Test
@@ -213,6 +225,11 @@ public class HttpClientFactoryTest {
   }
 
   private static File generateTrustStore(File keyStore, String alias) throws Exception {
+    return generateTrustStore(keyStore, alias, "JKS");
+  }
+
+  private static File generateTrustStore(File keyStore, String alias, String storeType)
+      throws Exception {
     File certificate = new File(TEMP_DIR.getRoot(), alias + ".pem");
     keytool(
         "-exportcert",
@@ -225,7 +242,8 @@ public class HttpClientFactoryTest {
         PASSWORD,
         "-file",
         certificate.getAbsolutePath());
-    File trustStore = new File(TEMP_DIR.getRoot(), alias + "-truststore.jks");
+    File trustStore =
+        new File(TEMP_DIR.getRoot(), alias + "-truststore." + storeType.toLowerCase(Locale.ROOT));
     keytool(
         "-importcert",
         "-noprompt",
@@ -234,7 +252,7 @@ public class HttpClientFactoryTest {
         "-file",
         certificate.getAbsolutePath(),
         "-storetype",
-        "JKS",
+        storeType,
         "-keystore",
         trustStore.getAbsolutePath(),
         "-storepass",

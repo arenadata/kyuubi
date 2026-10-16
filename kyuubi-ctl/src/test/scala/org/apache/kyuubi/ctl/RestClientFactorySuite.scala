@@ -22,6 +22,9 @@ import java.security.KeyStore
 
 import scala.collection.JavaConverters._
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.security.alias.CredentialProviderFactory
+
 import org.apache.kyuubi.{KyuubiFunSuite, Utils}
 import org.apache.kyuubi.client.KyuubiRestClient
 import org.apache.kyuubi.config.KyuubiConf
@@ -59,17 +62,22 @@ class RestClientFactorySuite extends KyuubiFunSuite {
     assert(instanceHostUrls("https://kyuubi:10099", null) === Seq("https://kyuubi:10099"))
   }
 
-  test("truststore settings are passed to the rest client") {
-    // the truststore is loaded when the rest client is built
+  // the truststore is loaded when the rest client is built
+  private def createTrustStore(password: String): File = {
     val trustStore = new File(Utils.createTempDir().toFile, "truststore.p12")
     val keyStore = KeyStore.getInstance("PKCS12")
     keyStore.load(null, null)
     val out = new FileOutputStream(trustStore)
     try {
-      keyStore.store(out, "truststore-password".toCharArray)
+      keyStore.store(out, password.toCharArray)
     } finally {
       out.close()
     }
+    trustStore
+  }
+
+  test("truststore settings are passed to the rest client") {
+    val trustStore = createTrustStore("truststore-password")
     val conf = KyuubiConf(loadSysDefault = false)
       .set(CTL_REST_CLIENT_SSL_TRUSTSTORE_PATH, trustStore.getAbsolutePath)
       .set(CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD, "truststore-password")
@@ -82,6 +90,27 @@ class RestClientFactorySuite extends KyuubiFunSuite {
         assert(client.getConf.getTrustStorePassword === "truststore-password")
         assert(client.getConf.getTrustStoreType === "PKCS12")
       }
+    }
+  }
+
+  test("truststore password is read from the credential provider") {
+    val providerPath = s"jceks://file${Utils.createTempDir().toAbsolutePath}/ctl.jceks"
+    val providerConf = new Configuration(false)
+    providerConf.set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
+    val provider = CredentialProviderFactory.getProviders(providerConf).get(0)
+    provider.createCredentialEntry(
+      CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD.key,
+      "alias-password".toCharArray)
+    provider.flush()
+
+    val trustStore = createTrustStore("alias-password")
+    val conf = KyuubiConf(loadSysDefault = false)
+      .set(CTL_REST_CLIENT_SSL_TRUSTSTORE_PATH, trustStore.getAbsolutePath)
+      .set(CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD, "literal-password")
+      .set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
+    val cliConfig = CliConfig(commonOpts = CommonOpts(hostUrl = "https://kyuubi:10099"))
+    RestClientFactory.withKyuubiRestClient(cliConfig, null, conf) { client =>
+      assert(client.getConf.getTrustStorePassword === "alias-password")
     }
   }
 

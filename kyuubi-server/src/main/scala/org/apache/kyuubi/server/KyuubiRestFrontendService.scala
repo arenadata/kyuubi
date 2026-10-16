@@ -30,7 +30,7 @@ import org.apache.hadoop.conf.Configuration
 import org.eclipse.jetty.servlet.{ErrorPageErrorHandler, FilterHolder}
 import org.eclipse.jetty.util.ssl.SslContextFactory
 
-import org.apache.kyuubi.{KyuubiException, Utils}
+import org.apache.kyuubi.{KyuubiException, Logging, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
@@ -104,36 +104,13 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
       conf.get(FRONTEND_REST_MAX_WORKER_THREADS),
       conf.get(FRONTEND_REST_JETTY_STOP_TIMEOUT),
       conf.get(FRONTEND_JETTY_SEND_VERSION_ENABLED),
-      if (conf.get(FRONTEND_REST_SSL_ENABLED)) Some(createSslContextFactory()) else None)
+      if (conf.get(FRONTEND_REST_SSL_ENABLED)) {
+        Some(KyuubiRestFrontendService.createSslContextFactory(conf))
+      } else {
+        None
+      })
     batchService.foreach(addService)
     super.initialize(conf)
-  }
-
-  private def createSslContextFactory(): SslContextFactory.Server = {
-    val keyStorePath = conf.get(FRONTEND_REST_SSL_KEYSTORE_PATH).getOrElse {
-      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PATH.key} " +
-        "not configured for SSL connection, please set the key with: " +
-        FRONTEND_REST_SSL_KEYSTORE_PATH.doc)
-    }
-    val keyStorePassword = KyuubiRestFrontendService.keyStorePassword(conf).getOrElse {
-      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PASSWORD.key} " +
-        "not configured for SSL connection, please set the key with: " +
-        FRONTEND_REST_SSL_KEYSTORE_PASSWORD.doc)
-    }
-    val sslContextFactory = new SslContextFactory.Server
-    sslContextFactory.setKeyStorePath(keyStorePath)
-    sslContextFactory.setKeyStorePassword(keyStorePassword)
-    conf.get(FRONTEND_SSL_KEYSTORE_TYPE).foreach(sslContextFactory.setKeyStoreType)
-    conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
-      .foreach(sslContextFactory.setKeyManagerFactoryAlgorithm)
-    // add* keeps the Jetty default exclusions instead of replacing them
-    val disallowedProtocols = conf.get(FRONTEND_REST_SSL_DISALLOWED_PROTOCOLS).toSeq
-    sslContextFactory.addExcludeProtocols(disallowedProtocols: _*)
-    sslContextFactory.addExcludeCipherSuites(conf.get(FRONTEND_REST_SSL_EXCLUDE_CIPHER_SUITES): _*)
-    info(s"$getName SSL enabled with keystore $keyStorePath, excluded protocols: " +
-      s"${sslContextFactory.getExcludeProtocols.mkString(",")}, excluded cipher suites: " +
-      s"${sslContextFactory.getExcludeCipherSuites.mkString(",")}")
-    sslContextFactory
   }
 
   /** The URL scheme of the RESTful frontend service, either `http` or `https`. */
@@ -419,7 +396,34 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
   override val discoveryService: Option[Service] = None
 }
 
-object KyuubiRestFrontendService {
+object KyuubiRestFrontendService extends Logging {
+
+  private[server] def createSslContextFactory(conf: KyuubiConf): SslContextFactory.Server = {
+    val keyStorePath = conf.get(FRONTEND_REST_SSL_KEYSTORE_PATH).getOrElse {
+      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PATH.key} " +
+        "not configured for SSL connection, please set the key with: " +
+        FRONTEND_REST_SSL_KEYSTORE_PATH.doc)
+    }
+    val keyStorePassword = this.keyStorePassword(conf).getOrElse {
+      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PASSWORD.key} " +
+        "not configured for SSL connection, please set the key with: " +
+        FRONTEND_REST_SSL_KEYSTORE_PASSWORD.doc)
+    }
+    val sslContextFactory = new SslContextFactory.Server
+    sslContextFactory.setKeyStorePath(keyStorePath)
+    sslContextFactory.setKeyStorePassword(keyStorePassword)
+    conf.get(FRONTEND_SSL_KEYSTORE_TYPE).foreach(sslContextFactory.setKeyStoreType)
+    conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
+      .foreach(sslContextFactory.setKeyManagerFactoryAlgorithm)
+    // add* keeps the Jetty default exclusions instead of replacing them
+    val disallowedProtocols = conf.get(FRONTEND_REST_SSL_DISALLOWED_PROTOCOLS).toSeq
+    sslContextFactory.addExcludeProtocols(disallowedProtocols: _*)
+    sslContextFactory.addExcludeCipherSuites(conf.get(FRONTEND_REST_SSL_EXCLUDE_CIPHER_SUITES): _*)
+    info(s"RESTful frontend service SSL enabled with keystore $keyStorePath, excluded " +
+      s"protocols: ${sslContextFactory.getExcludeProtocols.mkString(",")}, excluded cipher " +
+      s"suites: ${sslContextFactory.getExcludeCipherSuites.mkString(",")}")
+    sslContextFactory
+  }
 
   /**
    * The keystore password of the RESTful frontend service, falling back to the shared one.

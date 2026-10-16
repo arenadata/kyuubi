@@ -22,9 +22,13 @@ import java.net.{HttpURLConnection, URL}
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
 import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.net.ssl.{HttpsURLConnection, SSLContext, SSLSocket, TrustManager, X509TrustManager}
 
 import scala.io.Source
+
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.security.alias.CredentialProviderFactory
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -42,11 +46,11 @@ object RestSslTestHelper {
   val CONTAINER_HOST_ALIAS = "host.testcontainers.internal"
 
   /**
-   * Generate a JKS keystore with a self-signed certificate valid for the local host and for
+   * Generate a keystore with a self-signed certificate valid for the local host and for
    * the host alias used by Testcontainers.
    */
-  def generateKeyStore(dir: File): File = {
-    val keyStore = new File(dir, "kyuubi-rest.jks")
+  def generateKeyStore(dir: File, storeType: String = "JKS"): File = {
+    val keyStore = new File(dir, s"kyuubi-rest.${storeType.toLowerCase(Locale.ROOT)}")
     keytool(
       "-genkeypair",
       "-noprompt",
@@ -66,7 +70,7 @@ object RestSslTestHelper {
       "-validity",
       "2",
       "-storetype",
-      "JKS",
+      storeType,
       "-keystore",
       keyStore.getAbsolutePath,
       "-storepass",
@@ -93,9 +97,11 @@ object RestSslTestHelper {
     pem
   }
 
-  /** Generate a JKS truststore with the certificate of the keystore, for the Kyuubi clients. */
-  def generateTrustStore(keyStore: File): File = {
-    val trustStore = new File(keyStore.getParentFile, "kyuubi-rest-truststore.jks")
+  /** Generate a truststore with the certificate of the JKS keystore, for the Kyuubi clients. */
+  def generateTrustStore(keyStore: File, storeType: String = "JKS"): File = {
+    val trustStore = new File(
+      keyStore.getParentFile,
+      s"kyuubi-rest-truststore.${storeType.toLowerCase(Locale.ROOT)}")
     keytool(
       "-importcert",
       "-noprompt",
@@ -104,12 +110,29 @@ object RestSslTestHelper {
       "-file",
       exportCertificate(keyStore).getAbsolutePath,
       "-storetype",
-      "JKS",
+      storeType,
       "-keystore",
       trustStore.getAbsolutePath,
       "-storepass",
       KEYSTORE_PASSWORD)
     trustStore
+  }
+
+  /**
+   * Create a JCEKS credential provider holding the given aliases, and return the path to set as
+   * hadoop.security.credential.provider.path.
+   */
+  def createCredentialProvider(dir: File, aliases: (String, String)*): String = {
+    val providerFile = new File(dir, "kyuubi-rest-credentials.jceks")
+    val providerPath = s"jceks://file${providerFile.getAbsolutePath}"
+    val providerConf = new Configuration(false)
+    providerConf.set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
+    val provider = CredentialProviderFactory.getProviders(providerConf).get(0)
+    aliases.foreach { case (alias, password) =>
+      provider.createCredentialEntry(alias, password.toCharArray)
+    }
+    provider.flush()
+    providerPath
   }
 
   /** Settings enabling SSL for the RESTful frontend service with the given keystore. */
