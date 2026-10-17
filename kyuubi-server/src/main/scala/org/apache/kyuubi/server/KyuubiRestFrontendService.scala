@@ -28,6 +28,7 @@ import javax.ws.rs.core.Response.Status
 import com.google.common.annotations.VisibleForTesting
 import org.apache.hadoop.conf.Configuration
 import org.eclipse.jetty.servlet.{ErrorPageErrorHandler, FilterHolder}
+import org.eclipse.jetty.util.ssl.SslContextFactory
 
 import org.apache.kyuubi.{KyuubiException, Utils}
 import org.apache.kyuubi.config.KyuubiConf
@@ -41,7 +42,7 @@ import org.apache.kyuubi.server.ui.{JettyServer, JettyUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service, ServiceUtils}
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 import org.apache.kyuubi.session.{KyuubiBatchSession, KyuubiSessionManager, SessionHandle}
-import org.apache.kyuubi.util.{JavaUtils, ThreadUtils}
+import org.apache.kyuubi.util.{JavaUtils, KyuubiHadoopUtils, ThreadUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
 
 /**
@@ -102,9 +103,43 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
       port,
       conf.get(FRONTEND_REST_MAX_WORKER_THREADS),
       conf.get(FRONTEND_REST_JETTY_STOP_TIMEOUT),
-      conf.get(FRONTEND_JETTY_SEND_VERSION_ENABLED))
+      conf.get(FRONTEND_JETTY_SEND_VERSION_ENABLED),
+      if (conf.get(FRONTEND_REST_SSL_ENABLED)) Some(createSslContextFactory()) else None)
     batchService.foreach(addService)
     super.initialize(conf)
+  }
+
+  private def createSslContextFactory(): SslContextFactory.Server = {
+    val keyStorePath = conf.get(FRONTEND_REST_SSL_KEYSTORE_PATH).getOrElse {
+      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PATH.key} " +
+        "not configured for SSL connection, please set the key with: " +
+        FRONTEND_REST_SSL_KEYSTORE_PATH.doc)
+    }
+    val keyStorePassword = KyuubiRestFrontendService.keyStorePassword(conf).getOrElse {
+      throw new IllegalArgumentException(s"${FRONTEND_REST_SSL_KEYSTORE_PASSWORD.key} " +
+        "not configured for SSL connection, please set the key with: " +
+        FRONTEND_REST_SSL_KEYSTORE_PASSWORD.doc)
+    }
+    val sslContextFactory = new SslContextFactory.Server
+    sslContextFactory.setKeyStorePath(keyStorePath)
+    sslContextFactory.setKeyStorePassword(keyStorePassword)
+    conf.get(FRONTEND_SSL_KEYSTORE_TYPE).foreach(sslContextFactory.setKeyStoreType)
+    conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
+      .foreach(sslContextFactory.setKeyManagerFactoryAlgorithm)
+    // add* keeps the Jetty default exclusions instead of replacing them
+    val disallowedProtocols = conf.get(FRONTEND_REST_SSL_DISALLOWED_PROTOCOLS).toSeq
+    sslContextFactory.addExcludeProtocols(disallowedProtocols: _*)
+    sslContextFactory.addExcludeCipherSuites(conf.get(FRONTEND_REST_SSL_EXCLUDE_CIPHER_SUITES): _*)
+    info(s"$getName SSL enabled with keystore $keyStorePath, excluded protocols: " +
+      s"${sslContextFactory.getExcludeProtocols.mkString(",")}, excluded cipher suites: " +
+      s"${sslContextFactory.getExcludeCipherSuites.mkString(",")}")
+    sslContextFactory
+  }
+
+  /** The URL scheme of the RESTful frontend service, either `http` or `https`. */
+  def connectionScheme: String = {
+    checkInitialized()
+    server.scheme
   }
 
   override def connectionUrl: String = {
@@ -323,7 +358,7 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
       }
     }
     super.start()
-    info(s"Exposing REST endpoint at: http://${server.getServerUri}")
+    info(s"Exposing REST endpoint at: ${server.scheme}://${server.getServerUri}")
   }
 
   override def stop(): Unit = synchronized {
@@ -382,4 +417,16 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
   }
 
   override val discoveryService: Option[Service] = None
+}
+
+object KyuubiRestFrontendService {
+
+  /**
+   * The keystore password of the RESTful frontend service, falling back to the shared one.
+   * It is not declared as an alternative key, because a credential provider alias of an
+   * alternative key takes precedence over the literal value of the primary key.
+   */
+  private[server] def keyStorePassword(conf: KyuubiConf): Option[String] =
+    KyuubiHadoopUtils.getPassword(conf, FRONTEND_REST_SSL_KEYSTORE_PASSWORD)
+      .orElse(KyuubiHadoopUtils.getPassword(conf, FRONTEND_SSL_KEYSTORE_PASSWORD))
 }

@@ -27,6 +27,7 @@ import org.apache.kyuubi.client.KyuubiRestClient
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.ctl.CtlConf._
 import org.apache.kyuubi.ctl.opt.CliConfig
+import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 object RestClientFactory {
 
@@ -47,7 +48,14 @@ object RestClientFactory {
       kyuubiRestClient: KyuubiRestClient,
       kyuubiInstance: String)(f: KyuubiRestClient => Unit): Unit = {
     val kyuubiInstanceRestClient = kyuubiRestClient.clone()
-    val hostUrls = Option(kyuubiInstance).map(instance => s"http://$instance").toSeq ++
+    // the kyuubi instance is host:port, reuse the scheme of the configured rest base url
+    val scheme =
+      if (kyuubiRestClient.getHostUrls.asScala.exists(_.toLowerCase.startsWith("https://"))) {
+        "https"
+      } else {
+        "http"
+      }
+    val hostUrls = Option(kyuubiInstance).map(instance => s"$scheme://$instance").toSeq ++
       kyuubiRestClient.getHostUrls.asScala
     kyuubiInstanceRestClient.setHostUrls(hostUrls.asJava)
     try {
@@ -71,6 +79,10 @@ object RestClientFactory {
     val attemptWaitTime = conf.get(CTL_REST_CLIENT_REQUEST_ATTEMPT_WAIT).toInt
     val connectionTimeout = conf.get(CTL_REST_CLIENT_CONNECT_TIMEOUT).toInt
     val socketTimeout = conf.get(CTL_REST_CLIENT_SOCKET_TIMEOUT).toInt
+    val trustStorePath = conf.get(CTL_REST_CLIENT_SSL_TRUSTSTORE_PATH).orNull
+    val trustStorePassword =
+      KyuubiHadoopUtils.getPassword(conf, CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD).orNull
+    val trustStoreType = conf.get(CTL_REST_CLIENT_SSL_TRUSTSTORE_TYPE).orNull
 
     var kyuubiRestClient: KyuubiRestClient = null
     authSchema.toLowerCase match {
@@ -86,6 +98,9 @@ object RestClientFactory {
           .socketTimeout(socketTimeout)
           .maxAttempts(maxAttempts)
           .attemptWaitTime(attemptWaitTime)
+          .trustStorePath(trustStorePath)
+          .trustStorePassword(trustStorePassword)
+          .trustStoreType(trustStoreType)
           .build()
       case "spnego" =>
         val spnegoHost =
@@ -98,6 +113,9 @@ object RestClientFactory {
           .socketTimeout(socketTimeout)
           .maxAttempts(maxAttempts)
           .attemptWaitTime(attemptWaitTime)
+          .trustStorePath(trustStorePath)
+          .trustStorePassword(trustStorePassword)
+          .trustStoreType(trustStoreType)
           .build()
       case _ => throw new KyuubiException(s"Unsupported auth schema: $authSchema")
     }

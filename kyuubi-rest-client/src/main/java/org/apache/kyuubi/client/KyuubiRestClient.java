@@ -100,6 +100,9 @@ public class KyuubiRestClient implements AutoCloseable, Cloneable {
     conf.setSocketTimeout(builder.socketTimeout);
     conf.setMaxAttempts(builder.maxAttempts);
     conf.setAttemptWaitTime(builder.attemptWaitTime);
+    conf.setTrustStorePath(builder.trustStorePath);
+    conf.setTrustStorePassword(builder.trustStorePassword);
+    conf.setTrustStoreType(builder.trustStoreType);
     this.conf = conf;
 
     this.httpClient = RetryableRestClient.getRestClient(this.baseUrls, conf);
@@ -184,6 +187,12 @@ public class KyuubiRestClient implements AutoCloseable, Cloneable {
     // 3s
     private int attemptWaitTime = 3 * 1000;
 
+    private String trustStorePath;
+
+    private String trustStorePassword;
+
+    private String trustStoreType;
+
     public Builder(String hostUrl) {
       if (StringUtils.isBlank(hostUrl)) {
         throw new IllegalArgumentException("hostUrl cannot be blank.");
@@ -248,6 +257,26 @@ public class KyuubiRestClient implements AutoCloseable, Cloneable {
 
     public Builder attemptWaitTime(int attemptWaitTime) {
       this.attemptWaitTime = attemptWaitTime;
+      return this;
+    }
+
+    /**
+     * The truststore used to verify the certificate and the host name of the Kyuubi server over
+     * https. All the server certificates are trusted if it is not set.
+     */
+    public Builder trustStorePath(String trustStorePath) {
+      this.trustStorePath = trustStorePath;
+      return this;
+    }
+
+    public Builder trustStorePassword(String trustStorePassword) {
+      this.trustStorePassword = trustStorePassword;
+      return this;
+    }
+
+    /** The truststore type, the JVM default keystore type is used if it is not set. */
+    public Builder trustStoreType(String trustStoreType) {
+      this.trustStoreType = trustStoreType;
       return this;
     }
 

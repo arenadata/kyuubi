@@ -22,6 +22,9 @@ public class RestClientConf {
   private int attemptWaitTime;
   private int socketTimeout;
   private int connectTimeout;
+  private String trustStorePath;
+  private String trustStorePassword;
+  private String trustStoreType;
 
   public int getMaxAttempts() {
     return maxAttempts;
@@ -53,5 +56,29 @@ public class RestClientConf {
 
   public void setConnectTimeout(int connectTimeout) {
     this.connectTimeout = connectTimeout;
+  }
+
+  public String getTrustStorePath() {
+    return trustStorePath;
+  }
+
+  public void setTrustStorePath(String trustStorePath) {
+    this.trustStorePath = trustStorePath;
+  }
+
+  public String getTrustStorePassword() {
+    return trustStorePassword;
+  }
+
+  public void setTrustStorePassword(String trustStorePassword) {
+    this.trustStorePassword = trustStorePassword;
+  }
+
+  public String getTrustStoreType() {
+    return trustStoreType;
+  }
+
+  public void setTrustStoreType(String trustStoreType) {
+    this.trustStoreType = trustStoreType;
   }
 }
