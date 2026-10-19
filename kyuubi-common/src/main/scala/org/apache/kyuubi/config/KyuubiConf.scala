@@ -22,9 +22,11 @@ import java.time.Duration
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
+import javax.net.ssl.SNIHostName
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable.TreeMap
+import scala.util.Try
 import scala.util.matching.Regex
 
 import org.apache.kyuubi.{Logging, Utils}
@@ -678,6 +680,27 @@ object KyuubiConf {
       .version("1.10.0")
       .timeConf
       .createWithDefaultString("PT60S")
+
+  val FRONTEND_REST_ENGINE_UI_PROXY_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.rest.engine.ui.proxy.enabled")
+      .serverOnly
+      .doc("Whether to route Engine UI traffic via Kyuubi REST frontend proxy. When disabled, " +
+        "the Web UI links directly to the Kyuubi engine URL.")
+      .version("1.11.1")
+      .booleanConf
+      .createWithDefault(false)
+
+  val FRONTEND_REST_ENGINE_UI_PROXY_HOSTS: ConfigEntry[Seq[String]] =
+    buildConf("kyuubi.frontend.rest.engine.ui.proxy.hosts")
+      .serverOnly
+      .doc("A comma-separated list of hosts that Engine UI proxy requests can route to when " +
+        s"`${FRONTEND_REST_ENGINE_UI_PROXY_ENABLED.key}` is enabled. " +
+        "Host matching is case-insensitive and supports `*` as a wildcard, for example, " +
+        "`*.example.com`. If empty, all Engine UI proxy requests are denied.")
+      .version("1.11.1")
+      .stringConf
+      .toSequence()
+      .createWithDefault(Nil)
 
   val FRONTEND_REST_JETTY_STOP_TIMEOUT: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.rest.jetty.stopTimeout")
@@ -3149,6 +3172,116 @@ object KyuubiConf {
       .version("1.5.0")
       .stringConf
       .createWithDefault("AES/CBC/PKCS5PADDING")
+
+  val ENGINE_SSL_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.ssl.enabled")
+      .doc("Whether the Kyuubi server connects to Spark SQL engines over TLS, on the Thrift " +
+        "binary and the Spark Connect channel. Spark Connect over TLS needs an ADH Spark with " +
+        "it and a Kyuubi build with `spark.connect.tls.support=native`. Set it identically on " +
+        "every Kyuubi server in the HA namespace.")
+      .version("1.11.1")
+      .serverOnly
+      .booleanConf
+      .createWithDefault(false)
+
+  val ENGINE_SSL_KEYSTORE_PATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.keystore.path")
+      .doc("Engine key store on the hosts that run the Spark driver. The certificate must " +
+        "match the host the engine registers, or `kyuubi.engine.ssl.expected.hostname` when " +
+        "set. Required when `kyuubi.engine.ssl.enabled` is true.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_KEYSTORE_PASSWORD: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.keystore.password")
+      .doc("Password of the engine key store and its key. The engine reads it from a Hadoop " +
+        "credential provider alias with this name, otherwise from " +
+        "`spark.kyuubi.engine.ssl.keystore.password` in its spark-defaults.conf. The Kyuubi " +
+        "server never passes it to the engine.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_KEYSTORE_TYPE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.keystore.type")
+      .doc("Type of the engine key store. When not set, the JVM default key store type is used.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_KEYSTORE_ALGORITHM: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.keystore.algorithm")
+      .doc("Key manager factory algorithm for the engine key store. When not set, the JVM " +
+        "default algorithm is used.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_DISALLOWED_PROTOCOLS: ConfigEntry[Set[String]] =
+    buildConf("kyuubi.engine.ssl.disallowed.protocols")
+      .doc("SSL/TLS protocol versions disabled on the engine TLS listeners.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .toSet()
+      .createWithDefault(Set("SSLv2", "SSLv3", "TLSv1", "TLSv1.1"))
+
+  val ENGINE_SSL_INCLUDE_CIPHER_SUITES: ConfigEntry[Seq[String]] =
+    buildConf("kyuubi.engine.ssl.include.ciphersuites")
+      .doc("A comma-separated list of cipher suites enabled on the engine TLS listeners. When " +
+        "empty, the JVM and gRPC defaults are used. With Spark Connect, the list must include " +
+        "an HTTP/2 cipher suite, e.g. TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .toSequence()
+      .createWithDefault(Nil)
+
+  val ENGINE_SSL_TRUSTSTORE_PATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.truststore.path")
+      .doc("Trust store the Kyuubi server verifies engine certificates with, including the " +
+        "Spark web UIs behind the engine UI proxy. It should only hold the CA of the engine " +
+        "certificates. When not set, the JVM default trust store is used.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_TRUSTSTORE_PASSWORD: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.truststore.password")
+      .doc("Password of the engine trust store. A Hadoop credential provider alias with this " +
+        "name takes precedence over the value.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_TRUSTSTORE_TYPE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.truststore.type")
+      .doc("Type of the engine trust store. When not set, the JVM default key store type is " +
+        "used.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .createOptional
+
+  val ENGINE_SSL_EXPECTED_HOSTNAME: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.ssl.expected.hostname")
+      .doc("A host name or IPv4 address that engine certificates are verified against instead " +
+        "of the host the engine registers, e.g. for engines that register IP addresses or " +
+        "share one certificate.")
+      .version("1.11.1")
+      .serverOnly
+      .stringConf
+      .checkValue(
+        h => !h.contains("*") && Try(new SNIHostName(h.trim)).isSuccess,
+        "It must be a host name or an IPv4 address, without wildcards, port or spaces.")
+      .createOptional
 
   val SESSION_NAME: OptionalConfigEntry[String] =
     buildConf("kyuubi.session.name")

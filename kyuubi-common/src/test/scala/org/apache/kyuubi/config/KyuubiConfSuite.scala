@@ -19,7 +19,11 @@ package org.apache.kyuubi.config
 
 import java.time.Duration
 
+import scala.collection.JavaConverters._
+
 import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.engine.EngineSslPolicy
+import org.apache.kyuubi.session.SessionManager
 
 class KyuubiConfSuite extends KyuubiFunSuite {
 
@@ -285,5 +289,75 @@ class KyuubiConfSuite extends KyuubiFunSuite {
     kyuubiConf.set(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY, "pg")
     assert(kyuubiConf.getUserDefaults("kyuubi")
       .getOption(KyuubiReservedKeys.KYUUBI_ENGINE_PROFILE_NAME_KEY).contains("pg"))
+  }
+
+  private val engineSslEntries: Seq[ConfigEntry[_]] = Seq(
+    ENGINE_SSL_ENABLED,
+    ENGINE_SSL_KEYSTORE_PATH,
+    ENGINE_SSL_KEYSTORE_PASSWORD,
+    ENGINE_SSL_KEYSTORE_TYPE,
+    ENGINE_SSL_KEYSTORE_ALGORITHM,
+    ENGINE_SSL_DISALLOWED_PROTOCOLS,
+    ENGINE_SSL_INCLUDE_CIPHER_SUITES,
+    ENGINE_SSL_TRUSTSTORE_PATH,
+    ENGINE_SSL_TRUSTSTORE_PASSWORD,
+    ENGINE_SSL_TRUSTSTORE_TYPE,
+    ENGINE_SSL_EXPECTED_HOSTNAME)
+
+  test("engine TLS configuration defaults") {
+    val conf = KyuubiConf(false)
+    assert(conf.get(ENGINE_SSL_ENABLED) === false)
+    assert(conf.get(ENGINE_SSL_KEYSTORE_PATH).isEmpty)
+    assert(conf.get(ENGINE_SSL_KEYSTORE_PASSWORD).isEmpty)
+    assert(conf.get(ENGINE_SSL_KEYSTORE_TYPE).isEmpty)
+    assert(conf.get(ENGINE_SSL_KEYSTORE_ALGORITHM).isEmpty)
+    assert(conf.get(ENGINE_SSL_DISALLOWED_PROTOCOLS) === Set("SSLv2", "SSLv3", "TLSv1", "TLSv1.1"))
+    assert(conf.get(ENGINE_SSL_INCLUDE_CIPHER_SUITES).isEmpty)
+    assert(conf.get(ENGINE_SSL_TRUSTSTORE_PATH).isEmpty)
+    assert(conf.get(ENGINE_SSL_TRUSTSTORE_PASSWORD).isEmpty)
+    assert(conf.get(ENGINE_SSL_TRUSTSTORE_TYPE).isEmpty)
+    assert(conf.get(ENGINE_SSL_EXPECTED_HOSTNAME).isEmpty)
+
+    conf.set(ENGINE_SSL_EXPECTED_HOSTNAME.key, "engine.example.com")
+    assert(conf.get(ENGINE_SSL_EXPECTED_HOSTNAME) === Some("engine.example.com"))
+    conf.set(ENGINE_SSL_EXPECTED_HOSTNAME.key, "localhost")
+    assert(conf.get(ENGINE_SSL_EXPECTED_HOSTNAME) === Some("localhost"))
+    // a port or a space would make every Thrift handshake fail, while gRPC would ignore them
+    val invalidHostnames =
+      Seq("", " ", "*.example.com", "engine.example.com:10009", "engine example.com")
+    invalidHostnames.foreach { invalid =>
+      conf.set(ENGINE_SSL_EXPECTED_HOSTNAME.key, invalid)
+      intercept[IllegalArgumentException](conf.get(ENGINE_SSL_EXPECTED_HOSTNAME))
+    }
+  }
+
+  test("engine TLS entries are server only and stripped from user defaults") {
+    engineSslEntries.foreach { entry =>
+      assert(entry.serverOnly, entry.key)
+      assert(!entry.internal, entry.key)
+      assert(entry.version === "1.11.1", entry.key)
+    }
+
+    val conf = KyuubiConf(false)
+    engineSslEntries.foreach(entry => conf.set(entry.key, "server-value"))
+    conf.set(s"___user___.${ENGINE_SSL_ENABLED.key}", "false")
+    conf.set(s"___user___.${ENGINE_SSL_KEYSTORE_PATH.key}", "/tmp/user.p12")
+    Seq("kyuubi", "user").foreach { user =>
+      val userDefaults = conf.getUserDefaults(user)
+      assert(!userDefaults.getAll.keys.exists(_.startsWith("kyuubi.engine.ssl.")), user)
+    }
+  }
+
+  test("every registered engine TLS entry is restricted for clients") {
+    val registered = KyuubiConf.getConfigEntries().asScala
+      .filter(_.key.startsWith("kyuubi.engine.ssl."))
+      .map(_.key).toSet
+    assert(registered === engineSslEntries.map(_.key).toSet)
+    val restrictedPrefixes = SessionManager.ALWAYS_RESTRICTED_CONF_PREFIXES
+      .filter(_.endsWith(".*")).map(_.stripSuffix("*"))
+    registered.flatMap(key => Seq(key, s"spark.$key")).foreach { key =>
+      assert(restrictedPrefixes.exists(key.startsWith), key)
+      assert(EngineSslPolicy.isEngineSslKey(key), key)
+    }
   }
 }

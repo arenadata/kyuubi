@@ -29,7 +29,7 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 import org.apache.kyuubi.shaded.thrift.protocol.TBinaryProtocol
 import org.apache.kyuubi.shaded.thrift.server.{TServer, TThreadPoolServer}
 import org.apache.kyuubi.shaded.thrift.transport.{TServerSocket, TSSLTransportFactory}
-import org.apache.kyuubi.util.{KyuubiHadoopUtils, NamedThreadFactory}
+import org.apache.kyuubi.util.{EngineSslServerMaterial, EngineSslUtils, KyuubiHadoopUtils, NamedThreadFactory}
 
 /**
  * Apache Thrift based hive service rpc
@@ -57,6 +57,18 @@ abstract class TBinaryFrontendService(name: String)
   protected var keyStorePassword: Option[String] = None
   protected var keyStoreType: Option[String] = None
 
+  /**
+   * The key material of the TLS listener of an engine frontend, None to listen in plaintext.
+   * Only engine types that support `kyuubi.engine.ssl.enabled` override it, so the others stay
+   * plaintext whatever their configuration says. The Kyuubi server side never uses it.
+   */
+  protected def engineSslMaterial: Option[EngineSslServerMaterial] = None
+
+  @volatile private var _engineSslEnabled = false
+
+  /** Whether this engine frontend listens with TLS. */
+  def engineSslEnabled: Boolean = _engineSslEnabled
+
   // Removed OOM hook since Kyuubi #1800 to respect the hive server2 #2383
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
@@ -75,7 +87,7 @@ abstract class TBinaryFrontendService(name: String)
       val transFactory = authFactory.getTTransportFactory
       val tProcFactory = authFactory.getTProcessorFactory(this)
       val tServerSocket =
-        // only enable ssl for server side
+        // the frontend ssl settings only apply to the server side, engines use engine ssl
         if (isServer() && conf.get(FRONTEND_THRIFT_BINARY_SSL_ENABLED)) {
           keyStorePath = conf.get(FRONTEND_SSL_KEYSTORE_PATH)
           keyStorePassword = KyuubiHadoopUtils.getPassword(conf, FRONTEND_SSL_KEYSTORE_PASSWORD)
@@ -100,6 +112,14 @@ abstract class TBinaryFrontendService(name: String)
             keyStoreAlgorithm,
             disallowedSslProtocols,
             includeCipherSuites)
+        } else if (!isServer()) {
+          engineSslMaterial match {
+            case Some(material) =>
+              val sslServerSocket = EngineSslUtils.newServerSocket(material, portNum, serverAddr)
+              _engineSslEnabled = true
+              sslServerSocket
+            case None => new TServerSocket(new ServerSocket(portNum, -1, serverAddr))
+          }
         } else {
           new TServerSocket(new ServerSocket(portNum, -1, serverAddr))
         }

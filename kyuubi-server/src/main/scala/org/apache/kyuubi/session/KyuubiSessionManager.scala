@@ -31,7 +31,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_BATCH_PRIORITY, KYUUBI_SESSION_REAL_USER_KEY}
 import org.apache.kyuubi.credentials.HadoopCredentialsManager
-import org.apache.kyuubi.engine.{EngineProfileRegistry, KyuubiApplicationManager}
+import org.apache.kyuubi.engine.{EngineProfileRegistry, EngineSslPolicy, KyuubiApplicationManager}
 import org.apache.kyuubi.metrics.MetricsConstants._
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.operation.{KyuubiOperationManager, OperationState}
@@ -41,7 +41,7 @@ import org.apache.kyuubi.server.metadata.api.{Metadata, MetadataFilter}
 import org.apache.kyuubi.service.TempFileService
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 import org.apache.kyuubi.sql.parser.server.KyuubiParser
-import org.apache.kyuubi.util.{SignUtils, ThreadUtils}
+import org.apache.kyuubi.util.{EngineSslClientContext, EngineSslUtils, SignUtils, ThreadUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
 
 class KyuubiSessionManager private (name: String) extends SessionManager(name) {
@@ -78,8 +78,19 @@ class KyuubiSessionManager private (name: String) extends SessionManager(name) {
 
   val tempFileService = new TempFileService()
 
+  // Built once from the server conf. The Thrift connections to engines share its SSLContext, so
+  // TLS sessions can be resumed; the Spark Connect channels share its trust managers.
+  private[kyuubi] lazy val engineSslClientContext: EngineSslClientContext =
+    EngineSslUtils.loadClientContext(getConf)
+
   override def initialize(conf: KyuubiConf): Unit = {
     this.conf = conf
+    if (conf.get(ENGINE_SSL_ENABLED)) {
+      // fail fast on an invalid trust store, instead of at the first engine connection
+      engineSslClientContext
+      EngineSslPolicy.startupWarnings(conf).foreach(warn(_))
+      info("Engine TLS enabled for SPARK_SQL engines")
+    }
     engineProfileRegistry = EngineProfileRegistry(conf)
     if (conf.isRESTEnabled || conf.isSparkConnectEnabled) {
       metadataManager = Some(new MetadataManager())

@@ -20,6 +20,7 @@ package org.apache.kyuubi.session
 import java.util.Base64
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.client.KyuubiSyncThriftClient
@@ -27,7 +28,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiConf.EngineOpenOnFailure._
 import org.apache.kyuubi.config.KyuubiReservedKeys._
-import org.apache.kyuubi.engine.{EngineProfile, EngineProfileResolver, EngineRef, KyuubiApplicationManager}
+import org.apache.kyuubi.engine.{EngineProfile, EngineProfileResolver, EngineRef, EngineSslPolicy, KyuubiApplicationManager}
 import org.apache.kyuubi.events.{EventBus, KyuubiSessionEvent}
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ENGINE_REF_ID
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider._
@@ -127,6 +128,9 @@ class KyuubiSessionImpl(
   def client: KyuubiSyncThriftClient = _client
   def engineConnectUrl: Option[String] = Option(_client).flatMap(_.engineConnectUrl)
 
+  @volatile private var _engineSslEnabled: Boolean = false
+  private[kyuubi] def engineSslEnabled: Boolean = _engineSslEnabled
+
   @volatile private var _engineSessionHandle: SessionHandle = _
 
   @volatile private var openSessionError: Option[Throwable] = None
@@ -160,8 +164,16 @@ class KyuubiSessionImpl(
           FRONTEND_PROTOCOLS.key,
           sessionManager.getConf.get(FRONTEND_PROTOCOLS).mkString(","))
 
-        var openEngineSessionConf =
-          optimizedConf ++ Map(KYUUBI_SESSION_HANDLE_KEY -> handle.identifier.toString)
+        val (engineSsl, strippedSslKeys) =
+          EngineSslPolicy.applyTo(sessionManager.getConf, sessionConf)
+        if (strippedSslKeys.nonEmpty) {
+          warn(s"Ignoring engine TLS settings for session $handle, only the Kyuubi server " +
+            s"configuration applies: ${strippedSslKeys.mkString(", ")}")
+        }
+        _engineSslEnabled = engineSsl
+
+        var openEngineSessionConf = EngineSslPolicy.withoutEngineSslKeys(optimizedConf) ++
+          Map(KYUUBI_SESSION_HANDLE_KEY -> handle.identifier.toString)
         if (engineCredentials.nonEmpty) {
           sessionConf.set(KYUUBI_ENGINE_CREDENTIALS_KEY, engineCredentials)
           openEngineSessionConf =
@@ -184,6 +196,7 @@ class KyuubiSessionImpl(
           EngineOpenOnFailure.withName(sessionManager.getConf.get(ENGINE_OPEN_ON_FAILURE))
         var attempt = 0
         var shouldRetry = true
+        var sslMismatchRelaunched = false
         while (attempt <= maxAttempts && shouldRetry) {
           val (host, port) = engine.getOrCreate(discoveryClient, extraEngineLog)
 
@@ -203,8 +216,13 @@ class KyuubiSessionImpl(
               } else {
                 Option(password).filter(_.nonEmpty).getOrElse("anonymous")
               }
-            engineClient =
-              KyuubiSyncThriftClient.createClient(user, passwd, host, port, sessionConf)
+            engineClient = KyuubiSyncThriftClient.createClient(
+              user,
+              passwd,
+              host,
+              port,
+              sessionConf,
+              if (engineSsl) Some(sessionManager.engineSslClientContext) else None)
             _engineSessionHandle =
               engineClient.openSession(protocol, user, passwd, openEngineSessionConf)
             _client = engineClient
@@ -213,7 +231,7 @@ class KyuubiSessionImpl(
               throw KyuubiSQLException(s"KyuubiSession $handle has been closed")
             }
             logSessionInfo(s"Connected to engine [$host:$port]/[${client.engineId.getOrElse("")}]" +
-              s" with ${_engineSessionHandle}]")
+              s" with ${_engineSessionHandle}]" + (if (engineSsl) " over TLS" else ""))
             shouldRetry = false
           } catch {
             case e: TTransportException
@@ -230,16 +248,42 @@ class KyuubiSessionImpl(
               }
               shouldRetry = true
             case e: Throwable =>
-              error(
-                s"Opening engine [${engine.defaultEngineName} $host:$port]" +
-                  s" for $user session failed",
-                e)
-              openSessionError = Some(e)
-              openOnFailure match {
-                case DEREGISTER_IMMEDIATELY | DEREGISTER_AFTER_RETRY => deregisterEngine()
-                case _ =>
+              val sslMismatch =
+                if (EngineSslPolicy.supports(sessionConf.get(ENGINE_TYPE))) {
+                  Try(engine.getServiceNode(discoveryClient, (host, port)).map(_.attributes))
+                    .toOption
+                    .flatMap(EngineSslPolicy.diagnoseMismatch(engineSsl, _, s"$host:$port"))
+                } else {
+                  None
+                }
+              sslMismatch match {
+                case Some(msg) =>
+                  warn(msg, e)
+                  deregisterEngine()
+                  if (!sslMismatchRelaunched && attempt < maxAttempts && !isClosed) {
+                    sslMismatchRelaunched = true
+                    Thread.sleep(retryWait)
+                    if (isClosed) {
+                      throw KyuubiSQLException(s"KyuubiSession $handle has been closed", e)
+                    }
+                    shouldRetry = true
+                  } else {
+                    val ke = KyuubiSQLException(msg, e)
+                    openSessionError = Some(ke)
+                    throw ke
+                  }
+                case None =>
+                  error(
+                    s"Opening engine [${engine.defaultEngineName} $host:$port]" +
+                      s" for $user session failed",
+                    e)
+                  openSessionError = Some(e)
+                  openOnFailure match {
+                    case DEREGISTER_IMMEDIATELY | DEREGISTER_AFTER_RETRY => deregisterEngine()
+                    case _ =>
+                  }
+                  throw e
               }
-              throw e
           } finally {
             attempt += 1
             if ((isClosed || shouldRetry) && engineClient != null) {

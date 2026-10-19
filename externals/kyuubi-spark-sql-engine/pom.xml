@@ -207,7 +207,7 @@
 
     <build>
         <plugins>
-            <!-- Include a source dir depending on the Scala version -->
+            <!-- Include source dirs depending on the Scala version and the Spark Connect TLS support -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
@@ -221,6 +221,7 @@
                         <configuration>
                             <sources>
                                 <source>src/main/scala-${scala.binary.version}</source>
+                                <source>src/main/scala-spark-connect-tls-${spark.connect.tls.support}</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -237,6 +238,18 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- Check both Spark Connect TLS variants, whichever one the build compiles -->
+            <plugin>
+                <groupId>org.scalastyle</groupId>
+                <artifactId>scalastyle-maven-plugin</artifactId>
+                <configuration>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
+                        <sourceDirectory>${project.basedir}/src/main/scala-spark-connect-tls-native</sourceDirectory>
+                        <sourceDirectory>${project.basedir}/src/main/scala-spark-connect-tls-none</sourceDirectory>
+                    </sourceDirectories>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

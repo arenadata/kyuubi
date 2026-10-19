@@ -39,6 +39,7 @@ import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_SUBMIT_TIME_KEY, KYUUBI_ENGINE_URL}
 import org.apache.kyuubi.engine.ShareLevel
 import org.apache.kyuubi.engine.spark.SparkSQLEngine.{countDownLatch, currentEngine}
+import org.apache.kyuubi.engine.spark.connect.SparkConnectTls
 import org.apache.kyuubi.engine.spark.events.{EngineEvent, EngineEventsStore, SparkEventHandlerRegister}
 import org.apache.kyuubi.engine.spark.session.{SparkSessionImpl, SparkSQLSessionManager}
 import org.apache.kyuubi.events.EventBus
@@ -47,7 +48,7 @@ import org.apache.kyuubi.ha.client.RetryPolicies
 import org.apache.kyuubi.service.Serverable
 import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
 import org.apache.kyuubi.session.SessionHandle
-import org.apache.kyuubi.util.{JavaUtils, SignalRegister, ThreadUtils}
+import org.apache.kyuubi.util.{EngineSslServerMaterial, EngineSslUtils, JavaUtils, SignalRegister, ThreadUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
 
 case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngine") {
@@ -76,17 +77,33 @@ case class SparkSQLEngine(spark: SparkSession) extends Serverable("SparkSQLEngin
   }
 
   override def start(): Unit = {
-    super.start()
+    // Spark Connect starts before the Thrift frontend registers the engine, so that every session
+    // gets its URL
     if (conf.isSparkConnectEnabled) {
       // Don't rely on the Thrift frontend to init this as a side effect.
       if (conf.get(ENGINE_SECURITY_ENABLED)) {
         InternalSecurityAccessor.initialize(conf, false)
       }
-      val port = SparkConnectServerHelper.start(spark)
-      val host = JavaUtils.findLocalInetAddress.getHostAddress
+      // the key material of the Thrift listener, with the same protocols and cipher suites
+      val tls = SparkSQLEngine.engineSslMaterialFor(conf)
+      val port = tls match {
+        case Some(material) => SparkConnectTls.start(spark, material)
+        case None => SparkConnectServerHelper.start(spark)
+      }
+      val host =
+        if (tls.isDefined) {
+          // the host the Thrift URL advertises, so that one certificate SAN covers both channels.
+          // The Thrift frontend bound its socket in initialize.
+          val thriftUrl = frontendServices.head.connectionUrl
+          thriftUrl.substring(0, thriftUrl.lastIndexOf(':'))
+        } else {
+          JavaUtils.findLocalInetAddress.getHostAddress
+        }
       _connectUrl = Some(s"$host:$port")
-      info(s"SparkConnect server started at ${_connectUrl.get}")
+      val transport = if (tls.isDefined) " with TLS" else ""
+      info(s"SparkConnect server started at ${_connectUrl.get}$transport")
     }
+    super.start()
     // Start engine self-terminating checker after all services are ready and it can be reached by
     // all servers in engine spaces.
     backendService.sessionManager.startTerminatingChecker(() => {
@@ -240,6 +257,19 @@ object SparkSQLEngine extends Logging {
 
   def kyuubiConf: KyuubiConf = _kyuubiConf
 
+  // Loaded in createSpark, before any SparkContext exists, for the Thrift and the Spark Connect
+  // listener.
+  @volatile private[spark] var engineSslMaterial: Option[EngineSslServerMaterial] = None
+
+  // Taken out of the configuration by setupConf and only kept until createSpark has loaded the
+  // key store. Declared before setupConf runs in this object's initializer.
+  @volatile private var pendingKeyStorePassword: Option[String] = None
+
+  private val CREDENTIAL_PROVIDER_KEY_PREFIXES =
+    Seq("hadoop.security.credential.", "hadoop.security.credstore.")
+
+  private val SPARK_CONNECT_SSL_ENABLED_KEY = "spark.ssl.connect.enabled"
+
   var currentEngine: Option[SparkSQLEngine] = None
 
   private lazy val user = currentUser
@@ -329,6 +359,8 @@ object SparkSQLEngine extends Logging {
       kyuubiConf.set(s"kyuubi.$k", v)
     }
 
+    takeKeyStorePassword()
+
     if (logger.isDebugEnabled) {
       kyuubiConf.getAll.foreach { case (k, v) =>
         debug(s"KyuubiConf: $k = $v")
@@ -338,6 +370,71 @@ object SparkSQLEngine extends Logging {
     if (_kyuubiConf.isSparkConnectEnabled) {
       val connectPort = Utils.findFreePort()
       _sparkConf.set("spark.connect.grpc.binding.port", connectPort.toString)
+      // Spark builds with Spark Connect TLS serve it from spark.ssl.connect.* when this is true.
+      // Engines only serve Spark Connect with TLS when the Kyuubi server asks for it, from the
+      // engine TLS settings, see SparkSQLEngine.start.
+      val connectSslEnabled = _sparkConf.getOption(SPARK_CONNECT_SSL_ENABLED_KEY)
+      if (connectSslEnabled.exists(_.trim.equalsIgnoreCase("true"))) {
+        warn(s"Ignoring $SPARK_CONNECT_SSL_ENABLED_KEY=true, Kyuubi engines serve Spark Connect " +
+          s"with TLS only when the Kyuubi server sets ${ENGINE_SSL_ENABLED.key}")
+      }
+      _sparkConf.set(SPARK_CONNECT_SSL_ENABLED_KEY, "false")
+    }
+  }
+
+  // The Kyuubi server never forwards the key store password, it can only come from the engine
+  // side spark-defaults.conf. Keep it out of the configuration that is logged, posted in
+  // EngineEvent and shown in the Spark UI.
+  private def takeKeyStorePassword(): Unit = {
+    val key = ENGINE_SSL_KEYSTORE_PASSWORD.key
+    val sparkKey = s"spark.$key"
+    // a second setupConf before createSpark (tests) no longer sees the cleared properties
+    _kyuubiConf.getOption(key).foreach(password => pendingKeyStorePassword = Some(password))
+    _kyuubiConf.unset(key)
+    // SparkSession.builder reloads the system properties, see the engine credentials below
+    if (_sparkConf.contains(sparkKey)) {
+      _sparkConf.set(sparkKey, "")
+    }
+    System.clearProperty(sparkKey)
+    System.clearProperty(key)
+  }
+
+  /** The engine TLS key material when `kyuubi.engine.ssl.enabled` is true in the given conf. */
+  private[spark] def engineSslMaterialFor(conf: KyuubiConf): Option[EngineSslServerMaterial] = {
+    if (conf.get(ENGINE_SSL_ENABLED)) {
+      Some(engineSslMaterial.getOrElse(throw new IllegalStateException(
+        s"${ENGINE_SSL_ENABLED.key} is true, but the engine TLS key material was not loaded")))
+    } else {
+      None
+    }
+  }
+
+  private def loadEngineSslMaterial(): Unit = {
+    val password = pendingKeyStorePassword
+    pendingKeyStorePassword = None
+    engineSslMaterial = None
+    if (kyuubiConf.get(ENGINE_SSL_ENABLED)) {
+      if (kyuubiConf.isSparkConnectEnabled) {
+        // fail before any SparkContext exists, not only when Spark Connect starts
+        SparkConnectTls.requireSupported()
+      }
+      val resolveConf = kyuubiConf.clone
+      password.foreach(resolveConf.set(ENGINE_SSL_KEYSTORE_PASSWORD.key, _))
+      // The credential provider path the Kyuubi server forwards reaches the engine as a
+      // spark.hadoop.* setting, which KyuubiHadoopUtils.getPassword does not read. Only this
+      // lookup sees it, other engine side password lookups are unchanged.
+      _sparkConf.getAllWithPrefix("spark.hadoop.").foreach { case (k, v) =>
+        if (CREDENTIAL_PROVIDER_KEY_PREFIXES.exists(k.startsWith) &&
+          resolveConf.getOption(k).isEmpty) {
+          resolveConf.set(k, v)
+        }
+      }
+      val material = EngineSslUtils.loadServerMaterial(resolveConf)
+      if (kyuubiConf.isSparkConnectEnabled) {
+        SparkConnectTls.checkPolicy(material)
+      }
+      engineSslMaterial = Some(material)
+      info(s"Loaded the engine TLS key store ${kyuubiConf.get(ENGINE_SSL_KEYSTORE_PATH).orNull}")
     }
   }
 
@@ -345,6 +442,10 @@ object SparkSQLEngine extends Logging {
     val engineCredentials = kyuubiConf.getOption(KyuubiReservedKeys.KYUUBI_ENGINE_CREDENTIALS_KEY)
     kyuubiConf.unset(KyuubiReservedKeys.KYUUBI_ENGINE_CREDENTIALS_KEY)
     _sparkConf.set(s"spark.${KyuubiReservedKeys.KYUUBI_ENGINE_CREDENTIALS_KEY}", "")
+
+    // before any SparkContext exists, so that a bad key store stops the engine early, with a
+    // message that names the key to fix
+    loadEngineSslMaterial()
 
     val session = SparkSession.builder.config(_sparkConf).getOrCreate
 

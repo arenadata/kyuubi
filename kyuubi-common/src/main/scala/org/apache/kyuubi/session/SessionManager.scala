@@ -383,10 +383,16 @@ object SessionManager {
   // Session conf prefixes that clients must never set, because they steer credential-provider
   // password resolution (KyuubiHadoopUtils.getPassword) at a client-chosen store. The
   // `spark.hadoop.` spelling does the same for the engine's Hadoop configuration.
+  // `kyuubi.engine.ssl.` keys are decided by the Kyuubi server alone, so that a client can
+  // neither downgrade nor redirect the internal server-to-engine transport. The `spark.`
+  // spelling is restricted too: it sorts after `kyuubi.*` on the spark-submit command line
+  // and would win there.
   val ALWAYS_RESTRICTED_CONF_PREFIXES: Set[String] =
     Set(
       "hadoop.security.credential.*",
       "hadoop.security.credstore.*",
       "spark.hadoop.hadoop.security.credential.*",
-      "spark.hadoop.hadoop.security.credstore.*")
+      "spark.hadoop.hadoop.security.credstore.*",
+      "kyuubi.engine.ssl.*",
+      "spark.kyuubi.engine.ssl.*")
 }

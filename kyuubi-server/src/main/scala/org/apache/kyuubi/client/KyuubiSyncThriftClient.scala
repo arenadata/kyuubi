@@ -39,7 +39,7 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 import org.apache.kyuubi.shaded.thrift.TConfiguration
 import org.apache.kyuubi.shaded.thrift.protocol.{TBinaryProtocol, TProtocol}
 import org.apache.kyuubi.shaded.thrift.transport.TSocket
-import org.apache.kyuubi.util.{ThreadUtils, ThriftUtils}
+import org.apache.kyuubi.util.{EngineSslClientContext, EngineSslUtils, ThreadUtils, ThriftUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
 
 class KyuubiSyncThriftClient private (
@@ -476,20 +476,45 @@ private[kyuubi] object KyuubiSyncThriftClient extends Logging {
       port: Int,
       socketTimeout: Int,
       connectionTimeout: Int,
-      maxMessageSize: Int): TProtocol = {
-    val tConf = TConfiguration.custom().setMaxMessageSize(maxMessageSize).build()
-    val tSocket = new TSocket(tConf, host, port, socketTimeout, connectionTimeout)
-    val tTransport = PlainSASLHelper.getPlainTransport(user, passwd, tSocket)
-    tTransport.open()
-    new TBinaryProtocol(tTransport)
+      maxMessageSize: Int,
+      ssl: Option[EngineSslClientContext]): TProtocol = ssl match {
+    case None =>
+      val tConf = TConfiguration.custom().setMaxMessageSize(maxMessageSize).build()
+      val tSocket = new TSocket(tConf, host, port, socketTimeout, connectionTimeout)
+      val tTransport = PlainSASLHelper.getPlainTransport(user, passwd, tSocket)
+      tTransport.open()
+      new TBinaryProtocol(tTransport)
+    case Some(ctx) =>
+      // The socket comes back connected, with the handshake done and the engine certificate
+      // verified, so the SASL exchange carrying the credentials only runs inside the tunnel.
+      val tSocket = EngineSslUtils.openClientSocket(
+        ctx,
+        host,
+        port,
+        socketTimeout,
+        connectionTimeout,
+        maxMessageSize)
+      try {
+        val tTransport = PlainSASLHelper.getPlainTransport(user, passwd, tSocket)
+        tTransport.open()
+        new TBinaryProtocol(tTransport)
+      } catch {
+        case e: Throwable =>
+          tSocket.close()
+          throw e
+      }
   }
 
+  /**
+   * @param ssl the trust material to connect to the engine over TLS, None for plaintext
+   */
   def createClient(
       user: String,
       password: String,
       host: String,
       port: Int,
-      conf: KyuubiConf): KyuubiSyncThriftClient = {
+      conf: KyuubiConf,
+      ssl: Option[EngineSslClientContext] = None): KyuubiSyncThriftClient = {
     val passwd = Option(password).filter(_.nonEmpty).getOrElse("anonymous")
     val loginTimeout = conf.get(ENGINE_LOGIN_TIMEOUT).toInt
     val maxMessageSize = conf.get(KyuubiConf.FRONTEND_THRIFT_CLIENT_MAX_MESSAGE_SIZE)
@@ -497,7 +522,8 @@ private[kyuubi] object KyuubiSyncThriftClient extends Logging {
     val aliveProbeInterval = conf.get(KyuubiConf.ENGINE_ALIVE_PROBE_INTERVAL).toInt
     val aliveTimeout = conf.get(KyuubiConf.ENGINE_ALIVE_TIMEOUT)
 
-    val tProtocol = createTProtocol(user, passwd, host, port, 0, loginTimeout, maxMessageSize)
+    val tProtocol =
+      createTProtocol(user, passwd, host, port, 0, loginTimeout, maxMessageSize, ssl)
 
     val aliveProbeProtocol =
       if (aliveProbeEnabled) {
@@ -508,7 +534,8 @@ private[kyuubi] object KyuubiSyncThriftClient extends Logging {
           port,
           aliveProbeInterval,
           loginTimeout,
-          maxMessageSize))
+          maxMessageSize,
+          ssl))
       } else {
         None
       }
