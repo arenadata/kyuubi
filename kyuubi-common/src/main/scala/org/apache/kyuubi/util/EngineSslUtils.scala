@@ -20,7 +20,7 @@ package org.apache.kyuubi.util
 import java.io.{EOFException, IOException}
 import java.net.{InetAddress, InetSocketAddress, Socket, SocketTimeoutException}
 import java.nio.file.{Files, Paths}
-import java.security.{GeneralSecurityException, KeyStore}
+import java.security.{GeneralSecurityException, KeyStore, KeyStoreException}
 import java.security.cert.{CertificateExpiredException, CertificateNotYetValidException, CertPathBuilderException, CertPathValidatorException}
 import java.util.Locale
 import javax.net.ssl.{KeyManagerFactory, SSLContext, SSLServerSocket, SSLSocket, SSLSocketFactory, TrustManager, TrustManagerFactory}
@@ -356,25 +356,17 @@ object EngineSslUtils extends Logging {
           s"$localHostName.$hint")
     }
 
-    val store =
-      try KeyStore.getInstance(storeType)
-      catch {
-        case e: GeneralSecurityException =>
-          throw new IllegalArgumentException(s"Unsupported key store type $storeType ($typeKey)", e)
-      }
-    val in = Files.newInputStream(file)
-    try store.load(in, password.map(_.toCharArray).orNull)
+    try KeyStoreUtils.load(path, storeType, password.orNull)
     catch {
+      case e: KeyStoreException =>
+        throw new IllegalArgumentException(s"Unsupported key store type $storeType ($typeKey)", e)
       // JDK messages here never contain the password
       case e @ (_: IOException | _: GeneralSecurityException) =>
         throw new IllegalArgumentException(
           s"Failed to load $path ($pathKey) as a $storeType key store, check $passwordKey and " +
             s"$typeKey: ${e.getMessage}",
           e)
-    } finally {
-      in.close()
     }
-    store
   }
 
   private def localHostName: String =

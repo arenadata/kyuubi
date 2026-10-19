@@ -293,7 +293,9 @@ object KeyStoreTestUtils {
     val key = store.toAbsolutePath.normalize
     Option(stores.get(key)).getOrElse {
       val name = key.getFileName.toString.toLowerCase(Locale.ROOT)
-      StoreInfo(PASSWORD, if (name.endsWith(".jks")) "JKS" else "PKCS12")
+      val storeType =
+        if (name.endsWith(".jks")) "JKS" else if (name.endsWith(".jceks")) "JCEKS" else "PKCS12"
+      StoreInfo(PASSWORD, storeType)
     }
   }
 
@@ -305,7 +307,10 @@ object KeyStoreTestUtils {
 
   private def newStorePath(dir: Path, alias: String, storeType: String): Path = {
     Files.createDirectories(dir)
-    val ext = if (storeType.equalsIgnoreCase("JKS")) "jks" else "p12"
+    val ext = storeType.toLowerCase(Locale.ROOT) match {
+      case "pkcs12" => "p12"
+      case other => other
+    }
     dir.resolve(s"$alias-${UUID.randomUUID()}.$ext").toAbsolutePath
   }
 

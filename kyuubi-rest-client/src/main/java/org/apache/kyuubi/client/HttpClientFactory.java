@@ -17,9 +17,6 @@
 
 package org.apache.kyuubi.client;
 
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.KeyStore;
 import javax.net.ssl.SSLContext;
 import org.apache.commons.lang3.StringUtils;
@@ -31,6 +28,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.kyuubi.client.exception.KyuubiRestException;
+import org.apache.kyuubi.util.KeyStoreUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,14 +64,9 @@ public class HttpClientFactory {
       return new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
     }
 
-    String trustStoreType =
-        StringUtils.defaultIfBlank(conf.getTrustStoreType(), KeyStore.getDefaultType());
-    KeyStore trustStore = KeyStore.getInstance(trustStoreType);
-    char[] trustStorePassword =
-        conf.getTrustStorePassword() == null ? null : conf.getTrustStorePassword().toCharArray();
-    try (InputStream in = Files.newInputStream(Paths.get(conf.getTrustStorePath()))) {
-      trustStore.load(in, trustStorePassword);
-    }
+    KeyStore trustStore =
+        KeyStoreUtils.load(
+            conf.getTrustStorePath(), conf.getTrustStoreType(), conf.getTrustStorePassword());
     LOG.debug("Verifying the server certificates with the truststore {}", conf.getTrustStorePath());
     SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(trustStore, null).build();
     return new SSLConnectionSocketFactory(
