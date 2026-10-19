@@ -139,14 +139,16 @@ class KyuubiSparkConnectKerberosAndPlainAuthSuite
 
   test("LDAP: KyuubiSessionBuilder authenticates and runs SQL as ldap user") {
     withSparkSession(
-      new KyuubiSessionBuilder(scUrl, KyuubiAuthType.LDAP, ldapUser, ldapUserPasswd).getOrCreate()) {
+      new KyuubiSessionBuilder(scUrl, KyuubiAuthType.LDAP, ldapUser, ldapUserPasswd)
+        .getOrCreate()) {
       assertCurrentUserAndTempView(_, ldapUser)
     }
   }
 
   test("LDAP: wrong password is rejected") {
     val e = intercept[Exception] {
-      new KyuubiSessionBuilder(scUrl, KyuubiAuthType.LDAP, ldapUser, wrongLdapPassword).getOrCreate()
+      new KyuubiSessionBuilder(scUrl, KyuubiAuthType.LDAP, ldapUser, wrongLdapPassword)
+        .getOrCreate()
     }
     assertAuthRejected(e)
   }
