@@ -78,6 +78,30 @@ object CtlConf {
       .timeConf
       .createWithDefault(Duration.ofSeconds(3).toMillis)
 
+  val CTL_REST_CLIENT_SSL_TRUSTSTORE_PATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.ctl.rest.ssl.truststore.path")
+      .doc("The truststore used to verify the certificate and the host name of the kyuubi " +
+        "server when the REST API base URL uses https. " +
+        "If it is not set, all the certificates are trusted.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
+  val CTL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD: OptionalConfigEntry[String] =
+    buildConf("kyuubi.ctl.rest.ssl.truststore.password")
+      .doc("The password of the truststore set by kyuubi.ctl.rest.ssl.truststore.path.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
+  val CTL_REST_CLIENT_SSL_TRUSTSTORE_TYPE: OptionalConfigEntry[String] =
+    buildConf("kyuubi.ctl.rest.ssl.truststore.type")
+      .doc("The type of the truststore set by kyuubi.ctl.rest.ssl.truststore.path. " +
+        "If it is not set, the JVM default keystore type is used.")
+      .version("1.11.1")
+      .stringConf
+      .createOptional
+
   val CTL_BATCH_LOG_QUERY_INTERVAL: ConfigEntry[Long] =
     buildConf("kyuubi.ctl.batch.log.query.interval")
       .doc("The interval for fetching batch logs.")

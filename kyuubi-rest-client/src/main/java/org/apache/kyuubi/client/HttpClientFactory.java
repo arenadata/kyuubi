@@ -17,7 +17,12 @@
 
 package org.apache.kyuubi.client;
 
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.KeyStore;
 import javax.net.ssl.SSLContext;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -40,10 +45,7 @@ public class HttpClientFactory {
             .build();
     SSLConnectionSocketFactory sslSocketFactory;
     try {
-      TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
-      SSLContext sslContext =
-          SSLContexts.custom().loadTrustMaterial(null, acceptingTrustStrategy).build();
-      sslSocketFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+      sslSocketFactory = createSslSocketFactory(conf);
     } catch (Exception e) {
       LOG.error("Error: ", e);
       throw new KyuubiRestException("Failed to create HttpClient", e);
@@ -53,5 +55,28 @@ public class HttpClientFactory {
         .setDefaultRequestConfig(requestConfig)
         .setSSLSocketFactory(sslSocketFactory)
         .build();
+  }
+
+  private static SSLConnectionSocketFactory createSslSocketFactory(RestClientConf conf)
+      throws Exception {
+    if (StringUtils.isBlank(conf.getTrustStorePath())) {
+      TrustStrategy acceptingTrustStrategy = (cert, authType) -> true;
+      SSLContext sslContext =
+          SSLContexts.custom().loadTrustMaterial(null, acceptingTrustStrategy).build();
+      return new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+    }
+
+    String trustStoreType =
+        StringUtils.defaultIfBlank(conf.getTrustStoreType(), KeyStore.getDefaultType());
+    KeyStore trustStore = KeyStore.getInstance(trustStoreType);
+    char[] trustStorePassword =
+        conf.getTrustStorePassword() == null ? null : conf.getTrustStorePassword().toCharArray();
+    try (InputStream in = Files.newInputStream(Paths.get(conf.getTrustStorePath()))) {
+      trustStore.load(in, trustStorePassword);
+    }
+    LOG.debug("Verifying the server certificates with the truststore {}", conf.getTrustStorePath());
+    SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(trustStore, null).build();
+    return new SSLConnectionSocketFactory(
+        sslContext, SSLConnectionSocketFactory.getDefaultHostnameVerifier());
   }
 }

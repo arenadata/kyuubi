@@ -29,6 +29,42 @@ Authorization: Basic <credentials>
 
 The `<credentials>` value is the Base64 encoded string of `username:password`. For example, in the case of a user `aladdin` with the password `opensesame`, set the `Authorization` header to `Basic YWxhZGRpbjpvcGVuc2VzYW1l` as Base64 encoded `aladdin:opensesame`.
 
+## SSL
+
+The REST frontend service serves both the REST API and the Web UI, and both of them can be accessed via HTTPS by enabling SSL in `$KYUUBI_HOME/conf/kyuubi-defaults.conf`:
+
+```properties
+kyuubi.frontend.rest.ssl.enabled=true
+kyuubi.frontend.rest.ssl.keystore.path=/path/to/keystore.jks
+kyuubi.frontend.rest.ssl.keystore.password=<keystore password>
+```
+
+When `kyuubi.frontend.rest.ssl.keystore.path` and `kyuubi.frontend.rest.ssl.keystore.password` are not set, the shared `kyuubi.frontend.ssl.keystore.path` and `kyuubi.frontend.ssl.keystore.password` are used. Once SSL is enabled, the REST frontend port accepts HTTPS connections only, e.g. `https://<host>:10099/ui`.
+
+Instead of keeping the keystore password in `kyuubi-defaults.conf`, it can be stored in a Hadoop credential provider, using the configuration key as the alias:
+
+```shell
+hadoop credential create kyuubi.frontend.rest.ssl.keystore.password \
+  -provider localjceks://file/etc/kyuubi/conf/kyuubi.jceks
+```
+
+The provider is set by `hadoop.security.credential.provider.path` in `kyuubi-defaults.conf` or `core-site.xml`. Make the keystore and the credential store readable by the Kyuubi service user only. The keystore is loaded at startup, so restart the Kyuubi server after replacing the keystore or changing its password.
+
+In an HA deployment, all Kyuubi instances sharing the metadata store must use the same `kyuubi.frontend.rest.ssl.enabled` value. Batch requests for a batch owned by another instance (get batch, local log, delete, reassign) are forwarded to it with the scheme of the local instance, so enable or disable SSL on all instances together and do not call `POST /batches/reassign` while the settings differ. `kyuubi-ctl` takes the scheme of an instance from `kyuubi.ctl.rest.base.url`.
+
+Requests forwarded between Kyuubi instances and requests sent by `kyuubi-ctl` are encrypted, but by default the Kyuubi REST client verifies neither the server certificate nor the host name. To verify them, configure a truststore containing the server certificates or the CA that issued them:
+
+```properties
+# Kyuubi servers, for the requests forwarded between Kyuubi instances
+kyuubi.batch.internal.rest.client.ssl.truststore.path=/path/to/truststore.jks
+kyuubi.batch.internal.rest.client.ssl.truststore.password=<truststore password>
+# kyuubi-ctl
+kyuubi.ctl.rest.ssl.truststore.path=/path/to/truststore.jks
+kyuubi.ctl.rest.ssl.truststore.password=<truststore password>
+```
+
+The certificate of each Kyuubi instance must then be valid for the host of its REST connection URL, which is stored in the metadata store and used to forward requests to the instance. The truststore passwords can be stored in a Hadoop credential provider as well.
+
 ## Session Resource
 
 ### GET /sessions
