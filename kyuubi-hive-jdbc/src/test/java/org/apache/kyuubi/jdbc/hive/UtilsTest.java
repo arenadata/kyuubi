@@ -279,6 +279,24 @@ public class UtilsTest {
   }
 
   @Test
+  public void testImpalaDoAsUserFromUrlOrProperties() throws JdbcUriParseException {
+    String url = "jdbc:hive2://impalad:21050/default";
+    Properties info = new Properties();
+    info.setProperty(JdbcConnectionParams.IMPALA_DOAS_USER, "alice");
+    assertEquals(
+        "alice",
+        extractURLComponents(url, info)
+            .getSessionVars()
+            .get(JdbcConnectionParams.IMPALA_DOAS_USER));
+    // the URL wins, as for user and password
+    assertEquals(
+        "bob",
+        extractURLComponents(url + ";impala.doas.user=bob", info)
+            .getSessionVars()
+            .get(JdbcConnectionParams.IMPALA_DOAS_USER));
+  }
+
+  @Test
   public void testParsePropertyFromUrlConsistentWithExtractURLComponents()
       throws JdbcUriParseException {
     // Test case for JWT auth with query string

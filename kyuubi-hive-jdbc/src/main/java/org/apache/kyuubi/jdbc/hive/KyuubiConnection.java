@@ -819,6 +819,10 @@ public class KyuubiConnection implements SQLConnection, KyuubiLoggable {
     if (sessVars.containsKey(HS2_PROXY_USER)) {
       openConf.put(HS2_PROXY_USER, sessVars.get(HS2_PROXY_USER));
     }
+    // Impala reads this key as is from the OpenSession conf, not as set:hiveconf:
+    if (sessVars.containsKey(IMPALA_DOAS_USER)) {
+      openConf.put(IMPALA_DOAS_USER, sessVars.get(IMPALA_DOAS_USER));
+    }
     String clientProtocolStr =
         sessVars.getOrDefault(
             CLIENT_PROTOCOL_VERSION, openReq.getClient_protocol().getValue() + "");

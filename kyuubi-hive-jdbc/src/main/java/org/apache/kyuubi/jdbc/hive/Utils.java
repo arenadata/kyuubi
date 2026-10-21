@@ -342,6 +342,10 @@ public class Utils {
         }
       }
     }
+    if (!connParams.getSessionVars().containsKey(IMPALA_DOAS_USER)
+        && info.containsKey(IMPALA_DOAS_USER)) {
+      connParams.getSessionVars().put(IMPALA_DOAS_USER, info.getProperty(IMPALA_DOAS_USER));
+    }
     if (!connParams.getSessionVars().containsKey(CLIENT_PROTOCOL_VERSION)) {
       if (info.containsKey(CLIENT_PROTOCOL_VERSION)) {
         connParams
