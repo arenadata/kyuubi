@@ -51,6 +51,9 @@ public class JdbcConnectionParams {
   public static final String AUTH_KYUUBI_CLIENT_KEYTAB = "kyuubiClientKeytab";
   public static final String AUTH_KYUUBI_CLIENT_TICKET_CACHE = "kyuubiClientTicketCache";
   public static final String AUTH_PASSWD = "password";
+  // The user Impala runs the session's queries as, by delegation, when impalad's
+  // --authorized_proxy_user_config allows the authenticated user to.
+  public static final String IMPALA_DOAS_USER = "impala.doas.user";
   public static final String AUTH_KERBEROS_AUTH_TYPE = "kerberosAuthType";
   public static final String AUTH_KERBEROS_AUTH_TYPE_FROM_KEYTAB = "fromKeytab";
   public static final String AUTH_KERBEROS_AUTH_TYPE_FROM_SUBJECT = "fromSubject";
