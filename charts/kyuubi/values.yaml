@@ -89,13 +89,14 @@ rbac:
   extraRules: []
 
 # Where engines and clusters are declared: Services labelled with discovery.labelSelector,
-# annotated under discovery.annotationPrefix. A port named `kyuubi` (or what the
-# `<prefix>port-name` annotation says) is the engine.
+# whose value is the engine type (or HMS for a Hive Metastore), annotated under
+# discovery.annotationPrefix. A port named `kyuubi` (or what the `<prefix>port-name`
+# annotation says) is the engine.
 discovery:
   # Namespaces to watch; the release's own when empty
   namespaces: []
-  labelSelector: kyuubi/enabled=true
-  annotationPrefix: kyuubi/
+  labelSelector: app.apache.org/discovery
+  annotationPrefix: kyuubi.apache.org/
 
 engine:
   # Engines run by operators are shared by everyone who may use their profile.

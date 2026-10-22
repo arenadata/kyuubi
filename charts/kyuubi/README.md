@@ -41,11 +41,12 @@ needs no sharing out. So each user or team gets its own release with one replica
 
 ```shell
 helm install kyuubi-analytics charts/kyuubi -n analytics \
-  --set discovery.labelSelector=kyuubi/team=analytics
+  --set discovery.labelSelector=app.apache.org/team=analytics
 ```
 
 Each release sees only its own team's Services - by namespace (`discovery.namespaces`) or by
-label (`discovery.labelSelector`) - and the `kyuubi/users` annotation narrows a profile further
+label (`discovery.labelSelector`; a Service must still carry `app.apache.org/discovery` for its
+type) - and the `kyuubi.apache.org/users` annotation narrows a profile further
 to some of the team. Clients connect to the release's Service:
 
 ```
@@ -69,10 +70,11 @@ Kubernetes starts another one.
 
 ## Engines
 
-The servers watch the Services labelled `discovery.labelSelector` (`kyuubi/enabled=true`) in
+The servers watch the Services labelled `discovery.labelSelector` (`app.apache.org/discovery`,
+whose value is the engine type) in
 `discovery.namespaces` (the release's own unless listed). A Service is an engine profile, declared
-by its annotations, and a port named `kyuubi` - or the one its `kyuubi/port-name` annotation
-names - is where the profile's engine runs:
+by its annotations, and a port named `kyuubi` - or the one its `kyuubi.apache.org/port-name`
+annotation names - is where the profile's engine runs:
 
 ```yaml
 apiVersion: v1
@@ -80,10 +82,9 @@ kind: Service
 metadata:
   name: spark4
   labels:
-    kyuubi/enabled: "true"
+    app.apache.org/discovery: SPARK_SQL
   annotations:
-    kyuubi/type: SPARK_SQL
-    kyuubi/default: "true"
+    kyuubi.apache.org/default: "true"
 spec:
   selector:
     app: spark-thrift-server

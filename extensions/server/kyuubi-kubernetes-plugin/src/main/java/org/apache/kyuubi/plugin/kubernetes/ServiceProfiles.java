@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
  * cluster on its Service and declaring it in {@code kyuubi-defaults.conf} say the same thing:
  *
  * <pre>
- *   type                 the engine type, e.g. TRINO or JDBC
  *   env.VAR              an environment variable for the engine
  *   session.key          a Kyuubi session config, kyuubi.session.key
  *   conf.key             any config key, as is
@@ -50,17 +49,24 @@ import java.util.stream.Collectors;
  *   scheme, port         how to reach the cluster through this Service; http and its first port
  * </pre>
  *
+ * <p>The engine type is no annotation's business: the Service's label {@value #DISCOVERY_LABEL}
+ * says it, as it does for every discovery client, Kyuubi's or not. A Service without the label is
+ * invisible to discovery.
+ *
  * <p>Every value may say {@code {host}}, {@code {port}} and {@code {url}} for the Service's own
  * address, and {@code {user}} for the session user - the latter is filled in per session. A TRINO
  * profile that names no connection url gets the Service's.
  *
- * <p>Keys carry one prefix, {@code kyuubi/} by default, and a Service with a key outside the
- * vocabulary is refused as a whole: a typo must show as a missing cluster, not as a cluster that
- * quietly ignores half its declaration.
+ * <p>Keys carry one prefix, {@code kyuubi.apache.org/} by default, and a Service with a key outside
+ * the vocabulary is refused as a whole: a typo must show as a missing cluster, not as a cluster
+ * that quietly ignores half its declaration.
  */
 public final class ServiceProfiles {
 
-  public static final String DEFAULT_PREFIX = "kyuubi/";
+  /** The one label every discovery client filters on; its value is the Service's type. */
+  public static final String DISCOVERY_LABEL = "app.apache.org/discovery";
+
+  public static final String DEFAULT_PREFIX = "kyuubi.apache.org/";
   static final String ENGINE_TYPE_KEY = "kyuubi.engine.type";
   static final String ENGINE_ENV_PREFIX = "kyuubi.engineEnv.";
   static final String SESSION_PREFIX = "kyuubi.session.";
@@ -99,6 +105,15 @@ public final class ServiceProfiles {
     String url = scheme + "://" + host + ":" + port;
 
     Map<String, String> conf = new LinkedHashMap<>();
+    String type =
+        Optional.ofNullable(service.getMetadata().getLabels())
+            .orElseGet(Map::of)
+            .getOrDefault(DISCOVERY_LABEL, "")
+            .trim();
+    if (type.isEmpty()) {
+      throw new IllegalArgumentException("label '" + DISCOVERY_LABEL + "' is missing");
+    }
+    conf.put(ENGINE_TYPE_KEY, type.toUpperCase(Locale.ROOT));
     for (Map.Entry<String, String> e : ann.entrySet()) {
       String key = e.getKey();
       String value =
@@ -111,12 +126,6 @@ public final class ServiceProfiles {
       }
       String[] parts = key.split("\\.", 2);
       switch (parts[0]) {
-        case "type":
-          if (parts.length != 1) {
-            throw new IllegalArgumentException("'" + prefix + key + "': 'type' takes no sub-key");
-          }
-          conf.put(ENGINE_TYPE_KEY, value.toUpperCase(Locale.ROOT));
-          break;
         case "env":
           conf.put(ENGINE_ENV_PREFIX + subKey(prefix, key, parts), value);
           break;
@@ -131,12 +140,9 @@ public final class ServiceProfiles {
               "'"
                   + prefix
                   + key
-                  + "' is not a profile key; expected type, env.<VAR>, session.<key>,"
-                  + " conf.<key>, profile, users, default, scheme, port or port-name");
+                  + "' is not a profile key; expected env.<VAR>, session.<key>, conf.<key>,"
+                  + " profile, users, default, scheme, port or port-name");
       }
-    }
-    if (!conf.containsKey(ENGINE_TYPE_KEY)) {
-      throw new IllegalArgumentException("'" + prefix + "type' is missing");
     }
     Optional<ClusterProfile.Engine> engine =
         engineOf(service, host, prefix, Optional.ofNullable(ann.get("port-name")));

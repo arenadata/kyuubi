@@ -54,7 +54,7 @@ public class ClusterProfileAdvisor implements SessionConfAdvisor {
   public static final String NAMESPACES_KEY = "kyuubi.plugin.kubernetes.namespaces";
   public static final String LABEL_SELECTOR_KEY = "kyuubi.plugin.kubernetes.labelSelector";
   public static final String ANNOTATION_PREFIX_KEY = "kyuubi.plugin.kubernetes.annotationPrefix";
-  public static final String DEFAULT_LABEL_SELECTOR = "kyuubi/enabled=true";
+  public static final String DEFAULT_LABEL_SELECTOR = "app.apache.org/discovery";
 
   static final String PROFILE_KEY = "kyuubi.engine.profile";
   static final String DECLARED_PROFILE_PREFIX = "kyuubi.engine.profile.";

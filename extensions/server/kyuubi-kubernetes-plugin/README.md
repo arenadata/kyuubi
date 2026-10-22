@@ -54,8 +54,8 @@ kyuubi.session.conf.advisor=org.apache.kyuubi.plugin.kubernetes.ClusterProfileAd
 # Where the clusters' Services are, comma separated. Unset means all namespaces,
 # which needs a ClusterRole to read Services.
 kyuubi.plugin.kubernetes.namespaces=trino,impala
-kyuubi.plugin.kubernetes.labelSelector=kyuubi/enabled=true
-kyuubi.plugin.kubernetes.annotationPrefix=kyuubi/
+kyuubi.plugin.kubernetes.labelSelector=app.apache.org/discovery
+kyuubi.plugin.kubernetes.annotationPrefix=kyuubi.apache.org/
 
 # The server checks a requested profile name against its own declarations before this
 # plugin runs and knows nothing of the Services: it must log, not fail. The plugin fails
@@ -81,11 +81,10 @@ metadata:
   name: analytics
   namespace: trino
   labels:
-    kyuubi/enabled: "true"
+    app.apache.org/discovery: TRINO
   annotations:
-    kyuubi/type: TRINO
-    kyuubi/session.engine.trino.connection.catalog: hive
-    kyuubi/users: alice,bob
+    kyuubi.apache.org/session.engine.trino.connection.catalog: hive
+    kyuubi.apache.org/users: alice,bob
 spec:
   ports:
     - name: http
@@ -107,11 +106,12 @@ A session asks for it as it asks for any profile:
 jdbc:kyuubi://kyuubi:10009/;#kyuubi.engine.profile=analytics
 ```
 
-Annotation keys, all under the configured prefix:
+The label `app.apache.org/discovery` opts a Service into discovery and says what it is: an engine
+type (`TRINO`, `JDBC`, ...), or `HMS` for a Hive Metastore ([below](#a-hive-metastore-as-a-service)).
+A Service without the label is invisible. Annotation keys, all under the configured prefix:
 
 | Key | Meaning |
 |---|---|
-| `type` | the engine type: `TRINO`, `JDBC`, ... - required |
 | `env.<VAR>` | an environment variable for the engine |
 | `session.<key>` | a Kyuubi session config, `kyuubi.session.<key>` |
 | `conf.<key>` | any config key, as is |
@@ -126,10 +126,12 @@ for the session user, filled in per session. A `TRINO` profile that names no con
 the Service's. An Impala cluster through the JDBC engine:
 
 ```yaml
-    kyuubi/type: JDBC
-    kyuubi/port: hs2
-    kyuubi/conf.kyuubi.engine.jdbc.type: impala
-    kyuubi/conf.kyuubi.engine.jdbc.connection.url: "jdbc:impala://{host}:{port}/;hive.server2.proxy.user={user}"
+  labels:
+    app.apache.org/discovery: JDBC
+  annotations:
+    kyuubi.apache.org/port: hs2
+    kyuubi.apache.org/conf.kyuubi.engine.jdbc.type: impala
+    kyuubi.apache.org/conf.kyuubi.engine.jdbc.connection.url: "jdbc:impala://{host}:{port}/;hive.server2.proxy.user={user}"
 ```
 
 How a session's profile is chosen: the one it names with `kyuubi.engine.profile`, refused if the
@@ -143,8 +145,49 @@ the Service sets one: engines are keyed by share level, type, user and subdomain
 profiles at the same share level would share one engine pointed at whichever cluster it was
 launched for.
 
-A Service whose annotations do not make a profile - an unknown key, a port it does not have, no
-`type` - is skipped with a warning and costs only itself.
+A Service whose annotations do not make a profile - an unknown key, a port it does not have - is
+skipped with a warning and costs only itself.
+
+## A Hive Metastore as a Service
+
+A Service labeled `app.apache.org/discovery: HMS` declares a Hive Metastore cluster. It is no
+engine profile: it is listed nowhere and answers no engine space. Instead, the catalog resolves
+its URI and adds `hive.metastore.uris` to every engine profile whose conf does not already set it,
+so the engines the profiles describe reach the metastore without each Service repeating the
+address. A profile overrides it with its own `kyuubi.apache.org/conf.hive.metastore.uris`.
+
+The annotations are Hive's, under `hive.apache.org/` - the same vocabulary the metastore's own
+Kubernetes resolver reads:
+
+| Key | Meaning |
+|---|---|
+| `scheme` | `thrift` (default) or `http` |
+| `port` | the thrift endpoint's port, a number or a port name; the Service port named `thrift` unless set, or its first port |
+| `cluster` | the logical cluster name; the Service name unless set |
+| `default` | `"true"` on the one cluster clients who name nothing get |
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: metastore
+  namespace: hive
+  labels:
+    app.apache.org/discovery: HMS
+  annotations:
+    hive.apache.org/default: "true"
+spec:
+  ports:
+    - name: thrift
+      port: 9083
+```
+
+resolves to `thrift://metastore.hive.svc:9083`. Unlike the Hive side, no EndpointSlices are read:
+the URI names the Service itself and Kubernetes picks a Ready pod behind it, as for a Trino
+cluster. The cluster is selected as on the Hive side: the only one there is, or the one marked
+`default` among several - several clusters with no unambiguous default selects none, with a
+warning listing the names. A Service with an unknown `hive.apache.org/` key or a port it does not
+have is skipped with a warning and costs only itself.
 
 ## Engines
 
@@ -158,9 +201,7 @@ metadata:
   name: spark4
   namespace: engines
   labels:
-    kyuubi/enabled: "true"
-  annotations:
-    kyuubi/type: SPARK_SQL
+    app.apache.org/discovery: SPARK_SQL
 spec:
   selector:
     app: spark-thrift-server
@@ -173,9 +214,10 @@ A session of the profile `spark4` is connected to `spark4.engines.svc:10009`; Ku
 Ready pod behind it. A Service whose port already has a name keeps it and says which one it is:
 
 ```yaml
+  labels:
+    app.apache.org/discovery: SPARK_SQL
   annotations:
-    kyuubi/type: SPARK_SQL
-    kyuubi/port-name: thrift
+    kyuubi.apache.org/port-name: thrift
 spec:
   ports:
     - name: thrift

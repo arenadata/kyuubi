@@ -30,11 +30,14 @@ import org.junit.Test;
 
 public class ServiceProfilesTest {
 
-  private static Service service(Map<String, String> annotations) {
+  private static final String PREFIX = ServiceProfiles.DEFAULT_PREFIX;
+
+  private static Service service(String type, Map<String, String> annotations) {
     return new ServiceBuilder()
         .withNewMetadata()
         .withNamespace("trino")
         .withName("analytics")
+        .withLabels(Map.of(ServiceProfiles.DISCOVERY_LABEL, type))
         .withAnnotations(annotations)
         .endMetadata()
         .withNewSpec()
@@ -50,13 +53,13 @@ public class ServiceProfilesTest {
         .build();
   }
 
-  private static ClusterProfile profile(Map<String, String> annotations) {
-    return ServiceProfiles.toProfile(service(annotations), "kyuubi/");
+  private static ClusterProfile profile(String type, Map<String, String> annotations) {
+    return ServiceProfiles.toProfile(service(type, annotations), PREFIX);
   }
 
   @Test
   public void aTrinoServiceIsAProfileWithItsOwnAddress() {
-    ClusterProfile p = profile(Map.of("kyuubi/type", "trino"));
+    ClusterProfile p = profile("trino", Map.of());
     assertEquals("analytics", p.name());
     assertEquals("trino/analytics", p.source());
     assertEquals("TRINO", p.conf().get("kyuubi.engine.type"));
@@ -70,15 +73,34 @@ public class ServiceProfilesTest {
   }
 
   @Test
+  public void theTypeIsTheLabelAndTheLabelAlone() {
+    Service unlabeled =
+        new ServiceBuilder(service("TRINO", Map.of()))
+            .editMetadata()
+            .withLabels(Map.of())
+            .endMetadata()
+            .build();
+    IllegalArgumentException missing =
+        assertThrows(
+            IllegalArgumentException.class, () -> ServiceProfiles.toProfile(unlabeled, PREFIX));
+    assertTrue(
+        missing.getMessage(), missing.getMessage().contains(ServiceProfiles.DISCOVERY_LABEL));
+
+    // 'type' is no longer a profile key: as any unknown key, it refuses the Service.
+    assertThrows(
+        IllegalArgumentException.class, () -> profile("TRINO", Map.of(PREFIX + "type", "TRINO")));
+  }
+
+  @Test
   public void theBucketsMapAsDeclaredProfilesDo() {
     ClusterProfile p =
         profile(
+            "TRINO",
             Map.of(
-                "kyuubi/type", "TRINO",
-                "kyuubi/env.TRINO_HOME", "/opt/trino",
-                "kyuubi/session.engine.trino.connection.catalog", "hive",
-                "kyuubi/conf.kyuubi.engine.trino.memory", "2g",
-                "kyuubi/conf.kyuubi.engine.share.level.subdomain", "custom"));
+                PREFIX + "env.TRINO_HOME", "/opt/trino",
+                PREFIX + "session.engine.trino.connection.catalog", "hive",
+                PREFIX + "conf.kyuubi.engine.trino.memory", "2g",
+                PREFIX + "conf.kyuubi.engine.share.level.subdomain", "custom"));
     assertEquals("/opt/trino", p.conf().get("kyuubi.engineEnv.TRINO_HOME"));
     assertEquals("hive", p.conf().get("kyuubi.session.engine.trino.connection.catalog"));
     assertEquals("2g", p.conf().get("kyuubi.engine.trino.memory"));
@@ -92,14 +114,14 @@ public class ServiceProfilesTest {
   public void placeholdersNameTheServiceAndTheUser() {
     ClusterProfile p =
         profile(
+            "JDBC",
             Map.of(
-                "kyuubi/type", "JDBC",
-                "kyuubi/port", "https",
-                "kyuubi/scheme", "https",
-                "kyuubi/conf.kyuubi.engine.jdbc.type", "impala",
-                "kyuubi/conf.kyuubi.engine.jdbc.connection.url",
+                PREFIX + "port", "https",
+                PREFIX + "scheme", "https",
+                PREFIX + "conf.kyuubi.engine.jdbc.type", "impala",
+                PREFIX + "conf.kyuubi.engine.jdbc.connection.url",
                     "jdbc:impala://{host}:{port}/;hive.server2.proxy.user={user}",
-                "kyuubi/conf.some.url", "{url}"));
+                PREFIX + "conf.some.url", "{url}"));
     assertEquals(
         "jdbc:impala://analytics.trino.svc:8443/;hive.server2.proxy.user={user}",
         p.conf().get("kyuubi.engine.jdbc.connection.url"));
@@ -113,11 +135,11 @@ public class ServiceProfilesTest {
   public void nameUsersAndDefaultAreTheServicesToSay() {
     ClusterProfile p =
         profile(
+            "TRINO",
             Map.of(
-                "kyuubi/type", "TRINO",
-                "kyuubi/profile", "Adhoc Trino",
-                "kyuubi/users", "alice, bob,",
-                "kyuubi/default", "true"));
+                PREFIX + "profile", "Adhoc Trino",
+                PREFIX + "users", "alice, bob,",
+                PREFIX + "default", "true"));
     assertEquals("Adhoc Trino", p.name());
     assertEquals("adhoc-trino", p.conf().get("kyuubi.engine.share.level.subdomain"));
     assertEquals(Set.of("alice", "bob"), p.users());
@@ -127,30 +149,26 @@ public class ServiceProfilesTest {
 
   @Test
   public void aServiceThatIsNotAProfileIsRefusedWhole() {
-    assertThrows(IllegalArgumentException.class, () -> profile(Map.of("kyuubi/users", "alice")));
     assertThrows(
-        IllegalArgumentException.class,
-        () -> profile(Map.of("kyuubi/type", "TRINO", "kyuubi/typo.key", "x")));
+        IllegalArgumentException.class, () -> profile("TRINO", Map.of(PREFIX + "typo.key", "x")));
     assertThrows(
-        IllegalArgumentException.class,
-        () -> profile(Map.of("kyuubi/type", "TRINO", "kyuubi/port", "grpc")));
+        IllegalArgumentException.class, () -> profile("TRINO", Map.of(PREFIX + "port", "grpc")));
     assertThrows(
-        IllegalArgumentException.class,
-        () -> profile(Map.of("kyuubi/type", "TRINO", "kyuubi/env", "x")));
+        IllegalArgumentException.class, () -> profile("TRINO", Map.of(PREFIX + "env", "x")));
   }
 
   @Test
   public void otherPrefixesAreSomebodyElses() {
     ClusterProfile p =
         ServiceProfiles.toProfile(
-            service(Map.of("trino-as/type", "ignored", "kyuubi/type", "trino")), "kyuubi/");
+            service("TRINO", Map.of("hive.apache.org/scheme", "thrift")), PREFIX);
     assertEquals(3, p.conf().size());
   }
 
   @Test
   public void aPortNamedKyuubiIsWhereTheProfilesEngineRuns() {
     Service withEngine =
-        new ServiceBuilder(service(Map.of("kyuubi/type", "SPARK_SQL")))
+        new ServiceBuilder(service("SPARK_SQL", Map.of()))
             .editSpec()
             .addNewPort()
             .withName("kyuubi")
@@ -158,14 +176,14 @@ public class ServiceProfilesTest {
             .endPort()
             .endSpec()
             .build();
-    ClusterProfile p = ServiceProfiles.toProfile(withEngine, "kyuubi/");
+    ClusterProfile p = ServiceProfiles.toProfile(withEngine, PREFIX);
     assertEquals("analytics.trino.svc", p.engine().get().host());
     assertEquals(10009, p.engine().get().port());
-    assertFalse(profile(Map.of("kyuubi/type", "TRINO")).engine().isPresent());
+    assertFalse(profile("TRINO", Map.of()).engine().isPresent());
 
     // The Service of a Trino engine is not Trino: no connection url is made up from it.
     Service trinoEngine =
-        new ServiceBuilder(service(Map.of("kyuubi/type", "TRINO")))
+        new ServiceBuilder(service("TRINO", Map.of()))
             .editSpec()
             .addNewPort()
             .withName("kyuubi")
@@ -174,7 +192,7 @@ public class ServiceProfilesTest {
             .endSpec()
             .build();
     assertFalse(
-        ServiceProfiles.toProfile(trinoEngine, "kyuubi/")
+        ServiceProfiles.toProfile(trinoEngine, PREFIX)
             .conf()
             .containsKey("kyuubi.session.engine.trino.connection.url"));
   }
@@ -182,8 +200,7 @@ public class ServiceProfilesTest {
   @Test
   public void portNameNamesAnotherPortForTheEngine() {
     Service hs2 =
-        new ServiceBuilder(
-                service(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", " thrift ")))
+        new ServiceBuilder(service("SPARK_SQL", Map.of(PREFIX + "port-name", " thrift ")))
             .editSpec()
             .addNewPort()
             .withName("kyuubi")
@@ -195,7 +212,7 @@ public class ServiceProfilesTest {
             .endPort()
             .endSpec()
             .build();
-    ClusterProfile p = ServiceProfiles.toProfile(hs2, "kyuubi/");
+    ClusterProfile p = ServiceProfiles.toProfile(hs2, PREFIX);
     assertEquals("analytics.trino.svc", p.engine().get().host());
     assertEquals(10000, p.engine().get().port());
     assertFalse(p.conf().keySet().stream().anyMatch(k -> k.contains("port-name")));
@@ -204,10 +221,10 @@ public class ServiceProfilesTest {
     IllegalArgumentException missing =
         assertThrows(
             IllegalArgumentException.class,
-            () -> profile(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", "thirft")));
+            () -> profile("SPARK_SQL", Map.of(PREFIX + "port-name", "thirft")));
     assertTrue(missing.getMessage(), missing.getMessage().contains("no port named thirft"));
     assertThrows(
         IllegalArgumentException.class,
-        () -> profile(Map.of("kyuubi/type", "SPARK_SQL", "kyuubi/port-name", " ")));
+        () -> profile("SPARK_SQL", Map.of(PREFIX + "port-name", " ")));
   }
 }

@@ -80,7 +80,7 @@ expect "the engine connected where the Service points" "$(k logs "$A" | grep -F 
 scenario "2. A session that asks for a profile by name gets it: PostgreSQL through the JDBC engine"
 out=$(sql "$A_IP" alice "select current_database(), 1 + 1" "kyuubi.engine.profile=warehouse")
 expect "PostgreSQL answered through the JDBC engine" "$out" "postgres,2"
-expect "reached through the port kyuubi/port-name names" \
+expect "reached through the port kyuubi.apache.org/port-name names" \
   "$(k get service warehouse-engine -o jsonpath='{.spec.ports[*].name}')" "thrift"
 
 scenario "3. A profile nobody declared is refused, naming the ones that exist"
@@ -104,19 +104,19 @@ expect "refused, saying why" "$out" "has no port named 'kyuubi'"
 [ -z "$(engines "$A")" ] && ok "no engine was started for it" || fail "started: $(engines "$A")"
 
 scenario "6. A cluster re-declared on its Service takes effect without a restart"
-k annotate service warehouse-engine kyuubi/users=alice --overwrite >/dev/null
+k annotate service warehouse-engine kyuubi.apache.org/users=alice --overwrite >/dev/null
 sleep 3
 out=$(sql "$A_IP" bob "select 1" "kyuubi.engine.profile=warehouse")
 expect "bob is no longer let onto warehouse" "$out" "Engine profile 'warehouse' is not allowed for user bob"
 out=$(sql "$A_IP" alice "select 3" "kyuubi.engine.profile=warehouse")
 expect "alice still is" "$out" "3"
-k annotate service warehouse-engine kyuubi/users- >/dev/null
-k annotate service warehouse-engine kyuubi/port-name=thirft --overwrite >/dev/null
+k annotate service warehouse-engine kyuubi.apache.org/users- >/dev/null
+k annotate service warehouse-engine kyuubi.apache.org/port-name=thirft --overwrite >/dev/null
 sleep 3
 out=$(sql "$A_IP" alice "select 4" "kyuubi.engine.profile=warehouse")
 expect "a port-name the Service does not have takes the profile away" "$out" \
   "Engine profile 'warehouse' is not defined"
-k annotate service warehouse-engine kyuubi/port-name=thrift --overwrite >/dev/null
+k annotate service warehouse-engine kyuubi.apache.org/port-name=thrift --overwrite >/dev/null
 sleep 3
 out=$(sql "$A_IP" alice "select 5" "kyuubi.engine.profile=warehouse")
 expect "and the right one brings it back" "$out" "5"

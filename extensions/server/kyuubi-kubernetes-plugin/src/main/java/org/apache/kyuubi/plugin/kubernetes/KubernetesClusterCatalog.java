@@ -24,7 +24,10 @@ import io.fabric8.kubernetes.client.informers.SharedIndexInformer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -142,9 +145,16 @@ public final class KubernetesClusterCatalog implements ClusterCatalog, AutoClose
 
   private void rebuild() {
     synchronized (rebuildLock) {
+      List<Service> metastores = new ArrayList<>();
       List<ClusterProfile> profiles = new ArrayList<>();
       for (SharedIndexInformer<Service> informer : informers) {
         for (Service service : informer.getStore().list()) {
+          // A metastore cluster is no engine profile: it answers no engine space and is listed
+          // nowhere; its URI is injected into the profiles below instead.
+          if (HiveMetastores.isHms(service)) {
+            metastores.add(service);
+            continue;
+          }
           // Per Service, not around the whole batch: one Service with a bad annotation must cost
           // that one profile, not every profile behind it.
           try {
@@ -158,6 +168,12 @@ public final class KubernetesClusterCatalog implements ClusterCatalog, AutoClose
           }
         }
       }
+      Optional<String> metastoreUri = HiveMetastores.uriOf(metastores);
+      if (metastoreUri.isPresent()) {
+        // Injected here, at rebuild time, so a profile's conf carries it and equals/hashCode stay
+        // consistent. A profile that names its own hive.metastore.uris keeps it.
+        profiles.replaceAll(p -> withMetastoreUri(p, metastoreUri.get()));
+      }
       profiles.sort(
           Comparator.comparing(ClusterProfile::name).thenComparing(ClusterProfile::source));
       List<ClusterProfile> next = List.copyOf(profiles);
@@ -168,5 +184,20 @@ public final class KubernetesClusterCatalog implements ClusterCatalog, AutoClose
             next.stream().map(ClusterProfile::toString).collect(Collectors.toList()));
       }
     }
+  }
+
+  private static ClusterProfile withMetastoreUri(ClusterProfile profile, String uri) {
+    if (profile.conf().containsKey(HiveMetastores.METASTORE_URIS_KEY)) {
+      return profile;
+    }
+    Map<String, String> conf = new LinkedHashMap<>(profile.conf());
+    conf.put(HiveMetastores.METASTORE_URIS_KEY, uri);
+    return new ClusterProfile(
+        profile.name(),
+        profile.source(),
+        profile.users(),
+        profile.isDefault(),
+        conf,
+        profile.engine());
   }
 }

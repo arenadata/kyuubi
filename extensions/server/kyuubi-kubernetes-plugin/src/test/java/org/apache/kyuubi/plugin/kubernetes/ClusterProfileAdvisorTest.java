@@ -121,8 +121,8 @@ public class ClusterProfileAdvisorTest {
     conf.set("kyuubi.engine.profile.dw.type", "JDBC");
     KubernetesClusterCatalog.Settings s = ClusterProfileAdvisor.settingsFrom(conf);
     assertEquals(List.of("trino", "impala"), s.namespaces());
-    assertEquals(ClusterProfileAdvisor.DEFAULT_LABEL_SELECTOR, s.labelSelector());
-    assertEquals("kyuubi/", s.annotationPrefix());
+    assertEquals("app.apache.org/discovery", s.labelSelector());
+    assertEquals("kyuubi.apache.org/", s.annotationPrefix());
     assertEquals(Set.of("etl", "dw"), ClusterProfileAdvisor.declaredProfilesIn(conf));
   }
 }

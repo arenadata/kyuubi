@@ -80,12 +80,11 @@ metadata:
   name: trino-engine
   namespace: kyuubi-stand
   labels:
-    kyuubi/enabled: "true"
+    app.apache.org/discovery: TRINO
   annotations:
-    kyuubi/profile: trino
-    kyuubi/type: TRINO
-    kyuubi/session.engine.trino.connection.catalog: tpch
-    kyuubi/default: "true"
+    kyuubi.apache.org/profile: trino
+    kyuubi.apache.org/session.engine.trino.connection.catalog: tpch
+    kyuubi.apache.org/default: "true"
 spec:
   selector:
     app.kubernetes.io/name: trino-engine
@@ -162,12 +161,11 @@ metadata:
   name: warehouse-engine
   namespace: kyuubi-stand
   labels:
-    kyuubi/enabled: "true"
+    app.apache.org/discovery: JDBC
   annotations:
-    kyuubi/profile: warehouse
-    kyuubi/type: JDBC
+    kyuubi.apache.org/profile: warehouse
     # The engine's port keeps its own name; this says which one it is.
-    kyuubi/port-name: thrift
+    kyuubi.apache.org/port-name: thrift
 spec:
   selector:
     app.kubernetes.io/name: warehouse-engine
@@ -183,9 +181,7 @@ metadata:
   name: impala
   namespace: kyuubi-stand
   labels:
-    kyuubi/enabled: "true"
-  annotations:
-    kyuubi/type: JDBC
+    app.apache.org/discovery: JDBC
 spec:
   ports:
     - name: hs2
