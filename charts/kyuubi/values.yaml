@@ -15,35 +15,46 @@
 # limitations under the License.
 #
 
-# Default values for kyuubi.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+# Default values for kyuubi: a stateless Kyuubi server in a Deployment, one release per user
+# or team. The server stands on its own: no ZooKeeper, no metadata store, no engines of its own.
+# Engines are run by operators behind Services, which the servers watch; see
+# extensions/server/kyuubi-kubernetes-plugin/README.md.
 
-# Kyuubi server numbers
-replicaCount: 2
+# One server per release. Sessions end with the pod that holds them whatever the count, and a
+# team's load needs no sharing out: more replicas would only cost.
+replicaCount: 1
 
-# controls how Kyuubi server pods are created during initial scale up,
-# when replacing pods on nodes, or when scaling down.
-# The default policy is `OrderedReady`, alternative policy is `Parallel`.
-podManagementPolicy: OrderedReady
+# Minimum number of seconds for which a newly created kyuubi server
+# should be ready without any of its container crashing for it to be considered available.
+minReadySeconds: 10
+
+# maximum number of revisions that will be maintained in the Deployment's revision history.
+revisionHistoryLimit: 10
+
+# How the Deployment replaces its pod. The new server is up before the old one goes: the old
+# one's sessions still end, but their clients can reconnect at once instead of waiting for a JVM.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# How long a stopping server has to finish what its sessions are doing.
+terminationGracePeriodSeconds: 60
+
+# Keeps voluntary disruptions (node drains) from taking every server at once. Off by default:
+# with one replica, maxUnavailable: 1 protects nothing and minAvailable: 1 blocks every drain.
+podDisruptionBudget:
+  enabled: false
+  # minAvailable wins when set
+  minAvailable: ~
+  maxUnavailable: 1
 
 # Optional additional annotations to add to Kyuubi server pods
 podAnnotations: {}
 
-# Minimum number of seconds for which a newly created kyuubi server
-# should be ready without any of its container crashing for it to be considered available.
-minReadySeconds: 30
-
-# maximum number of revisions that will be maintained in the StatefulSet's revision history.
-revisionHistoryLimit: 10
-
-# indicates the StatefulSetUpdateStrategy that will be employed to update Kyuubi server Pods in the StatefulSet
-# when a revision is made to Template.
-updateStrategy:
-  type: RollingUpdate
-  rollingUpdate:
-    partition: 0
-
+# The image must carry the kyuubi-kubernetes-plugin jar in $KYUUBI_HOME/jars,
+# and the stock apache/kyuubi image does not.
 image:
   repository: apache/kyuubi
   pullPolicy: IfNotPresent
@@ -51,7 +62,7 @@ image:
 
 imagePullSecrets: []
 
-# ServiceAccount used for Kyuubi create/list/delete pod in Kubernetes
+# ServiceAccount the servers read Services with
 serviceAccount:
   # Specifies whether a ServiceAccount should be created
   create: true
@@ -69,22 +80,30 @@ priorityClass:
   # half of system-cluster-critical by default
   value: 1000000000
 
-# Role-based access control
+# Role-based access control: a Role and a RoleBinding in every namespace of
+# discovery.namespaces, granting get/list/watch on Services. Nothing else is needed.
 rbac:
   # Specifies whether RBAC resources should be created
   create: true
-  # RBAC rules
-  rules:
-    - apiGroups: [""]
-      resources: ["pods"]
-      verbs: ["create", "list", "delete"]
+  # Rules added to every Role
+  extraRules: []
 
-service:
-  # configuration of the headless service
-  headless:
-    # Optional additional annotations to add to the headless service
-    annotations: {}
+# Where engines and clusters are declared: Services labelled with discovery.labelSelector,
+# whose value is the engine type (or HMS for a Hive Metastore), annotated under
+# discovery.annotationPrefix. A port named `kyuubi` (or what the `<prefix>port-name`
+# annotation says) is the engine.
+discovery:
+  # Namespaces to watch; the release's own when empty
+  namespaces: []
+  labelSelector: app.apache.org/discovery
+  annotationPrefix: kyuubi.apache.org/
 
+engine:
+  # Engines run by operators are shared by everyone who may use their profile.
+  # CONNECTION is always refused: its engine space names a connection, not a profile.
+  shareLevel: SERVER
+
+# Frontends. REST and Spark Connect are not offered: either brings back the metadata store.
 server:
   # Thrift Binary protocol (HiveServer2 compatible)
   thriftBinary:
@@ -95,7 +114,8 @@ server:
       port: "{{ .Values.server.thriftBinary.port }}"
       nodePort: ~
       annotations: {}
-      # candidates are ClientIP or None
+      # A session lives on one connection; with replicaCount > 1, balancing per connection
+      # is enough. ClientIP pins a client to a server.
       # https://kubernetes.io/docs/reference/kubernetes-api/service-resources/service-v1/
       sessionAffinity: ~
       sessionAffinityConfig: {}
@@ -103,7 +123,8 @@ server:
       #    clientIP:
       #      timeoutSeconds: 10800
 
-  # Thrift HTTP protocol (HiveServer2 compatible)
+  # Thrift HTTP protocol (HiveServer2 compatible). Every request of a session must reach
+  # the server that opened it, hence ClientIP when replicaCount > 1.
   thriftHttp:
     enabled: false
     port: 10010
@@ -112,30 +133,8 @@ server:
       port: "{{ .Values.server.thriftHttp.port }}"
       nodePort: ~
       annotations: {}
-      # candidates are ClientIP or None
-      # https://kubernetes.io/docs/reference/kubernetes-api/service-resources/service-v1/
-      sessionAffinity: ~
+      sessionAffinity: ClientIP
       sessionAffinityConfig: {}
-      #  sessionAffinityConfig:
-      #    clientIP:
-      #      timeoutSeconds: 10800
-
-  # REST API protocol (experimental)
-  rest:
-    enabled: true
-    port: 10099
-    service:
-      type: ClusterIP
-      port: "{{ .Values.server.rest.port }}"
-      nodePort: ~
-      annotations: {}
-      # candidates are ClientIP or None
-      # https://kubernetes.io/docs/reference/kubernetes-api/service-resources/service-v1/
-      sessionAffinity: ~
-      sessionAffinityConfig: {}
-      #  sessionAffinityConfig:
-      #    clientIP:
-      #      timeoutSeconds: 10800
 
   # MySQL compatible text protocol (experimental)
   mysql:
@@ -146,114 +145,70 @@ server:
       port: "{{ .Values.server.mysql.port }}"
       nodePort: ~
       annotations: {}
-      # candidates are ClientIP or None
-      # https://kubernetes.io/docs/reference/kubernetes-api/service-resources/service-v1/
       sessionAffinity: ~
       sessionAffinityConfig: {}
-      #  sessionAffinityConfig:
-      #    clientIP:
-      #      timeoutSeconds: 10800
 
 # Kyuubi configuration files
 kyuubiConf:
   # $KYUUBI_CONF_DIR directory
   dir: /opt/kyuubi/conf
-  # Configuration files from the specified keys (file name) and values (file content)
+  # Appended to the kyuubi-defaults.conf the chart renders (templated). The chart owns
+  # frontend protocols, kyuubi.ha.*, the session conf advisor and the watched namespaces;
+  # setting them here fails the rendering.
+  defaults: ~
+  #defaults: |
+  #  kyuubi.authentication=KERBEROS
+  #  kyuubi.kinit.principal=kyuubi/_HOST@EXAMPLE.COM
+  #  kyuubi.kinit.keytab=/opt/kyuubi/conf/kyuubi.keytab
+
+  # Other configuration files from the specified keys (file name) and values (file content),
+  # kept in the release's Secret with kyuubi-defaults.conf; kyuubi-defaults.conf is not one of them
   files: ~
   #files:
-  #  'kyuubi-defaults.conf': |
-  #    kyuubi.authentication=NONE
-  #    kyuubi.engine.share.level=USER
+  #  'log4j2.xml': |
+  #    ...
 
   # Configuration files from the list of existing ConfigMaps and Secrets
   filesFrom: []
   #filesFrom:
-  #- configMap:
-  #    name: kyuubi-configs
   #- secret:
-  #    name: kyuubi-secrets
+  #    name: kyuubi-keytab
+  #    items:
+  #      - key: keytab
+  #        path: kyuubi.keytab
   #- secret:
   #    name: ssl-secrets
   #    items:
   #      - key: key-store
   #        path: certs/keystore.jks
-  #      - key: trust-store
-  #        path: certs/truststore.jks
 
-# Hadoop configuration files
+# Hadoop configuration files, for Kerberos and impersonation
 hadoopConf:
   # $HADOOP_CONF_DIR directory
   dir: /opt/hadoop/conf
-  # Configuration files from the specified keys (file name) and values (file content)
+  # Configuration files from the specified keys (file name) and values (file content),
+  # kept in the <release>-hadoop Secret
   files: ~
   #files:
   # 'core-site.xml': |
   #   <?xml version="1.0"?>
-  #   <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
   #   <configuration>
   #     <property>
-  #       <name>hadoop.tmp.dir</name>
-  #       <value>/tmp/hadoop-${user.name}</value>
+  #       <name>hadoop.security.authentication</name>
+  #       <value>kerberos</value>
   #     </property>
   #   </configuration>
 
   # Configuration files from the list of existing ConfigMaps and Secrets
   filesFrom: []
-  #filesFrom:
-  #- configMap:
-  #    name: hadoop-configs
-  #- secret:
-  #    name: hadoop-secrets
-  #- secret:
-  #    name: ssl-secrets
-  #    items:
-  #      - key: key-store
-  #        path: certs/keystore.jks
-  #      - key: trust-store
-  #        path: certs/truststore.jks
-
-# Spark configuration, see https://github.com/apache/spark/tree/master/conf and Spark documentation for more details
-sparkConf:
-  # $SPARK_CONF_DIR directory
-  dir: /opt/spark/conf
-  # Configuration files from the specified keys (file name) and values (file content)
-  files: ~
-  #files:
-  #  'spark-defaults.conf': |
-  #    spark.submit.deployMode=cluster
-  #    spark.kubernetes.container.image=apache/spark:3.5.0
-  #    spark.kubernetes.authenticate.driver.serviceAccountName=spark
-  #    spark.kubernetes.file.upload.path=s3a://kyuubi/spark
-  #    # S3 dependencies
-  #    spark.jars.packages=org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262
-  #    spark.driver.extraJavaOptions=-Divy.cache.dir=/tmp -Divy.home=/tmp
-  #    # S3A configuration
-  #    spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
-  #    spark.hadoop.fs.s3a.endpoint=http://object-storage:80
-  #    spark.hadoop.fs.s3a.access.key=******
-  #    spark.hadoop.fs.s3a.secret.key=********
-  #    spark.hadoop.fs.s3a.path.style.access=true
-  #    spark.hadoop.fs.s3a.fast.upload=true
-
-  # Configuration files from the list of existing ConfigMaps and Secrets
-  filesFrom: []
-  #filesFrom:
-  #- configMap:
-  #    name: spark-configs
-  #- secret:
-  #    name: spark-secrets
-  #- secret:
-  #    name: ssl-secrets
-  #    items:
-  #      - key: key-store
-  #        path: certs/keystore.jks
-  #      - key: trust-store
-  #        path: certs/truststore.jks
 
 # Command to launch Kyuubi server (templated)
 command: ~
-# Arguments to launch Kyuubi server (templated)
+# Arguments to launch Kyuubi server (templated); `./bin/kyuubi run` unless set
 args: ~
+
+# JVM options of the server, KYUUBI_JAVA_OPTS (templated)
+javaOpts: -XX:MaxRAMPercentage=75.0
 
 # Environment variables (templated)
 env: []
@@ -270,32 +225,37 @@ initContainers: []
 # Additional containers for Kyuubi pod (templated)
 containers: []
 
-# Resource requests and limits for Kyuubi pods
-resources: {}
-#  resources:
-#    requests:
-#      cpu: 2
-#      memory: 4Gi
-#    limits:
-#      cpu: 4
-#      memory: 10Gi
+# Resource requests and limits for Kyuubi pods. The server runs no engines,
+# so it needs memory for sessions and operations only.
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+# Probes knock on the first enabled frontend's port.
+# Startup probe: the others wait for it
+startupProbe:
+  enabled: true
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 60
 
 # Liveness probe
 livenessProbe:
   enabled: true
-  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 2
-  failureThreshold: 10
+  failureThreshold: 6
   successThreshold: 1
 
 # Readiness probe
 readinessProbe:
   enabled: true
-  initialDelaySeconds: 30
-  periodSeconds: 10
+  periodSeconds: 5
   timeoutSeconds: 2
-  failureThreshold: 10
+  failureThreshold: 3
   successThreshold: 1
 
 # Constrain Kyuubi pods to nodes with specific node labels
@@ -304,9 +264,21 @@ nodeSelector: {}
 tolerations: []
 # Constrain Kyuubi pods to nodes by complex affinity/anti-affinity rules
 affinity: {}
+# Spread Kyuubi pods across nodes or zones (templated)
+topologySpreadConstraints: []
+#  topologySpreadConstraints:
+#    - maxSkew: 1
+#      topologyKey: kubernetes.io/hostname
+#      whenUnsatisfiable: ScheduleAnyway
+#      labelSelector:
+#        matchLabels:
+#          app.kubernetes.io/name: kyuubi
+#          app.kubernetes.io/instance: "{{ .Release.Name }}"
 
 # Kyuubi pods security context
 securityContext: {}
+# Kyuubi container security context
+containerSecurityContext: {}
 
 # Metrics configuration
 metrics:
@@ -329,7 +301,7 @@ metrics:
     # Additional labels for PodMonitor to be discovered by Prometheus
     labels: {}
 
-  # ServiceMonitor by Prometheus Operator
+  # ServiceMonitor by Prometheus Operator, on the <release>-metrics Service
   serviceMonitor:
     # Enable ServiceMonitor creation
     enabled: false

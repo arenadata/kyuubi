@@ -16,17 +16,22 @@
 */}}
 
 {{- if .Values.rbac.create }}
+{{- range $namespace := include "kyuubi.discovery.namespaces" . | splitList "," }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ $.Release.Name }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "kyuubi.labels" . | nindent 4 }}
+    {{- include "kyuubi.labels" $ | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.serviceAccount.name | default .Release.Name }}
+    name: {{ $.Values.serviceAccount.name | default $.Release.Name }}
+    namespace: {{ $.Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ .Release.Name }}
+  name: {{ $.Release.Name }}
+---
+{{- end }}
 {{- end }}

@@ -16,11 +16,22 @@
 */}}
 
 {{- if .Values.rbac.create }}
+{{- range $namespace := include "kyuubi.discovery.namespaces" . | splitList "," }}
+# The Services that declare clusters and engines, read only: the server writes nothing.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ $.Release.Name }}
+  namespace: {{ $namespace }}
   labels:
-    {{- include "kyuubi.labels" . | nindent 4 }}
-rules: {{- toYaml .Values.rbac.rules | nindent 2 }}
+    {{- include "kyuubi.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  {{- with $.Values.rbac.extraRules }}
+    {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+{{- end }}
 {{- end }}

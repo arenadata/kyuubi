@@ -1,0 +1,148 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Two Kyuubi servers, each on its own: no ZooKeeper, no REST, no metadata store, no engines.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+---
+# The clusters' Services, read only. Nothing is written.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+rules:
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+subjects:
+  - kind: ServiceAccount
+    name: kyuubi
+    namespace: kyuubi-stand
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kyuubi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+data:
+  kyuubi-defaults.conf: |
+    kyuubi.authentication=NONE
+    # Thrift only: REST and Spark Connect would bring the metadata store back.
+    kyuubi.frontend.protocols=THRIFT_BINARY
+    kyuubi.frontend.thrift.binary.bind.port=10009
+
+    # The plugin in place of ZooKeeper. The address is any value: empty starts an embedded one.
+    kyuubi.ha.addresses=kubernetes
+    kyuubi.ha.client.class=org.apache.kyuubi.plugin.kubernetes.KubernetesDiscoveryClient
+
+    # Engine profiles, and where their engines run, from the Services.
+    kyuubi.session.conf.advisor=org.apache.kyuubi.plugin.kubernetes.ClusterProfileAdvisor
+    kyuubi.plugin.kubernetes.namespaces=kyuubi-stand
+    kyuubi.engine.profiles.unknown.strategy=LOG
+
+    # Engines run by operators are shared by every user.
+    kyuubi.engine.share.level=SERVER
+    kyuubi.metrics.enabled=false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kyuubi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kyuubi
+    spec:
+      serviceAccountName: kyuubi
+      containers:
+        - name: kyuubi
+          image: localhost:5001/kyuubi-stateless:dev
+          imagePullPolicy: Always
+          env:
+            - name: KYUUBI_JAVA_OPTS
+              value: -Xmx384m -XX:+UseSerialGC
+          ports:
+            - name: thrift
+              containerPort: 10009
+          readinessProbe:
+            tcpSocket:
+              port: thrift
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /opt/kyuubi/conf/kyuubi-defaults.conf
+              subPath: kyuubi-defaults.conf
+      volumes:
+        - name: conf
+          configMap:
+            name: kyuubi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyuubi
+  namespace: kyuubi-stand
+spec:
+  selector:
+    app.kubernetes.io/name: kyuubi
+  ports:
+    - name: thrift
+      port: 10009
+      targetPort: thrift
+---
+# beeline, kept running so check.sh can exec into it.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  namespace: kyuubi-stand
+spec:
+  containers:
+    - name: client
+      image: localhost:5001/kyuubi-stateless:dev
+      imagePullPolicy: Always
+      command: ["sleep", "infinity"]
+      resources:
+        limits:
+          memory: 512Mi
