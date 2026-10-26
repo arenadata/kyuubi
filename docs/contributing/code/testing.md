@@ -124,3 +124,57 @@ Run the suite explicitly, passing the absolute paths of the unpacked Spark distr
   -Dkyuubi.test.spark3.home="$PWD/externals/kyuubi-download/target/spark-3.5.4.4-4.3.0-2-bin-hadoop3" \
   -Dkyuubi.test.spark4.home="$PWD/externals/kyuubi-download/target/spark-4.2.0.1-4.3.0-2-bin-hadoop3"
 ```
+
+## Testing SSL for the REST Frontend
+
+The REST API and the Web UI served over HTTPS (`kyuubi.frontend.rest.ssl.*`) are covered by the
+following suites. The suites starting a Kyuubi server generate a self-signed keystore with the
+JDK `keytool`.
+
+- `HttpClientFactoryTest` checks the certificate and host name verification of the Kyuubi REST
+  client with a truststore against a Jetty server.
+- `KyuubiRestFrontendServiceSslSuite`, `KyuubiRestFrontendServiceSslProtocolSuite` and
+  `KyuubiRestFrontendServiceSslConfSuite` run the Kyuubi server on a JVM and check the REST API,
+  the Web UI, the OpenAPI definition, the internal REST client and the redirection of batch
+  requests, `kyuubi-ctl`, the truststores of the internal REST client and `kyuubi-ctl`,
+  disallowed protocols and cipher suites, the fallback to `kyuubi.frontend.ssl.keystore.*` and
+  the configuration errors. They do not need Docker.
+- `KyuubiRestSslDockerizedClientSuite` accesses the REST API and the Web UI from a `curl`
+  client running in a Docker container (`curlimages/curl:8.11.1`), which verifies the server
+  certificate against the exported CA.
+- `KyuubiRestSslHaDockerizedSuite` starts two Kyuubi instances sharing a PostgreSQL metadata store
+  running in a Docker container (`postgres:16.1`) and checks that batch requests are redirected
+  to the owner instance over HTTPS, verifying its certificate with a truststore.
+
+The dockerized suites need a working Docker-compatible runtime and fail without it. The images
+can be overridden with the `KYUUBI_IT_CURL_IMAGE` and `KYUUBI_IT_POSTGRES_IMAGE` environment
+variables.
+
+Use JDK 21 and build the server and its dependencies from the repository root:
+
+```bash
+./build/mvn -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+  -pl kyuubi-server -am install -DskipTests
+```
+
+Run the REST client test, the JVM suites and the `kyuubi-ctl` suite:
+
+```bash
+./build/mvn -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+  -pl kyuubi-rest-client test -Dtest=HttpClientFactoryTest
+
+./build/mvn -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+  -pl kyuubi-server test -Dtest=none \
+  -Dsuites=org.apache.kyuubi.server.KyuubiRestFrontendServiceSslSuite,org.apache.kyuubi.server.KyuubiRestFrontendServiceSslProtocolSuite,org.apache.kyuubi.server.KyuubiRestFrontendServiceSslConfSuite
+
+./build/mvn -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+  -pl kyuubi-ctl test -Dtest=none -Dsuites=org.apache.kyuubi.ctl.RestClientFactorySuite
+```
+
+Run the dockerized suites:
+
+```bash
+./build/mvn -Pscala-2.13,spark-3.5,java-21,flink-provided,hive-provided \
+  -pl kyuubi-server test -Dtest=none \
+  -Dsuites=org.apache.kyuubi.server.KyuubiRestSslDockerizedClientSuite,org.apache.kyuubi.server.KyuubiRestSslHaDockerizedSuite
+```

@@ -49,7 +49,7 @@ import org.apache.kyuubi.server.api.v1.BatchesResource._
 import org.apache.kyuubi.server.metadata.MetadataManager
 import org.apache.kyuubi.server.metadata.api.{Metadata, MetadataFilter}
 import org.apache.kyuubi.session.{KyuubiBatchSession, KyuubiSessionManager, SessionHandle, SessionType}
-import org.apache.kyuubi.util.JdbcUtils
+import org.apache.kyuubi.util.{JdbcUtils, KyuubiHadoopUtils}
 
 @Tag(name = "Batch")
 @Produces(Array(MediaType.APPLICATION_JSON))
@@ -65,6 +65,12 @@ private[v1] class BatchesResource extends ApiRequestContext with Logging {
     fe.getConf.get(BATCH_INTERNAL_REST_CLIENT_REQUEST_ATTEMPT_WAIT).toInt
   private lazy val internalSecurityEnabled =
     fe.getConf.get(ENGINE_SECURITY_ENABLED)
+  private lazy val internalTrustStorePath =
+    fe.getConf.get(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PATH)
+  private lazy val internalTrustStorePassword =
+    KyuubiHadoopUtils.getPassword(fe.getConf, BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_PASSWORD)
+  private lazy val internalTrustStoreType =
+    fe.getConf.get(BATCH_INTERNAL_REST_CLIENT_SSL_TRUSTSTORE_TYPE)
   private lazy val resourceFileMaxSize = fe.getConf.get(BATCH_RESOURCE_FILE_MAX_SIZE)
   private lazy val extraResourceFileMaxSize = fe.getConf.get(BATCH_EXTRA_RESOURCE_FILE_MAX_SIZE)
   private lazy val metadataSearchWindow = fe.getConf.get(METADATA_SEARCH_WINDOW)
@@ -81,12 +87,16 @@ private[v1] class BatchesResource extends ApiRequestContext with Logging {
       kyuubiInstance =>
         new InternalRestClient(
           kyuubiInstance,
+          fe.connectionScheme,
           fe.getConf.get(FRONTEND_PROXY_HTTP_CLIENT_IP_HEADER),
           internalSocketTimeout,
           internalConnectTimeout,
           internalSecurityEnabled,
           internalRequestMaxAttempts,
-          internalRequestAttemptWait))
+          internalRequestAttemptWait,
+          internalTrustStorePath,
+          internalTrustStorePassword,
+          internalTrustStoreType))
   }
 
   private def sessionManager = fe.be.sessionManager.asInstanceOf[KyuubiSessionManager]
