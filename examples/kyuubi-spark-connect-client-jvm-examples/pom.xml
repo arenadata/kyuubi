@@ -26,7 +26,7 @@
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
-    <kyuubi.version>1.11.1.2-4.4.0-0</kyuubi.version>
+    <kyuubi.version>1.11.1.3-4.5.0-0</kyuubi.version>
     <!-- Must match the -Pspark-X.Y profile used to build kyuubi-spark-connect-client-standalone -->
     <spark.artifact.version>3.5</spark.artifact.version>
   </properties>
