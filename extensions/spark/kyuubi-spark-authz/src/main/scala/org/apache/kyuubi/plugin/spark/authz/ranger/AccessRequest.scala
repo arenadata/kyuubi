@@ -21,12 +21,15 @@ import java.util.{HashMap => JHashMap, Set => JSet}
 import java.util.Date
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.ranger.plugin.policyengine.{RangerAccessRequestImpl, RangerPolicyEngine}
+import org.apache.spark.sql.catalyst.QueryPlanningTracker
 
 import org.apache.kyuubi.plugin.spark.authz.OperationType.OperationType
 import org.apache.kyuubi.plugin.spark.authz.ranger.AccessType._
+import org.apache.kyuubi.util.reflect.DynMethods
 import org.apache.kyuubi.util.reflect.ReflectUtils._
 
 case class AccessRequest private (accessType: AccessType) extends RangerAccessRequestImpl
@@ -65,7 +68,31 @@ object AccessRequest {
     } catch {
       case _: Exception =>
     }
+    getQueryText.foreach(req.setRequestData)
     req
+  }
+
+  /** The SQL or DataFrame API text of the query, kept by the Spark builds that support it. */
+  private def getQueryText: Option[String] = QueryPlanningTracker.get.flatMap { tracker =>
+    trackerTextGetters.iterator.map(getTrackerText(tracker, _)).collectFirst {
+      case Some(text: String) => text
+    }
+  }
+
+  // Looked up once: a request is built for every object a query accesses.
+  private lazy val trackerTextGetters: Seq[DynMethods.UnboundMethod] =
+    Seq("sqlText", "dataFrameText").flatMap { name =>
+      Try(DynMethods.builder(name).impl(classOf[QueryPlanningTracker]).buildChecked()).toOption
+    }
+
+  private def getTrackerText(
+      tracker: QueryPlanningTracker,
+      getter: DynMethods.UnboundMethod): Option[_] = {
+    try {
+      getter.invoke[Option[_]](tracker)
+    } catch {
+      case _: Exception => None
+    }
   }
 
   private def getUserGroupsFromUgi(user: UserGroupInformation): JSet[String] = {
