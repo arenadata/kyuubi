@@ -17,8 +17,11 @@
 
 package org.apache.kyuubi.engine.spark.operation
 
+import java.sql.SQLException
+import java.util.concurrent.ConcurrentLinkedQueue
+
 import scala.collection.JavaConverters._
-import scala.util.Random
+import scala.util.{Random, Try}
 
 import org.apache.hadoop.hdfs.security.token.delegation.{DelegationTokenIdentifier => HDFSTokenIdent}
 import org.apache.hadoop.hive.thrift.{DelegationTokenIdentifier => HiveTokenIdent}
@@ -27,15 +30,19 @@ import org.apache.hadoop.security.{Credentials, UserGroupInformation}
 import org.apache.hadoop.security.token.{Token, TokenIdentifier}
 import org.apache.spark.SPARK_VERSION
 import org.apache.spark.kyuubi.SparkContextHelper
+import org.apache.spark.sql.catalyst.QueryPlanningTracker
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.types._
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.spark.WithSparkSQLEngine
 import org.apache.kyuubi.engine.spark.schema.SchemaHelper.TIMESTAMP_NTZ
+import org.apache.kyuubi.engine.spark.session.SparkSessionImpl
 import org.apache.kyuubi.engine.spark.util.SparkCatalogUtils
 import org.apache.kyuubi.jdbc.hive.KyuubiStatement
-import org.apache.kyuubi.operation.{HiveMetadataTests, SparkQueryTests}
+import org.apache.kyuubi.operation.{HiveMetadataTests, JsonStyle, LineageMode, OptimizeMode, OptimizeWithStatsMode, PlainStyle, SparkQueryTests}
 import org.apache.kyuubi.operation.meta.ResultSetSchemaConstant._
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 import org.apache.kyuubi.util.KyuubiHadoopUtils
@@ -730,6 +737,51 @@ class SparkOperationSuite extends WithSparkSQLEngine with HiveMetadataTests with
       stmt.executeQuery("SELECT 1")
       val queryId = stmt.asInstanceOf[KyuubiStatement].getQueryId
       assert(queryId != null && queryId.nonEmpty)
+    }
+  }
+
+  test("ADH-9627: plan only operations optimize the statement with a QueryPlanningTracker") {
+    // An optimizer rule sees the tracker in scope as the authz plugin does when it looks for the
+    // text of the statement.
+    val trackers = new ConcurrentLinkedQueue[Option[QueryPlanningTracker]]()
+    val rule = new Rule[LogicalPlan] {
+      override def apply(plan: LogicalPlan): LogicalPlan = {
+        trackers.add(QueryPlanningTracker.get)
+        plan
+      }
+    }
+    // Only the Spark builds that keep the statement text in the tracker have this method.
+    val sqlText = Try(classOf[QueryPlanningTracker].getMethod("sqlText"))
+    val query = "SELECT 1 AS c"
+    withJdbcStatement() { statement =>
+      val sessions = engine.backendService.sessionManager.allSessions()
+        .map(_.asInstanceOf[SparkSessionImpl].spark)
+      sessions.foreach(_.experimental.extraOptimizations = Seq(rule))
+      try {
+        Seq(
+          OptimizeMode -> PlainStyle,
+          OptimizeWithStatsMode -> PlainStyle,
+          OptimizeMode -> JsonStyle,
+          LineageMode -> PlainStyle).foreach { case (mode, style) =>
+          statement.execute(s"SET ${KyuubiConf.OPERATION_PLAN_ONLY_MODE.key}=${mode.name}")
+          statement.execute(s"SET ${KyuubiConf.OPERATION_PLAN_ONLY_OUT_STYLE.key}=${style.name}")
+          trackers.clear()
+          try {
+            statement.executeQuery(query)
+          } catch {
+            // Without the kyuubi-spark-lineage plugin, after the statement is optimized.
+            case e: SQLException
+                if mode == LineageMode && e.getMessage.contains("LineageParserProvider") =>
+          }
+          val seen = trackers.asScala.toSeq
+          assert(seen.nonEmpty && seen.forall(_.isDefined), s"$mode, $style: $seen")
+          sqlText.foreach { method =>
+            assert(seen.forall(t => method.invoke(t.get) == Some(query)), s"$mode, $style")
+          }
+        }
+      } finally {
+        sessions.foreach(_.experimental.extraOptimizations = Nil)
+      }
     }
   }
 

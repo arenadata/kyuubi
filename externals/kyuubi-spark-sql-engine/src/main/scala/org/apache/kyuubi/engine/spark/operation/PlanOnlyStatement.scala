@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.kyuubi.SparkUtilsHelper
 import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.catalyst.QueryPlanningTracker
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.execution.CommandExecutionMode
@@ -102,18 +103,13 @@ class PlanOnlyStatement(
       case ParseMode =>
         iter = new IterableFetchIterator(Seq(Row(plan.toString())))
       case AnalyzeMode =>
-        val analyzed = spark.sessionState.analyzer.execute(plan)
-        spark.sessionState.analyzer.checkAnalysis(analyzed)
+        val analyzed = analyze(plan)
         iter = new IterableFetchIterator(Seq(Row(analyzed.toString())))
       case OptimizeMode =>
-        val analyzed = spark.sessionState.analyzer.execute(plan)
-        spark.sessionState.analyzer.checkAnalysis(analyzed)
-        val optimized = spark.sessionState.optimizer.execute(analyzed)
+        val optimized = optimize(plan)
         iter = new IterableFetchIterator(Seq(Row(optimized.toString())))
       case OptimizeWithStatsMode =>
-        val analyzed = spark.sessionState.analyzer.execute(plan)
-        spark.sessionState.analyzer.checkAnalysis(analyzed)
-        val optimized = spark.sessionState.optimizer.execute(analyzed)
+        val optimized = optimize(plan)
         optimized.stats
         iter = new IterableFetchIterator(
           Seq(Row(treeString(optimized, verbose = true, addSuffix = true))))
@@ -136,13 +132,10 @@ class PlanOnlyStatement(
       case ParseMode =>
         iter = new IterableFetchIterator(Seq(Row(plan.toJSON)))
       case AnalyzeMode =>
-        val analyzed = spark.sessionState.analyzer.execute(plan)
-        spark.sessionState.analyzer.checkAnalysis(analyzed)
+        val analyzed = analyze(plan)
         iter = new IterableFetchIterator(Seq(Row(analyzed.toJSON)))
       case OptimizeMode | OptimizeWithStatsMode =>
-        val analyzed = spark.sessionState.analyzer.execute(plan)
-        spark.sessionState.analyzer.checkAnalysis(analyzed)
-        val optimized = spark.sessionState.optimizer.execute(analyzed)
+        val optimized = optimize(plan)
         iter = new IterableFetchIterator(Seq(Row(optimized.toJSON)))
       case PhysicalMode =>
         val physical = spark.sessionState.executePlan(plan, CommandExecutionMode.SKIP).sparkPlan
@@ -161,9 +154,7 @@ class PlanOnlyStatement(
   }
 
   private def parseLineage(spark: SparkSession, plan: LogicalPlan): String = {
-    val analyzed = spark.sessionState.analyzer.execute(plan)
-    spark.sessionState.analyzer.checkAnalysis(analyzed)
-    val optimized = spark.sessionState.optimizer.execute(analyzed)
+    val optimized = optimize(plan)
     val parserProviderClass = session.sessionManager.getConf.get(LINEAGE_PARSER_PLUGIN_PROVIDER)
 
     try {
@@ -185,6 +176,23 @@ class PlanOnlyStatement(
     }
   }
 
+  private def analyze(plan: LogicalPlan): LogicalPlan = withQueryPlanningTracker(plan) {
+    val analyzed = spark.sessionState.analyzer.execute(plan)
+    spark.sessionState.analyzer.checkAnalysis(analyzed)
+    analyzed
+  }
+
+  private def optimize(plan: LogicalPlan): LogicalPlan = withQueryPlanningTracker(plan) {
+    val analyzed = spark.sessionState.analyzer.execute(plan)
+    spark.sessionState.analyzer.checkAnalysis(analyzed)
+    spark.sessionState.optimizer.execute(analyzed)
+  }
+
+  // Gives the rules the tracker of the statement, e.g. for the statement text in authz audit.
+  private def withQueryPlanningTracker[T](plan: LogicalPlan)(f: => T): T = {
+    val tracker = spark.sessionState.executePlan(plan, CommandExecutionMode.SKIP).tracker
+    QueryPlanningTracker.withTracker(tracker)(f)
+  }
 }
 
 object PlanOnlyStatement {
