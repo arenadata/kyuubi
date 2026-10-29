@@ -73,7 +73,7 @@ final class KyuubiTBinaryFrontendService(
         if (handle != null) {
           be.sessionManager
             .getSessionOption(handle)
-            .map(_.asInstanceOf[KyuubiSessionImpl])
+            .collect { case session: KyuubiSessionImpl => session }
             .flatMap(_.getSessionEvent).foreach { sessionEvent =>
               sessionEvent.exception = Some(new KyuubiException(
                 s"Session between client and Kyuubi server disconnected without closing properly."))
@@ -95,18 +95,23 @@ final class KyuubiTBinaryFrontendService(
       val sessionHandle = getSessionHandle(req, resp)
 
       val respConfiguration = new java.util.HashMap[String, String]()
-      val launchEngineOp = be.sessionManager.getSession(sessionHandle)
-        .asInstanceOf[KyuubiSessionImpl].launchEngineOp
-
-      val opHandleIdentifier = Handle.toTHandleIdentifier(launchEngineOp.getHandle.identifier)
-      respConfiguration.put(
-        KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_GUID,
-        Base64.getEncoder.encodeToString(opHandleIdentifier.getGuid))
-      respConfiguration.put(
-        KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_SECRET,
-        Base64.getEncoder.encodeToString(opHandleIdentifier.getSecret))
-
-      respConfiguration.put(KYUUBI_SESSION_ENGINE_LAUNCH_SUPPORT_RESULT, true.toString)
+      // Only a session that launches an engine of its own has a launch operation
+      // to report. Other backend services - a gateway routing into clusters that
+      // are already running, for instance - reuse this frontend without one, and
+      // must not be cast into a shape they do not have.
+      be.sessionManager.getSession(sessionHandle) match {
+        case session: KyuubiSessionImpl =>
+          val opHandleIdentifier =
+            Handle.toTHandleIdentifier(session.launchEngineOp.getHandle.identifier)
+          respConfiguration.put(
+            KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_GUID,
+            Base64.getEncoder.encodeToString(opHandleIdentifier.getGuid))
+          respConfiguration.put(
+            KYUUBI_SESSION_ENGINE_LAUNCH_HANDLE_SECRET,
+            Base64.getEncoder.encodeToString(opHandleIdentifier.getSecret))
+          respConfiguration.put(KYUUBI_SESSION_ENGINE_LAUNCH_SUPPORT_RESULT, true.toString)
+        case _ =>
+      }
 
       // HIVE-23005(4.0.0), Hive JDBC driver supposes that server always returns this conf
       respConfiguration.put(

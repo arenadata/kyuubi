@@ -1,0 +1,69 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+#
+# The gateway's configuration, without authentication.
+#
+# One of two files that define the Secret kyuubi-routing-gateway; the other is
+# kerberos-gateway.yaml. Apply this one or that one, never both - whichever was
+# applied last is what the gateway reads, and nothing warns about it.
+#
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kyuubi-routing-gateway
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+type: Opaque
+# stringData, so the file is readable here and in `kubectl get -o yaml` rather
+# than being a base64 blob nobody reviews. The api server encodes it on the way
+# in.
+stringData:
+  # The gateway reads this once, at startup. An edit here needs
+  # `kubectl rollout restart deploy/kyuubi-routing-gateway -n gateway`;
+  # nothing reloads it on its own, and a Secret change is invisible to the
+  # Deployment.
+  kyuubi-defaults.conf: |
+    # Frontends. Binary HS2 is the one every client speaks; the HTTP transport is
+    # there for clients that cannot open a raw socket through a proxy.
+    kyuubi.frontend.protocols                     THRIFT_BINARY,THRIFT_HTTP
+    kyuubi.frontend.thrift.binary.bind.host       0.0.0.0
+    kyuubi.frontend.thrift.binary.bind.port       10009
+    kyuubi.frontend.thrift.http.bind.host         0.0.0.0
+    kyuubi.frontend.thrift.http.bind.port         10010
+
+    # Discovery: Services in this namespace carrying the label, read every 10s.
+    kyuubi.gateway.engine                         trino
+    kyuubi.gateway.cluster.resolver               kubernetes
+    kyuubi.gateway.kubernetes.namespace           gateway
+    kyuubi.gateway.kubernetes.labelSelector       kyuubi.gateway/enabled=true
+    kyuubi.gateway.kubernetes.pollInterval        10000
+
+    # Metrics on their own port, so the gateway can be scraped without exposing
+    # anything else. No admin REST: there is nothing here to administer remotely.
+    kyuubi.metrics.enabled                        true
+    kyuubi.metrics.reporters                      PROMETHEUS
+    kyuubi.metrics.prometheus.port                10019
+    kyuubi.metrics.prometheus.path                /metrics
+
+    # Admission, scaling and the shared ledger are off: each changes what
+    # clients see or writes to Kubernetes, and each should be turned on
+    # deliberately. See the module README for what they need.
+    kyuubi.gateway.admission.enabled              false
+    kyuubi.gateway.scaling.enabled                false

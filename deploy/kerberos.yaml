@@ -1,0 +1,245 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+#
+# A Kerberos realm and directory for the gateway to authenticate against.
+#
+# ldap-kdc serves one store over both LDAP and Kerberos, so an account created
+# here can bind and obtain a ticket from the same password. That matters for a
+# test stand: a realm built from two services needs its two credentials kept in
+# step by hand, and they drift.
+#
+# Deliberately in the same namespace as the gateway. It is infrastructure rather
+# than part of the gateway, but keeping it here makes the Service DNS short and
+# leaves the gateway's Role untouched - and this is a test stand, not a
+# production identity service.
+#
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-kdc
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: ldap-kdc
+type: Opaque
+stringData:
+  ldap-kdc.yaml: |
+    server:
+      realm: EXAMPLE.COM
+    database:
+      path: /var/lib/ldap-kdc/ldap-kdc.db
+      master_key_file: /var/lib/ldap-kdc/master.key
+    ldap:
+      enabled: true
+      listen: 0.0.0.0:389
+    kdc:
+      enabled: true
+      listen: 0.0.0.0:88
+      require_pre_auth: true
+      # The gateway authenticates through Hadoop's GSSAPI, which negotiates the
+      # AES SHA-1 family. Left as the service's own default order.
+      enc_types:
+        - aes256-cts-hmac-sha1-96
+        - aes128-cts-hmac-sha1-96
+    kpasswd:
+      enabled: true
+      listen: 0.0.0.0:464
+    # The name server stays off: Kubernetes already resolves these names, and an
+    # authoritative server for example.com inside the cluster would answer for
+    # names CoreDNS is also asked about. Clients here are told the KDC address
+    # explicitly in krb5.conf instead of discovering it through SRV records.
+    dns:
+      enabled: false
+    api:
+      # Reachable from the namespace, because the keytab is fetched over it.
+      # Guarded by the token below rather than by being bound to loopback.
+      enabled: true
+      listen: 0.0.0.0:5555
+      docs: false
+    bootstrap:
+      file: /etc/ldap-kdc/bootstrap.yaml
+  bootstrap.yaml: |
+    groups:
+      - name: analysts
+        gid_number: 5000
+        capabilities:
+          - action: search
+            object: "*"
+    users:
+      # The users the example clusters route: alice and bob to trino-analytics,
+      # carol to trino-etl, eve to neither and so to the default.
+      - name: alice
+        primary_group: 5000
+        password: alice-has-a-long-enough-password
+        force_change: false
+      - name: bob
+        primary_group: 5000
+        password: bob-has-a-long-enough-password
+        force_change: false
+      - name: carol
+        primary_group: 5000
+        password: carol-has-a-long-enough-password
+        force_change: false
+      - name: eve
+        primary_group: 5000
+        password: eve-has-a-long-enough-password
+        force_change: false
+    principals:
+      # The gateway's own service principal. The host part must be the name the
+      # client resolves, or GSSAPI asks for a principal that was never created
+      # and the KDC answers KDC_ERR_S_PRINCIPAL_UNKNOWN.
+      - name: hive/kyuubi-routing-gateway.gateway.svc.cluster.local
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-kdc-api
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: ldap-kdc
+type: Opaque
+stringData:
+  # Anything under /api/ needs this. It can set any account's password, so it is
+  # a Secret rather than an argument - and this value is a test stand's, not one
+  # to copy anywhere real.
+  token: kerberos-test-stand-token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ldap-kdc
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: ldap-kdc
+spec:
+  replicas: 1
+  strategy:
+    # The database and the master key live on one volume that cannot be shared,
+    # so the old pod has to be gone before the new one starts.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ldap-kdc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ldap-kdc
+    spec:
+      securityContext:
+        # Kerberos, LDAP and kpasswd all listen below 1024, which an
+        # unprivileged process may not bind while the kernel reserves that
+        # range. In the safe sysctl set since Kubernetes 1.22, so no privilege
+        # is needed - only permission to ask.
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+        # The image already runs as 65532; said again here so the mounted Secret
+        # is group-owned by the same id. Without it the file's group is whatever
+        # the runtime happens to apply, and a mode the service cannot read is a
+        # crash loop with "permission denied" and nothing to point at.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ldap-kdc
+          image: ghcr.io/shulutkov/ldap-kdc:1.1.0
+          env:
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ldap-kdc-api
+                  key: token
+          ports:
+            - name: kerberos
+              containerPort: 88
+              protocol: TCP
+            - name: kerberos-udp
+              containerPort: 88
+              protocol: UDP
+            - name: ldap
+              containerPort: 389
+            - name: kpasswd
+              containerPort: 464
+              protocol: UDP
+            - name: api
+              containerPort: 5555
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: api
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /etc/ldap-kdc
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/ldap-kdc
+      volumes:
+        - name: config
+          secret:
+            secretName: ldap-kdc
+            # Owner and group only. The service warns about a bootstrap plan
+            # anyone can read, and it is right to: the plan carries passwords.
+            defaultMode: 0440
+        # The master key is here, and losing it makes every stored key
+        # unreadable. An emptyDir is right for a test stand and wrong for
+        # anything else.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ldap-kdc
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: ldap-kdc
+  # No kyuubi.gateway/enabled label: this Service is not a query cluster, and
+  # the gateway must not discover it as one.
+spec:
+  selector:
+    app.kubernetes.io/name: ldap-kdc
+  ports:
+    - name: kerberos
+      port: 88
+      protocol: TCP
+      targetPort: kerberos
+    - name: kerberos-udp
+      port: 88
+      protocol: UDP
+      targetPort: kerberos-udp
+    - name: ldap
+      port: 389
+      targetPort: ldap
+    - name: kpasswd
+      port: 464
+      protocol: UDP
+      targetPort: kpasswd
+    - name: api
+      port: 5555
+      targetPort: api

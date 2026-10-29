@@ -1,0 +1,96 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+#
+# Identity the gateway runs as, and the least it needs to do its job.
+#
+# A Role rather than a ClusterRole: the gateway is deployed per namespace and
+# discovers clusters in its own. Watching every namespace would mean granting
+# read of every Secret in the cluster, which is a much larger thing to hand out
+# than this workload warrants.
+#
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kyuubi-routing-gateway
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kyuubi-routing-gateway
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+rules:
+  # Discovery. Services carry the cluster declarations in their annotations, and
+  # the gateway polls rather than watches, so it lists. No write of any kind:
+  # the gateway reads what the operator published and never edits it.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+
+  # The shared reservation ledger, one Secret per cluster, created and deleted
+  # as clusters come and go. Only needed when kyuubi.gateway.admission.shared is
+  # on; drop this rule when running a single replica.
+  #
+  # Not narrowed by resourceNames: the names are derived from cluster names that
+  # do not exist yet when this Role is written, and a rule that has to be edited
+  # every time a cluster appears would be edited wrongly or granted `*` instead.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "delete"]
+
+  # Scaling. The subresource, not the resource: this lets the gateway change a
+  # cluster's worker count and nothing else - not its image, not its catalogs,
+  # not its credentials. Only needed when kyuubi.gateway.scaling.enabled is on.
+  - apiGroups: ["trino.arenadata.io"]
+    resources: ["clusters/scale"]
+    verbs: ["get", "update", "patch"]
+
+  # Reading the current size before deciding whether to grow. `get` on the
+  # resource itself is what the scale subresource is reached through.
+  - apiGroups: ["trino.arenadata.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+
+  # Shrinking only. The worker to drain is named from the StatefulSet - which
+  # ordinal is highest, and which Service gives the pods their DNS names - and
+  # nothing is written here: the size still changes through clusters/scale.
+  # Only needed when kyuubi.gateway.scaling.shrink.enabled is on.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kyuubi-routing-gateway
+  namespace: gateway
+  labels:
+    app.kubernetes.io/name: kyuubi-routing-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kyuubi-routing-gateway
+subjects:
+  - kind: ServiceAccount
+    name: kyuubi-routing-gateway
+    namespace: gateway
