@@ -46,16 +46,25 @@ public class ThriftUtils {
    */
   public static <T extends TTransport> T configureThriftMaxMessageSize(
       T transport, int maxMessageSize) {
-    if (maxMessageSize > 0) {
-      if (transport.getConfiguration() == null) {
+    TConfiguration tConf = transport.getConfiguration();
+    if (tConf == null) {
+      if (maxMessageSize > 0) {
         LOG.warn(
             "TTransport {} is returning a null Configuration, Thrift max message size is not getting configured",
             transport.getClass().getName());
-        return transport;
       }
-      transport.getConfiguration().setMaxMessageSize(maxMessageSize);
+      return transport;
     }
+    if (maxMessageSize > 0) {
+      tConf.setMaxMessageSize(maxMessageSize);
+    }
+    raiseMaxFrameSize(tConf);
     return transport;
+  }
+
+  /** A SASL frame carries a whole message, and Thrift rejects frames above the max frame size. */
+  private static void raiseMaxFrameSize(TConfiguration tConf) {
+    tConf.setMaxFrameSize(Math.max(tConf.getMaxFrameSize(), tConf.getMaxMessageSize()));
   }
 
   /**
@@ -78,6 +87,7 @@ public class ThriftUtils {
       tConfBuilder.setMaxMessageSize(maxMessageSize);
     }
     TConfiguration tConf = tConfBuilder.build();
+    raiseMaxFrameSize(tConf);
     return new TSocket(tConf, host, port, socketTimeout, connectTimeout);
   }
 
