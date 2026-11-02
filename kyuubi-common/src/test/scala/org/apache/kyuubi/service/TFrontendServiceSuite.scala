@@ -30,6 +30,7 @@ import org.apache.kyuubi.operation.{OperationHandle, TClientTestUtils}
 import org.apache.kyuubi.service.TFrontendService.FeServiceServerContext
 import org.apache.kyuubi.session.{AbstractSession, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
+import org.apache.kyuubi.shaded.thrift.TConfiguration
 
 class TFrontendServiceSuite extends KyuubiFunSuite {
 
@@ -449,6 +450,18 @@ class TFrontendServiceSuite extends KyuubiFunSuite {
       assert(resp2.getStatus.getStatusCode === TStatusCode.ERROR_STATUS)
       assert(resp2.getStatus.getSqlState === null)
       assert(resp2.getStatus.getErrorMessage startsWith "Invalid SessionHandle")
+    }
+  }
+
+  test("statement larger than Thrift's default max frame size") {
+    // A SASL frame carries a whole message; the request below exceeds the default max frame size.
+    withSessionHandle { (client, handle) =>
+      val req = new TExecuteStatementReq()
+      req.setStatement("x" * (TConfiguration.DEFAULT_MAX_FRAME_SIZE + 1024))
+      req.setSessionHandle(handle)
+      req.setRunAsync(false)
+      val resp = client.ExecuteStatement(req)
+      assert(resp.getStatus.getStatusCode === TStatusCode.SUCCESS_STATUS)
     }
   }
 

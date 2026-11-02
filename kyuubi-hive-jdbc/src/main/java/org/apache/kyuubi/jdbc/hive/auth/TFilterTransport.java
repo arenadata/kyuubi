@@ -111,4 +111,9 @@ public class TFilterTransport extends TTransport {
   public void checkReadBytesAvailable(long l) throws TTransportException {
     wrapped.checkReadBytesAvailable(l);
   }
+
+  @Override
+  public void resetMessageSizeAndConsumedBytes(long l) throws TTransportException {
+    wrapped.resetMessageSizeAndConsumedBytes(l);
+  }
 }
