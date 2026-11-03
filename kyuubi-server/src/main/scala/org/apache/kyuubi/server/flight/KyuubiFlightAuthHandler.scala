@@ -25,21 +25,14 @@ import scala.util.control.NonFatal
 
 import com.google.common.cache.CacheBuilder
 import org.apache.arrow.flight.{CallHeaders, CallStatus}
-import org.apache.arrow.flight.auth2.{
-  Auth2Constants,
-  CallHeaderAuthenticator,
-  GeneratedBearerTokenAuthenticator}
+import org.apache.arrow.flight.auth2.{Auth2Constants, CallHeaderAuthenticator, GeneratedBearerTokenAuthenticator}
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_METHOD, FRONTEND_FLIGHT_SQL_TOKEN_TTL}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.server.grpc.SparkConnectKerberosValidator
-import org.apache.kyuubi.service.authentication.{
-  AuthenticationProviderFactory,
-  AuthMethods,
-  AuthTypes,
-  AuthUtils}
+import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, AuthMethods, AuthTypes, AuthUtils}
 
 /**
  * Flight CallHeaderAuthenticator supporting:
@@ -152,15 +145,16 @@ class KyuubiFlightAuthHandler(conf: KyuubiConf)
         .withDescription("Basic authentication is not configured for Flight SQL")
         .toRuntimeException
     }
-    val decoded = try {
-      new String(Base64.getDecoder.decode(encoded), StandardCharsets.UTF_8)
-    } catch {
-      case e: IllegalArgumentException =>
-        throw CallStatus.UNAUTHENTICATED
-          .withDescription("Malformed Flight SQL basic credentials")
-          .withCause(e)
-          .toRuntimeException
-    }
+    val decoded =
+      try {
+        new String(Base64.getDecoder.decode(encoded), StandardCharsets.UTF_8)
+      } catch {
+        case e: IllegalArgumentException =>
+          throw CallStatus.UNAUTHENTICATED
+            .withDescription("Malformed Flight SQL basic credentials")
+            .withCause(e)
+            .toRuntimeException
+      }
     val separator = decoded.indexOf(':')
     if (separator <= 0) {
       throw CallStatus.UNAUTHENTICATED

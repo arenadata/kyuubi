@@ -23,21 +23,8 @@ import java.util.function.Consumer
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
-import org.apache.arrow.flight.{
-  CallHeaders,
-  CallOption,
-  CallStatus,
-  FlightClient,
-  FlightClientMiddleware,
-  FlightInfo,
-  FlightRuntimeException,
-  FlightStatusCode,
-  Location,
-  Ticket}
-import org.apache.arrow.flight.auth2.{
-  Auth2Constants,
-  ClientBearerHeaderHandler,
-  ClientIncomingAuthHeaderMiddleware}
+import org.apache.arrow.flight.{CallHeaders, CallOption, CallStatus, FlightClient, FlightClientMiddleware, FlightInfo, FlightRuntimeException, FlightStatusCode, Location, Ticket}
+import org.apache.arrow.flight.auth2.{Auth2Constants, ClientBearerHeaderHandler, ClientIncomingAuthHeaderMiddleware}
 import org.apache.arrow.flight.grpc.CredentialCallOption
 import org.apache.arrow.flight.sql.FlightSqlClient
 import org.apache.arrow.memory.RootAllocator
@@ -278,4 +265,3 @@ object FlightSqlTestHelper {
 }
 
 case class FlightStreamPages(rows: Seq[Seq[AnyRef]], batchRowCounts: Seq[Int])
-

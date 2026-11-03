@@ -151,10 +151,10 @@ object EngineProfileResolver extends Logging {
   }
 
   private def userAndGroupConfigs(
-    serverConf: KyuubiConf,
-    user: String,
-    groups: Seq[String],
-    key: String): Iterator[String] = {
+      serverConf: KyuubiConf,
+      user: String,
+      groups: Seq[String],
+      key: String): Iterator[String] = {
     (user +: groups).iterator
       .flatMap { principal =>
         serverConf.getAllWithPrefix(
@@ -166,9 +166,9 @@ object EngineProfileResolver extends Logging {
   }
 
   private def allowedImplicitly(
-    profile: String,
-    profilesBlacklist: Set[String],
-    user: String): Boolean = {
+      profile: String,
+      profilesBlacklist: Set[String],
+      user: String): Boolean = {
     if (profilesBlacklist.contains(profile)) {
       warn(s"User '$user' is not allowed to implicitly use the engine profile '$profile', " +
         "skipping it.")
@@ -179,9 +179,9 @@ object EngineProfileResolver extends Logging {
   }
 
   private def requireNotBlacklisted(
-    profile: String,
-    profilesBlacklist: Set[String],
-    user: String): String = {
+      profile: String,
+      profilesBlacklist: Set[String],
+      user: String): String = {
     if (profilesBlacklist.contains(profile)) {
       throw KyuubiSQLException(
         s"Current user '$user' is not allowed to use the engine profile '$profile'")

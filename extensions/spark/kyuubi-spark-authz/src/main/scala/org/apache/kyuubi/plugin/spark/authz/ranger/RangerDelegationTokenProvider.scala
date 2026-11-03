@@ -79,8 +79,10 @@ class RangerDelegationTokenProvider extends HadoopDelegationTokenProvider {
       None
     } catch {
       case NonFatal(e) =>
-        LOG.warn(s"Failed to obtain Ranger delegation token. " +
-          s"If Ranger is not used, set spark.security.credentials.ranger.enabled=false", e)
+        LOG.warn(
+          s"Failed to obtain Ranger delegation token. " +
+            s"If Ranger is not used, set spark.security.credentials.ranger.enabled=false",
+          e)
         None
     }
   }

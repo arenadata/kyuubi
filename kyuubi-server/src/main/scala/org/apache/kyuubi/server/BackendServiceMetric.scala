@@ -215,11 +215,9 @@ trait BackendServiceMetric extends BackendService {
   private def estimateFetchedRows(rowSet: TRowSet): Int = {
     if (rowSet == null) {
       0
-    } else if (
-      rowSet.getColumnsSize == 1 &&
+    } else if (rowSet.getColumnsSize == 1 &&
       rowSet.getColumns.get(0).isSetBinaryVal &&
-      rowSet.getColumns.get(0).getBinaryVal.getValuesSize == 1
-    ) {
+      rowSet.getColumns.get(0).getBinaryVal.getValuesSize == 1) {
       // Arrow mode: one binary value holds one record batch. Prefer the server-side
       // row count when the operation already tracked it; otherwise count as one batch.
       // Exact Arrow decoding belongs to the Flight/JDBC consumers to avoid allocating

@@ -77,7 +77,7 @@ jobs:
       run: >-
         build/mvn -B -V -ntp deploy
         -Pjdbc-shaded -Pscala-2.13 -Pspark-3.5 -Pzookeeper-3.9 -Pweb-ui -Pspark-provided,flink-provided,hive-provided
-        -DskipTests -Drat.skip=true
+        -DskipTests -Drat.skip=true -DdeployAtEnd=true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

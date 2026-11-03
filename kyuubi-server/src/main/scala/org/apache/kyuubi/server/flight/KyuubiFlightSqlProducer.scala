@@ -25,14 +25,7 @@ import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
 import com.google.protobuf.{Any => ProtoAny, ByteString}
-import org.apache.arrow.flight.{
-  CallStatus,
-  FlightDescriptor,
-  FlightEndpoint,
-  FlightInfo,
-  Location,
-  SchemaResult,
-  Ticket}
+import org.apache.arrow.flight.{CallStatus, FlightDescriptor, FlightEndpoint, FlightInfo, Location, SchemaResult, Ticket}
 import org.apache.arrow.flight.FlightProducer.{CallContext, ServerStreamListener, StreamListener}
 import org.apache.arrow.flight.sql.{CancelResult, NoOpFlightSqlProducer, SqlInfoBuilder}
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
@@ -42,9 +35,7 @@ import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
-import org.apache.kyuubi.config.KyuubiConf.{
-  FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS,
-  OPERATION_RESULT_FORMAT}
+import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.operation.{OperationHandle, OperationState, OperationStatus}
 import org.apache.kyuubi.service.BackendService
@@ -231,8 +222,12 @@ class KyuubiFlightSqlProducer(
   override def getStreamCatalogs(
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(context, listener, Schemas.GET_CATALOGS_SCHEMA, session =>
-      backend.getCatalogs(session))
+    streamMetadata(
+      context,
+      listener,
+      Schemas.GET_CATALOGS_SCHEMA,
+      session =>
+        backend.getCatalogs(session))
 
   override def getFlightInfoSchemas(
       command: CommandGetDbSchemas,
@@ -246,8 +241,12 @@ class KyuubiFlightSqlProducer(
       listener: ServerStreamListener): Unit = {
     val catalog = if (command.hasCatalog) command.getCatalog else null
     val schema = if (command.hasDbSchemaFilterPattern) command.getDbSchemaFilterPattern else null
-    streamMetadata(context, listener, Schemas.GET_SCHEMAS_SCHEMA, s =>
-      backend.getSchemas(s, Option(catalog).getOrElse(""), Option(schema).getOrElse("")))
+    streamMetadata(
+      context,
+      listener,
+      Schemas.GET_SCHEMAS_SCHEMA,
+      s =>
+        backend.getSchemas(s, Option(catalog).getOrElse(""), Option(schema).getOrElse("")))
   }
 
   override def getFlightInfoTables(
@@ -289,8 +288,12 @@ class KyuubiFlightSqlProducer(
   override def getStreamTableTypes(
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(context, listener, Schemas.GET_TABLE_TYPES_SCHEMA, session =>
-      backend.getTableTypes(session))
+    streamMetadata(
+      context,
+      listener,
+      Schemas.GET_TABLE_TYPES_SCHEMA,
+      session =>
+        backend.getTableTypes(session))
 
   override def getFlightInfoTypeInfo(
       command: CommandGetXdbcTypeInfo,
@@ -314,8 +317,12 @@ class KyuubiFlightSqlProducer(
       command: CommandGetXdbcTypeInfo,
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(context, listener, Schemas.GET_TYPE_INFO_SCHEMA, session =>
-      backend.getTypeInfo(session))
+    streamMetadata(
+      context,
+      listener,
+      Schemas.GET_TYPE_INFO_SCHEMA,
+      session =>
+        backend.getTypeInfo(session))
 
   override def cancelQuery(
       info: FlightInfo,

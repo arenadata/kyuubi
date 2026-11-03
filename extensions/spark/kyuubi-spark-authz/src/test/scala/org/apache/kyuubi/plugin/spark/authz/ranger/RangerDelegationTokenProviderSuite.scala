@@ -24,10 +24,10 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
 import org.apache.spark.SparkConf
 import org.apache.spark.security.HadoopDelegationTokenProvider
-
-import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 // scalastyle:off
 import org.scalatest.funsuite.AnyFunSuite
+
+import org.apache.kyuubi.plugin.spark.authz.util.DTokenUtils
 
 class RangerDelegationTokenProviderSuite extends AnyFunSuite {
 // scalastyle:on
