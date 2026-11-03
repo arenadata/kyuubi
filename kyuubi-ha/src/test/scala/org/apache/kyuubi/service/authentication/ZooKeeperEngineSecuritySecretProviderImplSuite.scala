@@ -24,10 +24,7 @@ import scala.collection.JavaConverters._
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.ENGINE_SECURITY_CRYPTO_KEY_LENGTH
-import org.apache.kyuubi.ha.HighAvailabilityConf.{
-  HA_ADDRESSES,
-  HA_ZK_ENGINE_SECURE_SECRET_NODE,
-  HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
+import org.apache.kyuubi.ha.HighAvailabilityConf.{HA_ADDRESSES, HA_ZK_ENGINE_SECURE_SECRET_NODE, HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
 import org.apache.kyuubi.zookeeper.EmbeddedZookeeper
 import org.apache.kyuubi.zookeeper.ZookeeperConf.ZK_CLIENT_PORT
 

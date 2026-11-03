@@ -23,8 +23,8 @@ import org.apache.spark.SparkConf
 
 object DTokenUtils {
   def getTokenRenewer(
-                       sparkConf: SparkConf,
-                       hadoopConf: Configuration): String = {
+      sparkConf: SparkConf,
+      hadoopConf: Configuration): String = {
     val master = sparkConf.get("spark.master", "")
     if (master.contains("yarn")) {
       val rmPrincipal = hadoopConf.get("yarn.resourcemanager.principal")

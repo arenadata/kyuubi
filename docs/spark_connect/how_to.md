@@ -27,6 +27,7 @@ build/build-python-package
 ...
 Successfully built kyuubi_spark_connect-1.0.0-py3-none-any.whl
 ```
+
 These package (wheel) should be installed to /opt/pyspark3-python/lib or other directory with python libraries.
 
 Then define `PYTHONPATH` if you run python code non-interactively:

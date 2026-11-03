@@ -18,19 +18,19 @@ http://<kyuubi-host>:10019/metrics
 
 ## Flight-specific metric names
 
-| Metric | Type | Meaning |
-|--------|------|---------|
-| `kyuubi.flight.sql.connection.opened` | gauge/counter pair | Active Flight authenticated connections/sessions |
-| `kyuubi.flight.sql.connection.total` | counter | Accepted Flight auth results |
-| `kyuubi.flight.sql.connection.failed` | counter | Authentication / TLS handshake failures |
-| `kyuubi.flight.sql.operation.opened` | gauge | Active Flight statement/metadata streams |
-| `kyuubi.flight.sql.operation.total` | counter | Started Flight operations |
-| `kyuubi.flight.sql.operation.failed` | counter | Failed Flight operations |
-| `kyuubi.flight.sql.operation.cancelled` | counter | Cancelled Flight operations |
-| `kyuubi.flight.sql.stream.batches` | meter | Emitted Arrow batches |
-| `kyuubi.flight.sql.stream.rows` | meter | Emitted rows |
-| `kyuubi.flight.sql.stream.bytes` | meter | Approximate streamed payload bytes |
-| `kyuubi.backend_service.fetch_result_rows_rate` | meter | Backend fetch row accounting (Arrow-aware) |
+|                     Metric                      |        Type        |                     Meaning                      |
+|-------------------------------------------------|--------------------|--------------------------------------------------|
+| `kyuubi.flight.sql.connection.opened`           | gauge/counter pair | Active Flight authenticated connections/sessions |
+| `kyuubi.flight.sql.connection.total`            | counter            | Accepted Flight auth results                     |
+| `kyuubi.flight.sql.connection.failed`           | counter            | Authentication / TLS handshake failures          |
+| `kyuubi.flight.sql.operation.opened`            | gauge              | Active Flight statement/metadata streams         |
+| `kyuubi.flight.sql.operation.total`             | counter            | Started Flight operations                        |
+| `kyuubi.flight.sql.operation.failed`            | counter            | Failed Flight operations                         |
+| `kyuubi.flight.sql.operation.cancelled`         | counter            | Cancelled Flight operations                      |
+| `kyuubi.flight.sql.stream.batches`              | meter              | Emitted Arrow batches                            |
+| `kyuubi.flight.sql.stream.rows`                 | meter              | Emitted rows                                     |
+| `kyuubi.flight.sql.stream.bytes`                | meter              | Approximate streamed payload bytes               |
+| `kyuubi.backend_service.fetch_result_rows_rate` | meter              | Backend fetch row accounting (Arrow-aware)       |
 
 Do not label metrics by SQL text, username, ticket id, session UUID, or remote
 address.

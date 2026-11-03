@@ -17,10 +17,9 @@
 
 package org.apache.kyuubi.operation
 
-import org.scalatest.time.SpanSugar._
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.kyuubi.KyuubiSessionBuilder
+import org.scalatest.time.SpanSugar._
 
 import org.apache.kyuubi.WithSparkConnectHaCluster
 import org.apache.kyuubi.config.KyuubiConf

@@ -31,7 +31,7 @@ import org.apache.kyuubi.service.authentication.WithLdapServer
 
 class KyuubiFlightSqlAuthAndTlsSuite
   extends WithFlightSqlServer with KerberizedTestHelper with WithLdapServer
-    with FlightSqlTestHelper {
+  with FlightSqlTestHelper {
 
   private val currentUser = UserGroupInformation.getCurrentUser
   private val wrongLdapPassword = "wrong-password"

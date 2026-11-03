@@ -51,7 +51,7 @@ class SolrDelegationTokenProvider extends HadoopDelegationTokenProvider {
         val conf = SparkRangerAdminPlugin.getRangerConf
         val enabled = conf.get(AUDIT_DEST_PREFIX)
         enabled != null &&
-          (enabled.equalsIgnoreCase("true") || enabled.equalsIgnoreCase("enabled"))
+        (enabled.equalsIgnoreCase("true") || enabled.equalsIgnoreCase("enabled"))
       } catch {
         case NonFatal(_) => false
       }
@@ -87,7 +87,8 @@ class SolrDelegationTokenProvider extends HadoopDelegationTokenProvider {
 
       if (System.getProperty(PROP_JAVA_SECURITY_AUTH_LOGIN_CONFIG) == null) {
         val forceInMemory = rangerConf.getBoolean(
-          AUDIT_DEST_PREFIX + ".force.use.inmemory.jaas.config", false)
+          AUDIT_DEST_PREFIX + ".force.use.inmemory.jaas.config",
+          false)
         if (forceInMemory) {
           System.setProperty(PROP_JAVA_SECURITY_AUTH_LOGIN_CONFIG, "/dev/null")
         }
@@ -125,8 +126,10 @@ class SolrDelegationTokenProvider extends HadoopDelegationTokenProvider {
       }
     } catch {
       case NonFatal(e) =>
-        LOG.warn("Failed to obtain Solr delegation token. " +
-          "If Solr audit is not used, set spark.security.credentials.solr.enabled=false", e)
+        LOG.warn(
+          "Failed to obtain Solr delegation token. " +
+            "If Solr audit is not used, set spark.security.credentials.solr.enabled=false",
+          e)
         None
     }
   }

@@ -74,9 +74,9 @@ class SparkConnectSessionManager(
         "",
         Map(FRONTEND_PROTOCOLS.key -> FrontendProtocols.SPARK_CONNECT.toString) ++
           (if (shareLevel == ShareLevel.CONNECTION) Map(
-            HA_ENGINE_REF_ID.key -> sessionId,
-            SESSION_CLOSE_ON_DISCONNECT.key -> "false")
-          else Map.empty) ++
+             HA_ENGINE_REF_ID.key -> sessionId,
+             SESSION_CLOSE_ON_DISCONNECT.key -> "false")
+           else Map.empty) ++
           // Client-selected engine profile, e.g. sc://host:port/;kyuubi.engine.profile=spark42,
           // forwarded from the kyuubi.engine.profile gRPC header by SparkConnectAuthInterceptor.
           Option(SparkConnectAuthInterceptor.ENGINE_PROFILE_KEY.get())

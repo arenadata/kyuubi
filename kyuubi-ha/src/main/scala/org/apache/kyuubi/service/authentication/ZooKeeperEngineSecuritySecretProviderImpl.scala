@@ -22,9 +22,7 @@ import java.security.SecureRandom
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.ENGINE_SECURITY_CRYPTO_KEY_LENGTH
-import org.apache.kyuubi.ha.HighAvailabilityConf.{
-  HA_ZK_ENGINE_SECURE_SECRET_NODE,
-  HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
+import org.apache.kyuubi.ha.HighAvailabilityConf.{HA_ZK_ENGINE_SECURE_SECRET_NODE, HA_ZK_ENGINE_SECURE_SECRET_NODE_AUTO_CREATE}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider
 
 class ZooKeeperEngineSecuritySecretProviderImpl extends EngineSecuritySecretProvider {

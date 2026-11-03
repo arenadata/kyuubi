@@ -89,6 +89,7 @@ ScalaTest suites with `-Dsuites` (a comma-separated list of fully qualified clas
   -pl integration-tests/kyuubi-jdbc-it test -Dtest=none \
   -Dsuites=org.apache.kyuubi.it.jdbc.postgresql.PostgreSQLEngineProfileSuite
 ```
+
 ## Testing Multiple Spark Engine Profiles
 
 `MultiSparkEngineProfileSuite` runs a Kyuubi server with embedded ZooKeeper and two local
@@ -178,3 +179,4 @@ Run the dockerized suites:
   -pl kyuubi-server test -Dtest=none \
   -Dsuites=org.apache.kyuubi.server.KyuubiRestSslDockerizedClientSuite,org.apache.kyuubi.server.KyuubiRestSslHaDockerizedSuite
 ```
+

@@ -149,8 +149,8 @@ class SparkProcessBuilder(
     // both exist, only accept the one matching this build's own Spark major version.
     val expectedMajorVersion = SPARK_COMPILE_VERSION.takeWhile(_ != '.')
     file.isDirectory &&
-      file.getName.startsWith(s"spark-$expectedMajorVersion.") &&
-      patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
+    file.getName.startsWith(s"spark-$expectedMajorVersion.") &&
+    patterns.exists(_.findFirstMatchIn(file.getName).isDefined)
   }
 
   override protected[kyuubi] lazy val commands: Iterable[String] = {

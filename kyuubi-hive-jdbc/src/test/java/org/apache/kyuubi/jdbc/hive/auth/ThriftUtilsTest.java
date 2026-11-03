@@ -47,6 +47,7 @@ public class ThriftUtilsTest {
     TSocket socket = ThriftUtils.configureThriftMaxMessageSize(new TSocket("localhost", 0), 1024);
 
     assertEquals(1024, socket.getConfiguration().getMaxMessageSize());
-    assertEquals(TConfiguration.DEFAULT_MAX_FRAME_SIZE, socket.getConfiguration().getMaxFrameSize());
+    assertEquals(
+        TConfiguration.DEFAULT_MAX_FRAME_SIZE, socket.getConfiguration().getMaxFrameSize());
   }
 }
