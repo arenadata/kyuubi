@@ -66,10 +66,7 @@
               prop="sharelevel"
               :label="$t('share_level')"
               min-width="15%" />
-            <el-table-column
-              prop="user"
-              :label="$t('user')"
-              min-width="15%" />
+            <el-table-column prop="user" :label="$t('user')" min-width="15%" />
             <el-table-column
               fixed="right"
               :label="$t('operation.text')"
@@ -104,10 +101,7 @@
         prop="engineType"
         :label="$t('engine_type')"
         min-width="18%" />
-      <el-table-column
-        prop="version"
-        :label="$t('version')"
-        min-width="14%" />
+      <el-table-column prop="version" :label="$t('version')" min-width="14%" />
       <el-table-column
         prop="instanceCount"
         :label="$t('instance_count')"
@@ -119,16 +113,10 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column
-        fixed="right"
-        :label="$t('operation.text')"
-        width="120">
+      <el-table-column fixed="right" :label="$t('operation.text')" width="120">
         <template #default="scope">
           <el-space wrap>
-            <el-tooltip
-              effect="dark"
-              :content="$t('refresh')"
-              placement="top">
+            <el-tooltip effect="dark" :content="$t('refresh')" placement="top">
               <el-button
                 type="primary"
                 icon="Refresh"
