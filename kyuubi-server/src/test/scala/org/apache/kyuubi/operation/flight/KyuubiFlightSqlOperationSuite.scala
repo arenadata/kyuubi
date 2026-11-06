@@ -17,7 +17,7 @@
 
 package org.apache.kyuubi.operation.flight
 
-import org.apache.arrow.flight.{CallStatus, FlightRuntimeException, FlightStatusCode}
+import org.apache.arrow.flight.{FlightRuntimeException, FlightStatusCode}
 
 import org.apache.kyuubi.{FlightSqlTestHelper, WithFlightSqlServer}
 import org.apache.kyuubi.config.KyuubiConf
@@ -50,10 +50,38 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
     }
   }
 
-  test("prepared statement is UNIMPLEMENTED") {
+  test("prepared query: schema at prepare time, rows on each execution") {
     withFlightSqlClient() { (_, sqlClient) =>
-      assertFlightStatus(CallStatus.UNIMPLEMENTED) {
-        sqlClient.prepare("SELECT 1")
+      val ps = sqlClient.prepare("SELECT 1 AS id, 'kyuubi' AS name")
+      try {
+        val schema = ps.getResultSetSchema
+        assert(schema.getFields.size() === 2)
+        assert(schema.getFields.get(0).getName.equalsIgnoreCase("id"))
+        assert(ps.getParameterSchema.getFields.isEmpty)
+        // first execution is served by the result computed at prepare time,
+        // the second one re-runs the query
+        (1 to 2).foreach { _ =>
+          val rows = readAllRows(sqlClient, ps.execute())
+          assert(rows.size === 1)
+          assert(rows.head(1).toString === "kyuubi")
+        }
+      } finally {
+        ps.close()
+      }
+    }
+  }
+
+  test("prepared and plain update statements run on execution") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val ps = sqlClient.prepare("CREATE TABLE IF NOT EXISTS kyuubi_flight_ps_update (a INT)")
+      try {
+        assert(ps.getResultSetSchema.getFields.isEmpty)
+        ps.executeUpdate()
+        val rows = executeAndCollect(sqlClient, "SHOW TABLES LIKE 'kyuubi_flight_ps_update'")
+        assert(rows.nonEmpty)
+      } finally {
+        ps.close()
+        sqlClient.executeUpdate("DROP TABLE IF EXISTS kyuubi_flight_ps_update")
       }
     }
   }

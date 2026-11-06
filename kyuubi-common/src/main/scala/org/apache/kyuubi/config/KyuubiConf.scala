@@ -3807,6 +3807,16 @@ object KyuubiConf {
       .stringConf
       .createOptional
 
+  val ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.jdbc.impala.impersonation.enabled")
+      .doc("Whether the Impala JDBC connection provider runs each session as the Kyuubi " +
+        "session user via Impala delegation (`impala.doas.user`). The JDBC engine connects " +
+        "to Impala with its own credentials (e.g. the Kyuubi keytab), so Impala must allow " +
+        "that user to delegate, e.g. `--authorized_proxy_user_config=kyuubi=*` on impalad.")
+      .version("1.11.1")
+      .booleanConf
+      .createWithDefault(false)
+
   val ENGINE_JDBC_INITIALIZE_SQL: ConfigEntry[Seq[String]] =
     buildConf("kyuubi.engine.jdbc.initialize.sql")
       .doc("SemiColon-separated list of SQL statements to be initialized in the newly created " +
