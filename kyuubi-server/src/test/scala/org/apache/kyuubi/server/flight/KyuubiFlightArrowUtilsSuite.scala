@@ -18,11 +18,12 @@
 package org.apache.kyuubi.server.flight
 
 import java.nio.ByteBuffer
+import java.time.{LocalDate, LocalDateTime, ZoneOffset}
 import java.util
 
 import org.apache.arrow.memory.RootAllocator
-import org.apache.arrow.vector.VectorSchemaRoot
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.{DateDayVector, TimeStampVector, TinyIntVector, VectorSchemaRoot}
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 
 import org.apache.kyuubi.KyuubiFunSuite
@@ -114,6 +115,67 @@ class KyuubiFlightArrowUtilsSuite extends KyuubiFunSuite {
     rowSet.addToColumns(TColumn.i32Val(new TI32Column(util.Arrays.asList(7), nulls)))
     assert(KyuubiFlightArrowUtils.rowCount(rowSet) === 1)
     assert(!KyuubiFlightArrowUtils.isEmpty(rowSet))
+  }
+
+  test("populateRootFromRowSet converts thrift string DATE/TIMESTAMP and widened TINYINT") {
+    // Columnar thrift engines (JDBC, Hive, Trino) send DATE/TIMESTAMP as strings and the
+    // JDBC engine sends TINYINT in an i16 column.
+    val emptyFields = util.Collections.emptyList[Field]()
+    val schema = new Schema(util.Arrays.asList(
+      new Field("dt", new FieldType(true, new ArrowType.Date(DateUnit.DAY), null), emptyFields),
+      new Field(
+        "ts",
+        new FieldType(true, new ArrowType.Timestamp(TimeUnit.MICROSECOND, ""), null),
+        emptyFields),
+      new Field(
+        "ts_msk",
+        new FieldType(
+          true,
+          new ArrowType.Timestamp(TimeUnit.MICROSECOND, "Europe/Moscow"),
+          null),
+        emptyFields),
+      new Field("ti", new FieldType(true, new ArrowType.Int(8, true), null), emptyFields)))
+
+    val nulls = ByteBuffer.wrap(Array[Byte](2)) // second row is NULL in every column
+    val rowSet = new TRowSet()
+    rowSet.addToColumns(TColumn.stringVal(
+      new TStringColumn(util.Arrays.asList("2026-11-02", ""), nulls)))
+    rowSet.addToColumns(TColumn.stringVal(
+      new TStringColumn(util.Arrays.asList("2026-11-02 14:41:56.341143", ""), nulls)))
+    rowSet.addToColumns(TColumn.stringVal(
+      new TStringColumn(util.Arrays.asList("2026-11-02 14:41:56", ""), nulls)))
+    rowSet.addToColumns(TColumn.i16Val(
+      new TI16Column(util.Arrays.asList[java.lang.Short](7.toShort, 0.toShort), nulls)))
+
+    val allocator = new RootAllocator()
+    val root = VectorSchemaRoot.create(schema, allocator)
+    try {
+      KyuubiFlightArrowUtils.populateRootFromRowSet(root, rowSet)
+      assert(root.getRowCount === 2)
+
+      val dt = root.getVector("dt").asInstanceOf[DateDayVector]
+      assert(dt.get(0) === LocalDate.of(2026, 11, 2).toEpochDay.toInt)
+      assert(dt.isNull(1))
+
+      // zone-naive: wall clock stored as UTC regardless of the JVM default zone
+      val ts = root.getVector("ts").asInstanceOf[TimeStampVector]
+      val expectedNaive = LocalDateTime.of(2026, 11, 2, 14, 41, 56, 341143000)
+        .toInstant(ZoneOffset.UTC)
+      assert(ts.get(0) === expectedNaive.getEpochSecond * 1000000L + 341143L)
+      assert(ts.isNull(1))
+
+      // zone-aware: wall clock interpreted in the field's zone (MSK = UTC+3)
+      val tsMsk = root.getVector("ts_msk").asInstanceOf[TimeStampVector]
+      assert(tsMsk.get(0) ===
+        LocalDateTime.of(2026, 11, 2, 11, 41, 56).toEpochSecond(ZoneOffset.UTC) * 1000000L)
+
+      val ti = root.getVector("ti").asInstanceOf[TinyIntVector]
+      assert(ti.get(0) === 7.toByte)
+      assert(ti.isNull(1))
+    } finally {
+      root.close()
+      allocator.close()
+    }
   }
 
   test("populateRootFromRowSet yields zero rows for exhausted columnar page") {

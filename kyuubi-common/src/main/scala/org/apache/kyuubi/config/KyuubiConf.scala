@@ -296,6 +296,18 @@ object KyuubiConf {
     kyuubiConfEntries.values()
   }
 
+  /**
+   * The registered config key equal to `key` ignoring case, or `key` itself. Used where keys
+   * arrive lower-cased, e.g. as gRPC/HTTP2 header names.
+   */
+  def canonicalKey(key: String): String = {
+    if (kyuubiConfEntries.containsKey(key)) {
+      key
+    } else {
+      kyuubiConfEntries.keySet().asScala.find(_.equalsIgnoreCase(key)).getOrElse(key)
+    }
+  }
+
   private[config] def containsConfigEntry(entry: ConfigEntry[_]): Boolean = {
     getConfigEntry(entry.key) == entry
   }

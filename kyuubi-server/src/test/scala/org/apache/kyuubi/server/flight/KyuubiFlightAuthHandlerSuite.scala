@@ -20,11 +20,12 @@ package org.apache.kyuubi.server.flight
 import java.util
 import java.util.Base64
 
-import org.apache.arrow.flight.CallHeaders
+import org.apache.arrow.flight.{CallHeaders, FlightRuntimeException, FlightStatusCode}
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_CUSTOM_CLASS, AUTHENTICATION_METHOD}
+import org.apache.kyuubi.service.authentication.UserDefineAuthenticationProviderImpl
 
 class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
 
@@ -56,6 +57,32 @@ class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
     intercept[RuntimeException] {
       auth.authenticate(headers)
     }
+  }
+
+  test("wrong basic credentials are UNAUTHENTICATED, valid ones authenticate") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("CUSTOM"))
+      .set(
+        AUTHENTICATION_CUSTOM_CLASS,
+        classOf[UserDefineAuthenticationProviderImpl].getCanonicalName)
+    val auth = new KyuubiFlightAuthHandler(conf)
+
+    def basic(user: String, password: String): MapCallHeaders = {
+      val headers = new MapCallHeaders
+      headers.insert(
+        "authorization",
+        "Basic " + Base64.getEncoder.encodeToString(s"$user:$password".getBytes("UTF-8")))
+      headers
+    }
+
+    val e = intercept[FlightRuntimeException] {
+      auth.authenticate(basic("user", "wrong"))
+    }
+    assert(e.status().code() === FlightStatusCode.UNAUTHENTICATED)
+    assert(e.getMessage.contains("Invalid username or password"))
+    assert(!e.getMessage.contains("wrong"), "the password must not leak into the error")
+
+    assert(auth.authenticate(basic("user", "password")).getPeerIdentity === "user")
   }
 
   private class MapCallHeaders extends CallHeaders {

@@ -29,7 +29,7 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.server.flight.{KyuubiFlightAllocator, KyuubiFlightAuthHandler, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
+import org.apache.kyuubi.server.flight.{KyuubiFlightAllocator, KyuubiFlightAuthHandler, KyuubiFlightSessionConfMiddleware, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
 import org.apache.kyuubi.util.{JavaUtils, NamedThreadFactory}
 
@@ -47,12 +47,21 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   // Arrow Flight / gRPC Netty workers are daemon; TFrontendService uses the same pattern.
   private lazy val serverThread = new NamedThreadFactory(getName, false).newThread(this)
 
-  private lazy val host: String = conf.get(FRONTEND_FLIGHT_SQL_BIND_HOST).getOrElse {
+  private def localHost: String =
     if (conf.get(FRONTEND_CONNECTION_URL_USE_HOSTNAME)) {
       JavaUtils.findLocalInetAddress.getCanonicalHostName
     } else {
       JavaUtils.findLocalInetAddress.getHostAddress
     }
+
+  private lazy val host: String = conf.get(FRONTEND_FLIGHT_SQL_BIND_HOST).getOrElse(localHost)
+
+  /**
+   * Host put into FlightInfo endpoints and service discovery. A wildcard bind address
+   * (0.0.0.0 / ::) is not reachable by clients, so fall back to the local host name.
+   */
+  private lazy val advertisedHost: String = conf.get(FRONTEND_ADVERTISED_HOST).getOrElse {
+    if (KyuubiFlightSqlFrontendService.isWildcard(host)) localHost else host
   }
 
   private def sslEnabled: Boolean = conf.get(FRONTEND_FLIGHT_SQL_SSL_ENABLED)
@@ -64,7 +73,6 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
   private def configuredLocation: Location = locationFor(host, configuredPort)
 
   private def currentLocation: Location = {
-    val advertisedHost = conf.get(FRONTEND_ADVERTISED_HOST).getOrElse(host)
     if (flightServer != null && started.get()) {
       locationFor(advertisedHost, flightServer.getPort)
     } else {
@@ -92,6 +100,9 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
         val builder = FlightServer
           .builder(allocator, configuredLocation, producer)
           .headerAuthenticator(KyuubiFlightAuthHandler.create(conf))
+          .middleware(
+            KyuubiFlightSessionConfMiddleware.KEY,
+            new KyuubiFlightSessionConfMiddleware.Factory)
           .backpressureThreshold(10 * 1024 * 1024)
 
         if (sslEnabled) {
@@ -168,7 +179,6 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
 
   override def connectionUrl: String = {
     checkInitialized()
-    val advertisedHost = conf.get(FRONTEND_ADVERTISED_HOST).getOrElse(host)
     s"$advertisedHost:${if (flightServer != null) flightServer.getPort else configuredPort}"
   }
 
@@ -178,5 +188,16 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
     } else {
       None
     }
+  }
+}
+
+object KyuubiFlightSqlFrontendService {
+
+  /** True for addresses that bind every interface and therefore cannot be advertised. */
+  private[server] def isWildcard(host: String): Boolean = {
+    val h = host.trim.stripPrefix("[").stripSuffix("]")
+    h.isEmpty || h == "*" || h == "0.0.0.0" ||
+    // IPv6 any-address in any spelling (::, 0:0:0:0:0:0:0:0, ...); literal check, no DNS
+    (h.contains(":") && h.forall(c => c == ':' || c == '0'))
   }
 }

@@ -92,8 +92,10 @@ trait ProcBuilder {
 
   protected def module: String
 
-  /** Jar-name prefix for locating the main resource jar. Defaults to `module`; override when
-   * the artifactId differs from the module's own directory name under `externals/`. */
+  /**
+   * Jar-name prefix for locating the main resource jar. Defaults to `module`; override when
+   * the artifactId differs from the module's own directory name under `externals/`.
+   */
   protected def mainResourceArtifact: String = module
 
   /**

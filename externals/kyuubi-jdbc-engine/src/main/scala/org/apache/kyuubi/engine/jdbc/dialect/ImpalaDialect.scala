@@ -18,14 +18,63 @@ package org.apache.kyuubi.engine.jdbc.dialect
 
 import java.util
 
+import scala.collection.JavaConverters._
+
 import org.apache.commons.lang3.StringUtils
 
 import org.apache.kyuubi.KyuubiSQLException
-import org.apache.kyuubi.engine.jdbc.impala.{ImpalaSchemaHelper, ImpalaTRowSetGenerator}
-import org.apache.kyuubi.engine.jdbc.schema.{JdbcTRowSetGenerator, SchemaHelper}
+import org.apache.kyuubi.engine.jdbc.impala.{ImpalaMetadata, ImpalaSchemaHelper, ImpalaTRowSetGenerator}
+import org.apache.kyuubi.engine.jdbc.impala.ImpalaMetadata._
+import org.apache.kyuubi.engine.jdbc.operation.JdbcMetadataOperation
+import org.apache.kyuubi.engine.jdbc.schema.{Column, JdbcTRowSetGenerator, Row, SchemaHelper}
+import org.apache.kyuubi.operation.Operation
 import org.apache.kyuubi.session.Session
 
-class ImpalaDialect extends JdbcDialect {
+class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
+
+  // JDBC metadata (GetCatalogs/GetSchemas/GetTables/GetTableTypes/GetColumns) is assembled
+  // from SHOW/DESCRIBE output by ImpalaMetadata; the query-string methods below
+  // (getTablesQuery, getColumnsQuery) are kept for compatibility but no longer used by the
+  // operation manager.
+
+  private def metadataOperation(
+      session: Session,
+      columns: List[Column])(rows: ImpalaMetadata => Seq[Row]): Operation =
+    new JdbcMetadataOperation(
+      session,
+      columns,
+      connection => rows(new ImpalaMetadata(ImpalaMetadata.runner(connection))))
+
+  override def catalogsOperation(session: Session): Operation =
+    metadataOperation(session, CATALOGS_COLUMNS)(_.catalogs())
+
+  override def schemasOperation(
+      session: Session,
+      catalog: String,
+      schemaPattern: String): Operation =
+    metadataOperation(session, SCHEMAS_COLUMNS)(_.schemas(schemaPattern))
+
+  override def tablesOperation(
+      session: Session,
+      catalog: String,
+      schemaPattern: String,
+      tableNamePattern: String,
+      tableTypes: util.List[String]): Operation = {
+    val types = Option(tableTypes).map(_.asScala.toSeq).getOrElse(Seq.empty)
+    metadataOperation(session, TABLES_COLUMNS)(_.tables(schemaPattern, tableNamePattern, types))
+  }
+
+  override def columnsOperation(
+      session: Session,
+      catalog: String,
+      schemaPattern: String,
+      tableNamePattern: String,
+      columnNamePattern: String): Operation =
+    metadataOperation(session, COLUMNS_COLUMNS)(
+      _.columns(schemaPattern, tableNamePattern, columnNamePattern))
+
+  override def getTableTypesOperation(session: Session): Operation =
+    new JdbcMetadataOperation(session, TABLE_TYPES_COLUMNS, _ => TABLE_TYPES_ROWS)
 
   override def getTablesQuery(
       catalog: String,

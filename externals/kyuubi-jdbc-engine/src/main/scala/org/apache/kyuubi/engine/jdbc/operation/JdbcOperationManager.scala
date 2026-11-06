@@ -21,7 +21,7 @@ import java.util
 import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.{ENGINE_JDBC_FETCH_SIZE, ENGINE_JDBC_OPERATION_INCREMENTAL_COLLECT}
-import org.apache.kyuubi.engine.jdbc.dialect.{JdbcDialect, JdbcDialects}
+import org.apache.kyuubi.engine.jdbc.dialect.{JdbcDialect, JdbcDialects, JdbcMetadataOperations}
 import org.apache.kyuubi.engine.jdbc.session.JdbcSessionImpl
 import org.apache.kyuubi.engine.jdbc.util.SupportServiceLoader
 import org.apache.kyuubi.operation.{Operation, OperationManager}
@@ -62,7 +62,12 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
     addOperation(operation)
   }
 
-  override def newGetCatalogsOperation(session: Session): Operation = {
+  override def newGetCatalogsOperation(session: Session): Operation = dialect match {
+    case metadata: JdbcMetadataOperations => addOperation(metadata.catalogsOperation(session))
+    case _ => newGetCatalogsQueryOperation(session)
+  }
+
+  private def newGetCatalogsQueryOperation(session: Session): Operation = {
     val query = dialect.getCatalogsOperation()
     val normalizedConf = session.asInstanceOf[JdbcSessionImpl].normalizedConf
     val fetchSize = normalizedConf.get(ENGINE_JDBC_FETCH_SIZE.key).map(_.toInt)
@@ -73,6 +78,15 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
   }
 
   override def newGetSchemasOperation(
+      session: Session,
+      catalog: String,
+      schema: String): Operation = dialect match {
+    case metadata: JdbcMetadataOperations =>
+      addOperation(metadata.schemasOperation(session, catalog, schema))
+    case _ => newGetSchemasQueryOperation(session, catalog, schema)
+  }
+
+  private def newGetSchemasQueryOperation(
       session: Session,
       catalog: String,
       schema: String): Operation = {
@@ -86,6 +100,19 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
   }
 
   override def newGetTablesOperation(
+      session: Session,
+      catalogName: String,
+      schemaName: String,
+      tableName: String,
+      tableTypes: util.List[String]): Operation = dialect match {
+    case metadata: JdbcMetadataOperations =>
+      addOperation(
+        metadata.tablesOperation(session, catalogName, schemaName, tableName, tableTypes))
+    case _ =>
+      newGetTablesQueryOperation(session, catalogName, schemaName, tableName, tableTypes)
+  }
+
+  private def newGetTablesQueryOperation(
       session: Session,
       catalogName: String,
       schemaName: String,
@@ -106,6 +133,19 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
   }
 
   override def newGetColumnsOperation(
+      session: Session,
+      catalogName: String,
+      schemaName: String,
+      tableName: String,
+      columnName: String): Operation = dialect match {
+    case metadata: JdbcMetadataOperations =>
+      addOperation(
+        metadata.columnsOperation(session, catalogName, schemaName, tableName, columnName))
+    case _ =>
+      newGetColumnsQueryOperation(session, catalogName, schemaName, tableName, columnName)
+  }
+
+  private def newGetColumnsQueryOperation(
       session: Session,
       catalogName: String,
       schemaName: String,

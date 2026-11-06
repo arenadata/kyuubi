@@ -88,6 +88,31 @@ class KyuubiFlightSqlFrontendServiceSuite extends KyuubiFunSuite {
     }
   }
 
+  test("Flight SQL wildcard bind host is not advertised") {
+    Seq("0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0", "*").foreach { h =>
+      assert(KyuubiFlightSqlFrontendService.isWildcard(h), h)
+    }
+    Seq("localhost", "127.0.0.1", "::1", "flight.example", "10.0.0.1").foreach { h =>
+      assert(!KyuubiFlightSqlFrontendService.isWildcard(h), h)
+    }
+
+    val server = new KyuubiServer
+    val conf = KyuubiConf()
+      .set(FRONTEND_PROTOCOLS, Seq(FrontendProtocols.FLIGHT_SQL.toString))
+      .set(FRONTEND_FLIGHT_SQL_BIND_HOST.key, "0.0.0.0")
+      .set(FRONTEND_FLIGHT_SQL_BIND_PORT, 0)
+
+    try {
+      server.initialize(conf)
+      server.start()
+      val url = server.frontendServices.head.connectionUrl
+      assert(!url.startsWith("0.0.0.0:"), url)
+      assert(url.matches(".+:[0-9]+"), url)
+    } finally {
+      server.stop()
+    }
+  }
+
   test("Flight SQL TLS without certificate material fails startup") {
     val server = new KyuubiServer
     val conf = KyuubiConf()

@@ -45,7 +45,7 @@ trait TColumnValueGenerator[RowT] extends TRowSetColumnGetter[RowT] {
       convertFunc: Any => JShort = null): TColumnValue = {
     val tValue = new TI16Value
     if (!isColumnNullAt(row, ordinal)) {
-      val short = getColumnAs[JShort](row, ordinal) match {
+      val short = getColumnAs[Any](row, ordinal) match {
         case sObj: JShort => sObj
         case obj if convertFunc != null => convertFunc(obj)
       }
@@ -60,7 +60,7 @@ trait TColumnValueGenerator[RowT] extends TRowSetColumnGetter[RowT] {
       convertFunc: Any => Integer = null): TColumnValue = {
     val tValue = new TI32Value
     if (!isColumnNullAt(row, ordinal)) {
-      val integer = getColumnAs[Integer](row, ordinal) match {
+      val integer = getColumnAs[Any](row, ordinal) match {
         case iObj: Integer => iObj
         case obj if convertFunc != null => convertFunc(obj)
       }
@@ -75,7 +75,7 @@ trait TColumnValueGenerator[RowT] extends TRowSetColumnGetter[RowT] {
       convertFunc: Any => JLong = null): TColumnValue = {
     val tValue = new TI64Value
     if (!isColumnNullAt(row, ordinal)) {
-      val long = getColumnAs[JLong](row, ordinal) match {
+      val long = getColumnAs[Any](row, ordinal) match {
         case lObj: JLong => lObj
         case obj if convertFunc != null => convertFunc(obj)
       }
