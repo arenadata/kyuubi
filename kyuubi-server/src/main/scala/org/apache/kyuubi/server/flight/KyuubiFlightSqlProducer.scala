@@ -22,22 +22,24 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
 import com.google.protobuf.{Any => ProtoAny, ByteString}
-import org.apache.arrow.flight.{CallStatus, FlightDescriptor, FlightEndpoint, FlightInfo, Location, SchemaResult, Ticket}
+import org.apache.arrow.flight.{CallStatus, FlightDescriptor, FlightEndpoint, FlightInfo, FlightRuntimeException, Location, SchemaResult, Ticket}
 import org.apache.arrow.flight.FlightProducer.{CallContext, ServerStreamListener, StreamListener}
 import org.apache.arrow.flight.sql.{CancelResult, NoOpFlightSqlProducer, SqlInfoBuilder}
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
 import org.apache.arrow.flight.sql.impl.FlightSql._
 import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
 import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
 import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
-import org.apache.kyuubi.operation.{OperationHandle, OperationState, OperationStatus}
+import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle, OperationState, OperationStatus}
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.SessionHandle
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
@@ -83,7 +85,7 @@ class KyuubiFlightSqlProducer(
     }
     try {
       val owner = ownerOf(context)
-      val session = openSession(owner)
+      val session = openSession(owner, context)
       try {
         val operation = backend.executeStatement(
           session,
@@ -92,14 +94,16 @@ class KyuubiFlightSqlProducer(
           runAsync = true,
           queryTimeout = 0)
         val status = waitForCompletion(operation, () => context.isCancelled)
-        val schema = KyuubiFlightArrowUtils.schemaFromMetadata(
-          backend.getResultSetMetadata(operation))
+        // Check the state before asking for metadata: a failed operation has no result
+        // schema, and the engine error (e.g. an Impala ParseException) must reach the client.
         if (status.state != OperationState.FINISHED) {
           closeResources(session, operation)
           MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
           MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
           throw operationError(status)
         }
+        val schema = KyuubiFlightArrowUtils.schemaFromMetadata(
+          backend.getResultSetMetadata(operation))
         val id = UUID.randomUUID().toString
         val endpointLocation = location()
         queryStates.put(
@@ -131,7 +135,7 @@ class KyuubiFlightSqlProducer(
       context: CallContext,
       descriptor: FlightDescriptor): SchemaResult = {
     val owner = ownerOf(context)
-    val session = openSession(owner)
+    val session = openSession(owner, context)
     var operation: OperationHandle = null
     try {
       operation = backend.executeStatement(
@@ -205,7 +209,8 @@ class KyuubiFlightSqlProducer(
     } catch {
       case NonFatal(e) =>
         MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
-        if (!context.isCancelled && !listener.isCancelled) listener.error(e)
+        error(s"Flight SQL DoGet failed for operation ${state.operation}", e)
+        if (!context.isCancelled && !listener.isCancelled) listener.error(streamError(e))
     } finally {
       iterator.close()
       MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
@@ -222,12 +227,12 @@ class KyuubiFlightSqlProducer(
   override def getStreamCatalogs(
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(
+    streamMetadataByName(
       context,
       listener,
       Schemas.GET_CATALOGS_SCHEMA,
-      session =>
-        backend.getCatalogs(session))
+      KyuubiFlightMetadata.CATALOGS_SOURCES,
+      session => backend.getCatalogs(session))
 
   override def getFlightInfoSchemas(
       command: CommandGetDbSchemas,
@@ -241,10 +246,11 @@ class KyuubiFlightSqlProducer(
       listener: ServerStreamListener): Unit = {
     val catalog = if (command.hasCatalog) command.getCatalog else null
     val schema = if (command.hasDbSchemaFilterPattern) command.getDbSchemaFilterPattern else null
-    streamMetadata(
+    streamMetadataByName(
       context,
       listener,
       Schemas.GET_SCHEMAS_SCHEMA,
+      KyuubiFlightMetadata.SCHEMAS_SOURCES,
       s =>
         backend.getSchemas(s, Option(catalog).getOrElse(""), Option(schema).getOrElse("")))
   }
@@ -265,18 +271,34 @@ class KyuubiFlightSqlProducer(
     val catalog = if (command.hasCatalog) command.getCatalog else null
     val schema = if (command.hasDbSchemaFilterPattern) command.getDbSchemaFilterPattern else null
     val table = if (command.hasTableNameFilterPattern) command.getTableNameFilterPattern else null
-    streamMetadata(
+    val tableSchemas: Option[SessionHandle => Map[KyuubiFlightMetadata.TableKey, Array[Byte]]] =
+      if (command.getIncludeSchema) {
+        Some(s =>
+          KyuubiFlightMetadata.tableSchemas(collectMetadataRows(
+            context,
+            backend.getColumns(
+              s,
+              Option(catalog).getOrElse(""),
+              Option(schema).getOrElse(""),
+              Option(table).getOrElse(""),
+              "%"))))
+      } else {
+        None
+      }
+    streamMetadataByName(
       context,
       listener,
       if (command.getIncludeSchema) Schemas.GET_TABLES_SCHEMA
       else Schemas.GET_TABLES_SCHEMA_NO_SCHEMA,
+      KyuubiFlightMetadata.TABLES_SOURCES,
       s =>
         backend.getTables(
           s,
           Option(catalog).getOrElse(""),
           Option(schema).getOrElse(""),
           Option(table).getOrElse(""),
-          command.getTableTypesList))
+          command.getTableTypesList),
+      tableSchemas)
   }
 
   override def getFlightInfoTableTypes(
@@ -288,12 +310,12 @@ class KyuubiFlightSqlProducer(
   override def getStreamTableTypes(
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(
+    streamMetadataByName(
       context,
       listener,
       Schemas.GET_TABLE_TYPES_SCHEMA,
-      session =>
-        backend.getTableTypes(session))
+      KyuubiFlightMetadata.TABLE_TYPES_SOURCES,
+      session => backend.getTableTypes(session))
 
   override def getFlightInfoTypeInfo(
       command: CommandGetXdbcTypeInfo,
@@ -367,13 +389,106 @@ class KyuubiFlightSqlProducer(
       -1L)
   }
 
+  /**
+   * Run a metadata operation and return its rows as `lower-case column -> value`. Metadata
+   * results are small, so they are collected instead of streamed page by page; both columnar
+   * thrift and Arrow IPC pages are handled.
+   */
+  private def collectMetadataRows(
+      context: CallContext,
+      operation: OperationHandle): Seq[KyuubiFlightMetadata.MetadataRow] = {
+    try {
+      val status = waitForCompletion(operation, () => context.isCancelled)
+      if (status.state != OperationState.FINISHED) throw operationError(status)
+      val sourceSchema =
+        KyuubiFlightArrowUtils.schemaFromMetadata(backend.getResultSetMetadata(operation))
+      val source = VectorSchemaRoot.create(sourceSchema, allocator)
+      try {
+        val loader = new VectorLoader(source)
+        val rows = ArrayBuffer[KyuubiFlightMetadata.MetadataRow]()
+        var more = true
+        while (more && !context.isCancelled) {
+          val rowSet = backend.fetchResults(
+            operation,
+            FetchOrientation.FETCH_NEXT,
+            fetchPageSize,
+            fetchLog = false).getResults
+          if (KyuubiFlightArrowUtils.isEmpty(rowSet)) {
+            more = false
+          } else {
+            if (KyuubiFlightArrowUtils.isArrowRowSet(rowSet)) {
+              val batch = KyuubiFlightArrowUtils.decodeBatch(rowSet, allocator)
+              try loader.load(batch)
+              finally batch.close()
+            } else {
+              KyuubiFlightArrowUtils.populateRootFromRowSet(source, rowSet)
+            }
+            rows ++= KyuubiFlightMetadata.readRows(source)
+            more = source.getRowCount > 0
+          }
+        }
+        rows.toSeq
+      } finally {
+        source.close()
+      }
+    } finally {
+      try backend.closeOperation(operation)
+      catch {
+        case NonFatal(e) => warn(s"Failed to close Flight SQL metadata operation $operation", e)
+      }
+    }
+  }
+
+  /**
+   * Metadata stream that maps engine (JDBC/HiveServer2-shaped) columns onto the fixed Flight
+   * SQL schema by name instead of position, see [[KyuubiFlightMetadata]].
+   */
+  private def streamMetadataByName(
+      context: CallContext,
+      listener: ServerStreamListener,
+      schema: Schema,
+      sources: KyuubiFlightMetadata.Sources,
+      operationFactory: SessionHandle => OperationHandle,
+      tableSchemas: Option[SessionHandle => Map[KyuubiFlightMetadata.TableKey, Array[Byte]]] =
+        None): Unit = {
+    val owner = ownerOf(context)
+    val session = openSession(owner, context)
+    MetricsSystem.tracing { ms =>
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_TOTAL)
+      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
+    }
+    try {
+      val rows = collectMetadataRows(context, operationFactory(session))
+      val schemasByTable = tableSchemas.map(_(session)).getOrElse(Map.empty)
+      val root = VectorSchemaRoot.create(schema, allocator)
+      try {
+        listener.start(root)
+        KyuubiFlightMetadata.fill(root, rows, sources, schemasByTable)
+        if (rows.nonEmpty && !context.isCancelled && !listener.isCancelled) {
+          listener.putNext()
+        }
+        if (!context.isCancelled && !listener.isCancelled) listener.completed()
+      } finally {
+        root.close()
+      }
+    } catch {
+      case NonFatal(e) =>
+        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
+        error("Flight SQL metadata DoGet failed", e)
+        if (!context.isCancelled && !listener.isCancelled) listener.error(streamError(e))
+    } finally {
+      MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
+      closeResources(session, null)
+    }
+  }
+
   private def streamMetadata(
       context: CallContext,
       listener: ServerStreamListener,
       schema: Schema,
       operationFactory: SessionHandle => OperationHandle): Unit = {
     val owner = ownerOf(context)
-    val session = openSession(owner)
+    val session = openSession(owner, context)
     var operation: OperationHandle = null
     var iterator: FlightResultIterator = null
     MetricsSystem.tracing { ms =>
@@ -411,7 +526,8 @@ class KyuubiFlightSqlProducer(
     } catch {
       case NonFatal(e) =>
         MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
-        if (!context.isCancelled && !listener.isCancelled) listener.error(e)
+        error(s"Flight SQL metadata DoGet failed for operation $operation", e)
+        if (!context.isCancelled && !listener.isCancelled) listener.error(streamError(e))
     } finally {
       if (iterator != null) iterator.close()
       MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
@@ -419,13 +535,25 @@ class KyuubiFlightSqlProducer(
     }
   }
 
-  private def openSession(owner: String): SessionHandle = {
+  /** `kyuubi.*` session configuration the client sent as call headers. */
+  private def clientSessionConf(context: CallContext): Map[String, String] =
+    Option(context.getMiddleware(KyuubiFlightSessionConfMiddleware.KEY))
+      .map(_.sessionConf)
+      .getOrElse(Map.empty)
+
+  private def openSession(owner: String, context: CallContext): SessionHandle = {
+    val clientConf = clientSessionConf(context)
+    if (clientConf.nonEmpty) {
+      info(s"Flight SQL session for $owner with client conf keys: " +
+        clientConf.keys.toSeq.sorted.mkString(", "))
+    }
     backend.openSession(
       TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
       owner,
       "",
       "",
-      Map(
+      // Like Thrift OpenSession: client settings first, server-owned keys win.
+      clientConf ++ Map(
         KyuubiReservedKeys.KYUUBI_CLIENT_IP_KEY -> "",
         KyuubiReservedKeys.KYUUBI_SESSION_REAL_USER_KEY -> owner,
         KyuubiReservedKeys.KYUUBI_SESSION_CONNECTION_URL_KEY -> location().toString,
@@ -487,6 +615,15 @@ class KyuubiFlightSqlProducer(
       CallStatus.INTERNAL,
       status.exception.getOrElse(
         new IllegalStateException(s"Flight SQL operation ended in ${status.state}")))
+
+  /**
+   * Flight maps non-Flight exceptions to a generic "error servicing your request";
+   * wrap them so the client sees the actual cause.
+   */
+  private def streamError(e: Throwable): Throwable = e match {
+    case flight: FlightRuntimeException => flight
+    case other => flightError(CallStatus.INTERNAL, other)
+  }
 
   private def flightError(status: CallStatus, cause: Throwable): RuntimeException =
     status.withDescription(Option(cause.getMessage).getOrElse(cause.getClass.getSimpleName))

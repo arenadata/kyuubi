@@ -17,7 +17,7 @@
 
 package org.apache.kyuubi.operation.flight
 
-import org.apache.arrow.flight.CallStatus
+import org.apache.arrow.flight.{CallStatus, FlightRuntimeException, FlightStatusCode}
 
 import org.apache.kyuubi.{FlightSqlTestHelper, WithFlightSqlServer}
 import org.apache.kyuubi.config.KyuubiConf
@@ -36,6 +36,17 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
       assert(rows.size === 1)
       assert(rows.head(0).toString === "1")
       assert(rows.head(1).toString === "kyuubi")
+    }
+  }
+
+  test("failed query reports the engine error, not a result metadata failure") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val e = intercept[FlightRuntimeException] {
+        sqlClient.execute("SELECT * FROM kyuubi_flight_missing_table_xyz")
+      }
+      assert(e.status().code() === FlightStatusCode.INTERNAL)
+      val message = Option(e.getMessage).getOrElse("")
+      assert(message.contains("kyuubi_flight_missing_table_xyz"), message)
     }
   }
 

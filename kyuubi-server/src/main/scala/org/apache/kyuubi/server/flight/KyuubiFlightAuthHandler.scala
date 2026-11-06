@@ -163,7 +163,19 @@ class KyuubiFlightAuthHandler(conf: KyuubiConf)
     }
     val user = decoded.substring(0, separator)
     val password = decoded.substring(separator + 1)
-    passwordProvider.get.authenticate(user, password)
+    try {
+      passwordProvider.get.authenticate(user, password)
+    } catch {
+      // Providers signal bad credentials with checked or wrapped exceptions (LDAP throws
+      // IllegalStateException(AuthenticationException)); Flight would report those as a
+      // bare UNKNOWN, so map every provider failure to UNAUTHENTICATED.
+      case NonFatal(e) =>
+        warn(s"Flight SQL basic authentication failed for user $user: ${e.getMessage}")
+        throw CallStatus.UNAUTHENTICATED
+          .withDescription("Invalid username or password")
+          .withCause(e)
+          .toRuntimeException
+    }
     authResult(user)
   }
 
