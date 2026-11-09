@@ -174,9 +174,10 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
       session: Session,
       catalogName: String,
       schemaName: String,
-      tableName: String): Operation = {
-    val operation = dialect.getPrimaryKeysOperation(session)
-    addOperation(operation)
+      tableName: String): Operation = dialect match {
+    case metadata: JdbcMetadataOperations =>
+      addOperation(metadata.primaryKeysOperation(session, catalogName, schemaName, tableName))
+    case _ => addOperation(dialect.getPrimaryKeysOperation(session))
   }
 
   override def newGetCrossReferenceOperation(
@@ -186,9 +187,17 @@ class JdbcOperationManager(conf: KyuubiConf) extends OperationManager("JdbcOpera
       primaryTable: String,
       foreignCatalog: String,
       foreignSchema: String,
-      foreignTable: String): Operation = {
-    val operation = dialect.getCrossReferenceOperation(session)
-    addOperation(operation)
+      foreignTable: String): Operation = dialect match {
+    case metadata: JdbcMetadataOperations =>
+      addOperation(metadata.crossReferenceOperation(
+        session,
+        primaryCatalog,
+        primarySchema,
+        primaryTable,
+        foreignCatalog,
+        foreignSchema,
+        foreignTable))
+    case _ => addOperation(dialect.getCrossReferenceOperation(session))
   }
 
   override def getQueryId(operation: Operation): String = {

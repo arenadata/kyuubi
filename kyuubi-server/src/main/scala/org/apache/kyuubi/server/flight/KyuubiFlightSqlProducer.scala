@@ -342,6 +342,118 @@ class KyuubiFlightSqlProducer(
       KyuubiFlightMetadata.TABLE_TYPES_SOURCES,
       session => backend.getTableTypes(session))
 
+  // Keys (DBeaver ER diagrams). Engines that cannot answer key requests (most JDBC dialects
+  // throw "feature not supported") get an empty result instead of an error, so clients treat
+  // the tables as having no keys.
+
+  override def getFlightInfoPrimaryKeys(
+      command: CommandGetPrimaryKeys,
+      context: CallContext,
+      descriptor: FlightDescriptor): FlightInfo =
+    metadataInfo(Schemas.GET_PRIMARY_KEYS_SCHEMA, command, descriptor)
+
+  override def getStreamPrimaryKeys(
+      command: CommandGetPrimaryKeys,
+      context: CallContext,
+      listener: ServerStreamListener): Unit = {
+    val catalog = if (command.hasCatalog) command.getCatalog else null
+    val schema = if (command.hasDbSchema) command.getDbSchema else null
+    streamMetadataByName(
+      context,
+      listener,
+      Schemas.GET_PRIMARY_KEYS_SCHEMA,
+      KyuubiFlightMetadata.PRIMARY_KEYS_SOURCES,
+      s => backend.getPrimaryKeys(s, catalog, schema, command.getTable),
+      emptyOnError = true)
+  }
+
+  override def getFlightInfoImportedKeys(
+      command: CommandGetImportedKeys,
+      context: CallContext,
+      descriptor: FlightDescriptor): FlightInfo =
+    metadataInfo(Schemas.GET_IMPORTED_KEYS_SCHEMA, command, descriptor)
+
+  /** Foreign keys of the table: the table is the foreign side. */
+  override def getStreamImportedKeys(
+      command: CommandGetImportedKeys,
+      context: CallContext,
+      listener: ServerStreamListener): Unit =
+    streamForeignKeys(
+      context,
+      listener,
+      Schemas.GET_IMPORTED_KEYS_SCHEMA,
+      (null, null, null),
+      (
+        if (command.hasCatalog) command.getCatalog else null,
+        if (command.hasDbSchema) command.getDbSchema else null,
+        command.getTable))
+
+  override def getFlightInfoExportedKeys(
+      command: CommandGetExportedKeys,
+      context: CallContext,
+      descriptor: FlightDescriptor): FlightInfo =
+    metadataInfo(Schemas.GET_EXPORTED_KEYS_SCHEMA, command, descriptor)
+
+  /** Foreign keys referencing the table: the table is the primary side. */
+  override def getStreamExportedKeys(
+      command: CommandGetExportedKeys,
+      context: CallContext,
+      listener: ServerStreamListener): Unit =
+    streamForeignKeys(
+      context,
+      listener,
+      Schemas.GET_EXPORTED_KEYS_SCHEMA,
+      (
+        if (command.hasCatalog) command.getCatalog else null,
+        if (command.hasDbSchema) command.getDbSchema else null,
+        command.getTable),
+      (null, null, null))
+
+  override def getFlightInfoCrossReference(
+      command: CommandGetCrossReference,
+      context: CallContext,
+      descriptor: FlightDescriptor): FlightInfo =
+    metadataInfo(Schemas.GET_CROSS_REFERENCE_SCHEMA, command, descriptor)
+
+  override def getStreamCrossReference(
+      command: CommandGetCrossReference,
+      context: CallContext,
+      listener: ServerStreamListener): Unit =
+    streamForeignKeys(
+      context,
+      listener,
+      Schemas.GET_CROSS_REFERENCE_SCHEMA,
+      (
+        if (command.hasPkCatalog) command.getPkCatalog else null,
+        if (command.hasPkDbSchema) command.getPkDbSchema else null,
+        command.getPkTable),
+      (
+        if (command.hasFkCatalog) command.getFkCatalog else null,
+        if (command.hasFkDbSchema) command.getFkDbSchema else null,
+        command.getFkTable))
+
+  private def streamForeignKeys(
+      context: CallContext,
+      listener: ServerStreamListener,
+      schema: Schema,
+      primary: (String, String, String),
+      foreign: (String, String, String)): Unit =
+    streamMetadataByName(
+      context,
+      listener,
+      schema,
+      KyuubiFlightMetadata.FOREIGN_KEYS_SOURCES,
+      s =>
+        backend.getCrossReference(
+          s,
+          primary._1,
+          primary._2,
+          primary._3,
+          foreign._1,
+          foreign._2,
+          foreign._3),
+      emptyOnError = true)
+
   override def getFlightInfoTypeInfo(
       command: CommandGetXdbcTypeInfo,
       context: CallContext,
@@ -490,7 +602,9 @@ class KyuubiFlightSqlProducer(
       flightStream: FlightStream,
       ackStream: StreamListener[PutResult]): Runnable = () => {
     try {
-      rejectParameters(flightStream)
+      // CommandStatementUpdate carries no parameters, and the Arrow Java client
+      // (FlightSqlClient.executeUpdate) waits for the result without closing its side of the
+      // stream, so draining it here would block both ends
       sendUpdateCount(ackStream, executeUpdate(command.getQuery, context))
     } catch {
       case NonFatal(e) => ackStream.onError(streamError(e))
@@ -696,7 +810,8 @@ class KyuubiFlightSqlProducer(
 
   /**
    * Metadata stream that maps engine (JDBC/HiveServer2-shaped) columns onto the fixed Flight
-   * SQL schema by name instead of position, see [[KyuubiFlightMetadata]].
+   * SQL schema by name instead of position, see [[KyuubiFlightMetadata]]. With `emptyOnError`
+   * a failing engine operation yields an empty result instead of an error.
    */
   private def streamMetadataByName(
       context: CallContext,
@@ -705,7 +820,8 @@ class KyuubiFlightSqlProducer(
       sources: KyuubiFlightMetadata.Sources,
       operationFactory: SessionHandle => OperationHandle,
       tableSchemas: Option[SessionHandle => Map[KyuubiFlightMetadata.TableKey, Array[Byte]]] =
-        None): Unit = {
+        None,
+      emptyOnError: Boolean = false): Unit = {
     val owner = ownerOf(context)
     val session = openSession(owner, context)
     MetricsSystem.tracing { ms =>
@@ -713,7 +829,14 @@ class KyuubiFlightSqlProducer(
       ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
     }
     try {
-      val rows = collectMetadataRows(context, operationFactory(session))
+      val rows =
+        try collectMetadataRows(context, operationFactory(session))
+        catch {
+          case NonFatal(e) if emptyOnError =>
+            warn(s"Flight SQL metadata request not answered by the engine, returning no rows: " +
+              Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+            Seq.empty
+        }
       val schemasByTable = tableSchemas.map(_(session)).getOrElse(Map.empty)
       val root = VectorSchemaRoot.create(schema, allocator)
       try {

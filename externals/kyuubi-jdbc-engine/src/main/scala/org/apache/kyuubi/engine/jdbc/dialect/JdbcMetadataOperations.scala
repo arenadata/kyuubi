@@ -47,4 +47,19 @@ trait JdbcMetadataOperations {
       schemaPattern: String,
       tableNamePattern: String,
       columnNamePattern: String): Operation
+
+  def primaryKeysOperation(
+      session: Session,
+      catalog: String,
+      schema: String,
+      table: String): Operation
+
+  def crossReferenceOperation(
+      session: Session,
+      primaryCatalog: String,
+      primarySchema: String,
+      primaryTable: String,
+      foreignCatalog: String,
+      foreignSchema: String,
+      foreignTable: String): Operation
 }

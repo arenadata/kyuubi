@@ -23,7 +23,7 @@ import java.util.{Collections, Locale}
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.vector.{FieldVector, VarBinaryVector, VarCharVector, VectorSchemaRoot}
+import org.apache.arrow.vector.{BaseIntVector, FieldVector, VarBinaryVector, VarCharVector, VectorSchemaRoot}
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.arrow.vector.util.Text
@@ -55,6 +55,39 @@ object KyuubiFlightMetadata {
     "table_type" -> Seq("TABLE_TYPE"))
 
   val TABLE_TYPES_SOURCES: Sources = Map("table_type" -> Seq("TABLE_TYPE"))
+
+  val PRIMARY_KEYS_SOURCES: Sources = Map(
+    "catalog_name" -> Seq("TABLE_CAT"),
+    "db_schema_name" -> Seq("TABLE_SCHEM"),
+    "table_name" -> Seq("TABLE_NAME"),
+    "column_name" -> Seq("COLUMN_NAME"),
+    "key_name" -> Seq("PK_NAME"),
+    // Hive's GetPrimaryKeys names it KEQ_SEQ
+    "key_sequence" -> Seq("KEY_SEQ", "KEQ_SEQ"))
+
+  /** Imported keys, exported keys and cross reference share one Flight SQL schema. */
+  val FOREIGN_KEYS_SOURCES: Sources = Map(
+    "pk_catalog_name" -> Seq("PKTABLE_CAT"),
+    "pk_db_schema_name" -> Seq("PKTABLE_SCHEM"),
+    "pk_table_name" -> Seq("PKTABLE_NAME"),
+    "pk_column_name" -> Seq("PKCOLUMN_NAME"),
+    "fk_catalog_name" -> Seq("FKTABLE_CAT"),
+    "fk_db_schema_name" -> Seq("FKTABLE_SCHEM"),
+    "fk_table_name" -> Seq("FKTABLE_NAME"),
+    "fk_column_name" -> Seq("FKCOLUMN_NAME"),
+    "key_sequence" -> Seq("KEY_SEQ"),
+    "fk_key_name" -> Seq("FK_NAME"),
+    "pk_key_name" -> Seq("PK_NAME"),
+    "update_rule" -> Seq("UPDATE_RULE"),
+    "delete_rule" -> Seq("DELETE_RULE"))
+
+  /**
+   * Values for non-nullable integer fields without a source value: Flight SQL key rules use
+   * the JDBC codes, so a missing rule is reported as NO ACTION.
+   */
+  val INT_DEFAULTS: Map[String, Long] = Map(
+    "update_rule" -> java.sql.DatabaseMetaData.importedKeyNoAction.toLong,
+    "delete_rule" -> java.sql.DatabaseMetaData.importedKeyNoAction.toLong)
 
   /** Flight GetTables `table_schema` column. */
   val TABLE_SCHEMA_FIELD = "table_schema"
@@ -94,6 +127,12 @@ object KyuubiFlightMetadata {
       case _ => None
     }
 
+  private def toLong(value: AnyRef): Option[Long] = value match {
+    case n: Number => Some(n.longValue())
+    case s: String if s.trim.nonEmpty => scala.util.Try(s.trim.toLong).toOption
+    case _ => None
+  }
+
   def tableKey(catalog: String, schema: String, table: String): TableKey =
     (Option(catalog).getOrElse(""), Option(schema).getOrElse(""), table)
 
@@ -102,7 +141,8 @@ object KyuubiFlightMetadata {
 
   /**
    * Fill `root` (a Flight SQL metadata schema) from JDBC-shaped rows. Non-nullable Utf8 fields
-   * without a value get "" (Flight requires them); `table_schema` comes from `tableSchemas`
+   * without a value get "", non-nullable integer fields [[INT_DEFAULTS]] or 0 (Flight requires
+   * them); `table_schema` comes from `tableSchemas`
    * (an empty schema when the table has no column information).
    */
   def fill(
@@ -123,6 +163,13 @@ object KyuubiFlightMetadata {
               case Some(v) => varchar.setSafe(i, v.getBytes(StandardCharsets.UTF_8))
               case None if field.isNullable => varchar.setNull(i)
               case None => varchar.setSafe(i, Array.emptyByteArray)
+            }
+          case integer: BaseIntVector =>
+            val name = field.getName
+            lookup(row, sources.getOrElse(name, Seq.empty)).flatMap(toLong) match {
+              case Some(v) => integer.setWithPossibleTruncate(i, v)
+              case None if field.isNullable => integer.setNull(i)
+              case None => integer.setWithPossibleTruncate(i, INT_DEFAULTS.getOrElse(name, 0L))
             }
           case other => other.setNull(i)
         }

@@ -17,7 +17,7 @@
 
 package org.apache.kyuubi.engine.jdbc.impala
 
-import java.sql.{Connection, Types}
+import java.sql.{Connection, ResultSet, Types}
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -197,6 +197,92 @@ object ImpalaMetadata {
     string("SCOPE_TABLE"),
     smallint("SOURCE_DATA_TYPE"),
     string("IS_AUTO_INCREMENT"))
+
+  val PRIMARY_KEYS_COLUMNS: List[Column] = List(
+    string("TABLE_CAT"),
+    string("TABLE_SCHEM"),
+    string("TABLE_NAME"),
+    string("COLUMN_NAME"),
+    int("KEY_SEQ"),
+    string("PK_NAME"))
+
+  val CROSS_REFERENCE_COLUMNS: List[Column] = List(
+    string("PKTABLE_CAT"),
+    string("PKTABLE_SCHEM"),
+    string("PKTABLE_NAME"),
+    string("PKCOLUMN_NAME"),
+    string("FKTABLE_CAT"),
+    string("FKTABLE_SCHEM"),
+    string("FKTABLE_NAME"),
+    string("FKCOLUMN_NAME"),
+    int("KEY_SEQ"),
+    smallint("UPDATE_RULE"),
+    smallint("DELETE_RULE"),
+    string("FK_NAME"),
+    string("PK_NAME"),
+    smallint("DEFERRABILITY"))
+
+  /**
+   * Informational primary keys (`PRIMARY KEY ... DISABLE NOVALIDATE RELY`, Kudu keys) through
+   * Impala's HiveServer2 GetPrimaryKeys. Impala has no catalogs.
+   */
+  def primaryKeys(connection: Connection, schema: String, table: String): Seq[Row] =
+    toKeyRows(
+      fetch(connection.getMetaData.getPrimaryKeys(null, blankToNull(schema), table)),
+      PRIMARY_KEYS_COLUMNS)
+
+  /**
+   * Foreign keys through Impala's HiveServer2 GetCrossReference: either side may be left
+   * out (null) to list the keys a table exports (parent given) or imports (foreign given).
+   */
+  def crossReference(
+      connection: Connection,
+      parentSchema: String,
+      parentTable: String,
+      foreignSchema: String,
+      foreignTable: String): Seq[Row] =
+    toKeyRows(
+      fetch(connection.getMetaData.getCrossReference(
+        null,
+        blankToNull(parentSchema),
+        blankToNull(parentTable),
+        null,
+        blankToNull(foreignSchema),
+        blankToNull(foreignTable))),
+      CROSS_REFERENCE_COLUMNS)
+
+  private def blankToNull(value: String): String =
+    Option(value).map(_.trim).filter(v => v.nonEmpty && v != "%" && v != "*").orNull
+
+  /** All rows of `rs` (closed afterwards), values by position. */
+  private def fetch(resultSet: ResultSet): Seq[Seq[AnyRef]] =
+    JdbcUtils.withCloseable(resultSet) { rs =>
+      val count = rs.getMetaData.getColumnCount
+      val rows = ArrayBuffer[Seq[AnyRef]]()
+      while (rs.next()) rows += (1 to count).map(i => rs.getObject(i))
+      rows.toSeq
+    }
+
+  /**
+   * Positional JDBC key rows -> rows typed for `columns` (integer columns as Int; Hive's
+   * driver names the primary key sequence column `KEQ_SEQ`, so names are not used).
+   */
+  def toKeyRows(raw: Seq[Seq[AnyRef]], columns: List[Column]): Seq[Row] =
+    raw.map { values =>
+      Row(columns.zipWithIndex.map { case (column, i) =>
+        val value = if (i < values.size) values(i) else null
+        column.sqlType match {
+          case Types.INTEGER | Types.SMALLINT => toInt(value)
+          case _ => Option(value).map(_.toString).orNull
+        }
+      })
+    }
+
+  private def toInt(value: AnyRef): Any = value match {
+    case null => null
+    case n: Number => Int.box(n.intValue())
+    case s => scala.util.Try(Int.box(s.toString.trim.toInt)).toOption.orNull
+  }
 
   case class ImpalaColumn(
       name: String,

@@ -18,6 +18,8 @@
 package org.apache.kyuubi.operation.flight
 
 import org.apache.arrow.flight.{FlightRuntimeException, FlightStatusCode}
+import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
+import org.apache.arrow.flight.sql.util.TableRef
 
 import org.apache.kyuubi.{FlightSqlTestHelper, WithFlightSqlServer}
 import org.apache.kyuubi.config.KyuubiConf
@@ -73,7 +75,9 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
 
   test("prepared and plain update statements run on execution") {
     withFlightSqlClient() { (_, sqlClient) =>
-      val ps = sqlClient.prepare("CREATE TABLE IF NOT EXISTS kyuubi_flight_ps_update (a INT)")
+      val ps = sqlClient.prepare(
+        // a data source table: the test engine runs without Hive support
+        "CREATE TABLE IF NOT EXISTS kyuubi_flight_ps_update (a INT) USING parquet")
       try {
         assert(ps.getResultSetSchema.getFields.isEmpty)
         ps.executeUpdate()
@@ -82,6 +86,23 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
       } finally {
         ps.close()
         sqlClient.executeUpdate("DROP TABLE IF EXISTS kyuubi_flight_ps_update")
+      }
+    }
+  }
+
+  test("key metadata requests answer with the Flight SQL schemas instead of UNIMPLEMENTED") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val table = TableRef.of(null, "default", "kyuubi_flight_keys")
+      val requests = Seq(
+        Schemas.GET_PRIMARY_KEYS_SCHEMA -> (() => sqlClient.getPrimaryKeys(table)),
+        Schemas.GET_IMPORTED_KEYS_SCHEMA -> (() => sqlClient.getImportedKeys(table)),
+        Schemas.GET_EXPORTED_KEYS_SCHEMA -> (() => sqlClient.getExportedKeys(table)),
+        Schemas.GET_CROSS_REFERENCE_SCHEMA -> (() => sqlClient.getCrossReference(table, table)))
+      requests.foreach { case (schema, request) =>
+        val info = request()
+        assert(info.getSchemaOptional.get() === schema)
+        // the Spark engine declares no keys (or does not support the request at all)
+        assert(readAllRows(sqlClient, info).isEmpty)
       }
     }
   }

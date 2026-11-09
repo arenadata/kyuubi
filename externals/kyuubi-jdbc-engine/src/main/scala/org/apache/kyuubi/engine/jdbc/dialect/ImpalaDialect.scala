@@ -33,7 +33,8 @@ import org.apache.kyuubi.session.Session
 class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
 
   // JDBC metadata (GetCatalogs/GetSchemas/GetTables/GetTableTypes/GetColumns) is assembled
-  // from SHOW/DESCRIBE output by ImpalaMetadata; the query-string methods below
+  // from SHOW/DESCRIBE output by ImpalaMetadata; GetPrimaryKeys/GetCrossReference go to
+  // Impala's own HiveServer2 calls; the query-string methods below
   // (getTablesQuery, getColumnsQuery) are kept for compatibility but no longer used by the
   // operation manager.
 
@@ -72,6 +73,35 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
       columnNamePattern: String): Operation =
     metadataOperation(session, COLUMNS_COLUMNS)(
       _.columns(schemaPattern, tableNamePattern, columnNamePattern))
+
+  override def primaryKeysOperation(
+      session: Session,
+      catalog: String,
+      schema: String,
+      table: String): Operation =
+    new JdbcMetadataOperation(
+      session,
+      PRIMARY_KEYS_COLUMNS,
+      connection => ImpalaMetadata.primaryKeys(connection, schema, table))
+
+  override def crossReferenceOperation(
+      session: Session,
+      primaryCatalog: String,
+      primarySchema: String,
+      primaryTable: String,
+      foreignCatalog: String,
+      foreignSchema: String,
+      foreignTable: String): Operation =
+    new JdbcMetadataOperation(
+      session,
+      CROSS_REFERENCE_COLUMNS,
+      connection =>
+        ImpalaMetadata.crossReference(
+          connection,
+          primarySchema,
+          primaryTable,
+          foreignSchema,
+          foreignTable))
 
   override def getTableTypesOperation(session: Session): Operation =
     new JdbcMetadataOperation(session, TABLE_TYPES_COLUMNS, _ => TABLE_TYPES_ROWS)

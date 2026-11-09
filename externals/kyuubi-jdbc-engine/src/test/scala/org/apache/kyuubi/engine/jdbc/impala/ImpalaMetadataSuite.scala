@@ -181,4 +181,45 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
       assert(rowSet.getColumnsSize === columns.size)
     }
   }
+
+  test("key rows are typed by position (Hive names the key sequence KEQ_SEQ)") {
+    val pk = toKeyRows(
+      Seq(Seq(null, "sales", "orders", "id", Int.box(1), "orders_pk")),
+      PRIMARY_KEYS_COLUMNS)
+    assert(pk === Seq(Row(List(null, "sales", "orders", "id", 1, "orders_pk"))))
+
+    val fk = toKeyRows(
+      Seq(Seq(
+        null,
+        "sales",
+        "customers",
+        "id",
+        null,
+        "sales",
+        "orders",
+        "customer_id",
+        "1",
+        Short.box(3),
+        Short.box(3),
+        "orders_customer_fk",
+        "customers_pk",
+        Short.box(7))),
+      CROSS_REFERENCE_COLUMNS)
+    assert(fk === Seq(Row(List(
+      null,
+      "sales",
+      "customers",
+      "id",
+      null,
+      "sales",
+      "orders",
+      "customer_id",
+      1,
+      3,
+      3,
+      "orders_customer_fk",
+      "customers_pk",
+      7))))
+    assert(PRIMARY_KEYS_COLUMNS.map(_.name).contains("KEY_SEQ"))
+  }
 }

@@ -159,4 +159,59 @@ class KyuubiFlightMetadataSuite extends KyuubiFunSuite {
     assert(toArrowType(Types.BINARY, None, None) === ArrowType.Binary.INSTANCE)
     assert(toArrowType(Types.ARRAY, None, None) === ArrowType.Utf8.INSTANCE)
   }
+
+  test("GetPrimaryKeys: Hive's KEQ_SEQ fills key_sequence") {
+    val rows = Seq(Map[String, AnyRef](
+      "table_cat" -> null,
+      "table_schem" -> "sales",
+      "table_name" -> "orders",
+      "column_name" -> "id",
+      "keq_seq" -> Int.box(1),
+      "pk_name" -> "orders_pk"))
+    withRoot(Schemas.GET_PRIMARY_KEYS_SCHEMA) { root =>
+      fill(root, rows, PRIMARY_KEYS_SOURCES)
+      assert(root.getRowCount === 1)
+      assert(strings(root, "catalog_name") === Seq(null))
+      assert(strings(root, "db_schema_name") === Seq("sales"))
+      assert(strings(root, "table_name") === Seq("orders"))
+      assert(strings(root, "column_name") === Seq("id"))
+      assert(strings(root, "key_name") === Seq("orders_pk"))
+      assert(strings(root, "key_sequence") === Seq("1"))
+    }
+  }
+
+  test("foreign keys: JDBC columns map by name, missing rules default to NO ACTION") {
+    val rows = Seq(Map[String, AnyRef](
+      "pktable_schem" -> "sales",
+      "pktable_name" -> "customers",
+      "pkcolumn_name" -> "id",
+      "fktable_schem" -> "sales",
+      "fktable_name" -> "orders",
+      "fkcolumn_name" -> "customer_id",
+      "key_seq" -> "1",
+      "update_rule" -> Short.box(0),
+      "fk_name" -> "orders_customer_fk",
+      "pk_name" -> "customers_pk"))
+    Seq(
+      Schemas.GET_IMPORTED_KEYS_SCHEMA,
+      Schemas.GET_EXPORTED_KEYS_SCHEMA,
+      Schemas.GET_CROSS_REFERENCE_SCHEMA).foreach { schema =>
+      withRoot(schema) { root =>
+        fill(root, rows, FOREIGN_KEYS_SOURCES)
+        assert(root.getRowCount === 1)
+        assert(strings(root, "pk_catalog_name") === Seq(null))
+        assert(strings(root, "pk_table_name") === Seq("customers"))
+        assert(strings(root, "pk_column_name") === Seq("id"))
+        assert(strings(root, "fk_db_schema_name") === Seq("sales"))
+        assert(strings(root, "fk_table_name") === Seq("orders"))
+        assert(strings(root, "fk_column_name") === Seq("customer_id"))
+        assert(strings(root, "key_sequence") === Seq("1"))
+        assert(strings(root, "fk_key_name") === Seq("orders_customer_fk"))
+        assert(strings(root, "pk_key_name") === Seq("customers_pk"))
+        assert(strings(root, "update_rule") === Seq("0")) // CASCADE
+        assert(strings(root, "delete_rule") ===
+          Seq(java.sql.DatabaseMetaData.importedKeyNoAction.toString))
+      }
+    }
+  }
 }
