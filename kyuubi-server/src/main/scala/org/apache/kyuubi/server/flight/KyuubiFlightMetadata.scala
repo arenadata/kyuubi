@@ -199,9 +199,24 @@ object KyuubiFlightMetadata {
               int(c, "DATA_TYPE").getOrElse(Types.VARCHAR),
               int(c, "COLUMN_SIZE"),
               int(c, "DECIMAL_DIGITS"))
+            val decimal = Option(arrowType).collect { case d: ArrowType.Decimal => d }
+            // engines give TYPE_NAME; without it, the JDBC type name of DATA_TYPE
+            val typeName = Option(string(c, "TYPE_NAME")).filter(_.trim.nonEmpty)
+              .map(KyuubiFlightColumnMetadata.baseName)
+              .orElse(int(c, "DATA_TYPE").flatMap(t =>
+                scala.util.Try(java.sql.JDBCType.valueOf(t).getName).toOption))
+              .getOrElse("STRING")
+            val metadata = KyuubiFlightColumnMetadata(
+              typeName,
+              decimal.map(_.getPrecision),
+              decimal.map(_.getScale),
+              int(c, "COLUMN_SIZE"),
+              resultColumn = false,
+              Option(string(c, "TABLE_SCHEM")),
+              Option(string(c, "TABLE_NAME")))
             new Field(
               string(c, "COLUMN_NAME"),
-              new FieldType(nullable, arrowType, null),
+              new FieldType(nullable, arrowType, null, metadata),
               Collections.emptyList[Field]())
           }
         key -> new Schema(fields.asJava).serializeAsMessage()

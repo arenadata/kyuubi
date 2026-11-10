@@ -40,6 +40,7 @@ import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
 import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, FRONTEND_FLIGHT_SQL_TOKEN_TTL, OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle, OperationState, OperationStatus}
+import org.apache.kyuubi.server.flight.KyuubiFlightPreparedStatements._
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.SessionHandle
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
@@ -124,8 +125,8 @@ class KyuubiFlightSqlProducer(
         MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
         throw operationError(status)
       }
-      val schema = KyuubiFlightArrowUtils.schemaFromMetadata(
-        backend.getResultSetMetadata(operation))
+      val schema =
+        KyuubiFlightArrowUtils.schemaFromMetadata(backend.getResultSetMetadata(operation))
       QueryState(owner, session, operation, schema, location().getUri.toString)
     } catch {
       case NonFatal(e) =>
@@ -173,8 +174,8 @@ class KyuubiFlightSqlProducer(
       if (status.state != OperationState.FINISHED) {
         throw operationError(status)
       }
-      new SchemaResult(KyuubiFlightArrowUtils.schemaFromMetadata(
-        backend.getResultSetMetadata(operation)))
+      new SchemaResult(
+        KyuubiFlightArrowUtils.schemaFromMetadata(backend.getResultSetMetadata(operation)))
     } catch {
       case e: RuntimeException => throw e
       case NonFatal(e) => throw flightError(CallStatus.INTERNAL, e)
@@ -299,14 +300,15 @@ class KyuubiFlightSqlProducer(
     val tableSchemas: Option[SessionHandle => Map[KyuubiFlightMetadata.TableKey, Array[Byte]]] =
       if (command.getIncludeSchema) {
         Some(s =>
-          KyuubiFlightMetadata.tableSchemas(collectMetadataRows(
-            context,
-            backend.getColumns(
-              s,
-              Option(catalog).getOrElse(""),
-              Option(schema).getOrElse(""),
-              Option(table).getOrElse(""),
-              "%"))))
+          KyuubiFlightMetadata.tableSchemas(
+            collectMetadataRows(
+              context,
+              backend.getColumns(
+                s,
+                Option(catalog).getOrElse(""),
+                Option(schema).getOrElse(""),
+                Option(table).getOrElse(""),
+                "%"))))
       } else {
         None
       }
@@ -496,18 +498,26 @@ class KyuubiFlightSqlProducer(
       val sql: String,
       val isQuery: Boolean,
       val schema: Schema,
-      initialResult: Option[QueryState]) {
-    private var cached: Option[QueryState] = initialResult
+      initial: Pending[QueryState]) {
+    private var pending: Pending[QueryState] = initial
     @volatile var lastAccess: Long = System.currentTimeMillis()
 
     def touch(): Unit = lastAccess = System.currentTimeMillis()
 
-    /** The result computed at prepare time; returned at most once. */
-    def takeCached(): Option[QueryState] = synchronized {
-      val result = cached
-      cached = None
+    /** The pending work; reset to Idle. */
+    def takePending(): Pending[QueryState] = synchronized {
+      val result = pending
+      pending = Idle
       result
     }
+
+    def setPending(next: Pending[QueryState]): Unit = synchronized { pending = next }
+  }
+
+  /** Releases a result started at prepare time that will not be used. */
+  private def releasePending(pending: Pending[QueryState]): Unit = pending match {
+    case Cached(result) => releaseQuery(result)
+    case _ =>
   }
 
   private val preparedStates = new ConcurrentHashMap[String, PreparedState]()
@@ -528,7 +538,9 @@ class KyuubiFlightSqlProducer(
       val result = if (isQuery) Some(executeQuery(sql, context)) else None
       val schema = result.map(_.schema).getOrElse(emptySchema)
       val handle = UUID.randomUUID().toString
-      preparedStates.put(handle, new PreparedState(owner, sql, isQuery, schema, result))
+      preparedStates.put(
+        handle,
+        new PreparedState(owner, sql, isQuery, schema, result.map(Cached(_)).getOrElse(Idle)))
       debug(s"Flight SQL prepared statement $handle for $owner (query=$isQuery)")
       val response = ActionCreatePreparedStatementResult.newBuilder()
         .setPreparedStatementHandle(ByteString.copyFrom(handle, StandardCharsets.UTF_8))
@@ -551,7 +563,7 @@ class KyuubiFlightSqlProducer(
       Option(preparedStates.get(handle)).foreach { state =>
         checkOwner(state, context)
         if (preparedStates.remove(handle, state)) {
-          state.takeCached().foreach(releaseQuery)
+          releasePending(state.takePending())
         }
       }
       listener.onCompleted()
@@ -566,11 +578,42 @@ class KyuubiFlightSqlProducer(
       descriptor: FlightDescriptor): FlightInfo = {
     try {
       val state = preparedState(command.getPreparedStatementHandle, context)
-      val result = state.takeCached().getOrElse(executeQuery(state.sql, context))
-      registerQuery(result, descriptor)
+      nextExecution(state.takePending(), state.isQuery, System.currentTimeMillis()) match {
+        case UseCached(result) => registerQuery(result, descriptor)
+        case EmptyResult =>
+          // an update that just ran through DoPut: do not run it again; the ticket is the
+          // command itself, answered by getStreamPreparedStatement
+          new FlightInfo(
+            emptySchema,
+            descriptor,
+            java.util.Arrays.asList(
+              new FlightEndpoint(new Ticket(descriptor.getCommand), location())),
+            -1L,
+            -1L)
+        case Run => registerQuery(executeQuery(state.sql, context), descriptor)
+      }
     } catch {
       case e: RuntimeException => throw e
       case NonFatal(e) => throw flightError(CallStatus.INTERNAL, e)
+    }
+  }
+
+  /** Empty result of an update that already ran (see getFlightInfoPreparedStatement). */
+  override def getStreamPreparedStatement(
+      command: CommandPreparedStatementQuery,
+      context: CallContext,
+      listener: ServerStreamListener): Unit = {
+    try {
+      preparedState(command.getPreparedStatementHandle, context)
+      val root = VectorSchemaRoot.create(emptySchema, allocator)
+      try {
+        listener.start(root)
+        listener.completed()
+      } finally {
+        root.close()
+      }
+    } catch {
+      case NonFatal(e) => listener.error(streamError(e))
     }
   }
 
@@ -589,8 +632,10 @@ class KyuubiFlightSqlProducer(
       rejectParameters(flightStream)
       val state = preparedState(command.getPreparedStatementHandle, context)
       // a query sent through the update path: its prepare-time result is not needed
-      state.takeCached().foreach(releaseQuery)
-      sendUpdateCount(ackStream, executeUpdate(state.sql, context))
+      releasePending(state.takePending())
+      val count = executeUpdate(state.sql, context)
+      state.setPending(UpdateRan(System.currentTimeMillis()))
+      sendUpdateCount(ackStream, count)
     } catch {
       case NonFatal(e) => ackStream.onError(streamError(e))
     }
@@ -687,8 +732,15 @@ class KyuubiFlightSqlProducer(
     }
   }
 
+  /**
+   * Send the update count; an unknown count (-1: DDL, engines without counts) is sent as 0,
+   * as JDBC's executeUpdate does for statements that return nothing. The Arrow Flight SQL
+   * JDBC driver treats -1 as "a result set follows": it then fails (prepared executeUpdate:
+   * NullPointerException) or, since 19.0.0, retries and so runs the statement again.
+   */
   private def sendUpdateCount(ackStream: StreamListener[PutResult], count: Long): Unit = {
-    val bytes = DoPutUpdateResult.newBuilder().setRecordCount(count).build().toByteArray
+    val bytes =
+      DoPutUpdateResult.newBuilder().setRecordCount(math.max(count, 0L)).build().toByteArray
     val buffer = allocator.buffer(bytes.length)
     try {
       buffer.writeBytes(bytes)
@@ -706,7 +758,7 @@ class KyuubiFlightSqlProducer(
       val state = entry.getValue
       if (state.lastAccess < cutoff && preparedStates.remove(entry.getKey, state)) {
         info(s"Expired idle Flight SQL prepared statement ${entry.getKey} of ${state.owner}")
-        state.takeCached().foreach(releaseQuery)
+        releasePending(state.takePending())
       }
     }
   }
@@ -741,7 +793,7 @@ class KyuubiFlightSqlProducer(
   override def close(): Unit = {
     queryStates.entrySet().asScala.foreach(entry => closeState(entry.getKey, entry.getValue))
     queryStates.clear()
-    preparedStates.values().asScala.foreach(_.takeCached().foreach(releaseQuery))
+    preparedStates.values().asScala.foreach(state => releasePending(state.takePending()))
     preparedStates.clear()
   }
 

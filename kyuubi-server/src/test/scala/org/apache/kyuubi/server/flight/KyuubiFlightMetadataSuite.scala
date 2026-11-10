@@ -214,4 +214,45 @@ class KyuubiFlightMetadataSuite extends KyuubiFunSuite {
       }
     }
   }
+
+  test("GetTables with schema: fields carry Flight SQL column metadata") {
+    val columnRows = Seq(
+      Map[String, AnyRef](
+        "table_schem" -> "sales",
+        "table_name" -> "t",
+        "column_name" -> "price",
+        "data_type" -> Int.box(Types.DECIMAL),
+        "type_name" -> "decimal(10,2)",
+        "column_size" -> Int.box(10),
+        "decimal_digits" -> Int.box(2),
+        "ordinal_position" -> Int.box(1)),
+      Map[String, AnyRef](
+        "table_schem" -> "sales",
+        "table_name" -> "t",
+        "column_name" -> "code",
+        "data_type" -> Int.box(Types.VARCHAR),
+        "type_name" -> "varchar(5)",
+        "column_size" -> Int.box(5),
+        "ordinal_position" -> Int.box(2)),
+      Map[String, AnyRef](
+        "table_schem" -> "sales",
+        "table_name" -> "t",
+        "column_name" -> "id",
+        // no TYPE_NAME: the JDBC type name
+        "data_type" -> Int.box(Types.BIGINT),
+        "ordinal_position" -> Int.box(3)))
+    val schema = readSchema(tableSchemas(columnRows)(("", "sales", "t")))
+    def meta(i: Int, key: String): String =
+      schema.getFields.get(i).getMetadata.get("ARROW:FLIGHT:SQL:" + key)
+    assert(meta(0, "TYPE_NAME") === "DECIMAL")
+    assert(meta(0, "PRECISION") === "10")
+    assert(meta(0, "SCALE") === "2")
+    assert(meta(0, "SCHEMA_NAME") === "sales")
+    assert(meta(0, "TABLE_NAME") === "t")
+    assert(meta(0, "IS_READ_ONLY") === "0")
+    assert(meta(1, "TYPE_NAME") === "VARCHAR")
+    assert(meta(1, "PRECISION") === "5")
+    assert(meta(1, "IS_CASE_SENSITIVE") === "1")
+    assert(meta(2, "TYPE_NAME") === "BIGINT")
+  }
 }

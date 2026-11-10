@@ -48,20 +48,53 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
  */
 object KyuubiFlightArrowUtils {
 
+  /**
+   * Arrow schema of an HS2 result, fields with Flight SQL column metadata
+   * ([[KyuubiFlightColumnMetadata]]).
+   */
   def schemaFromMetadata(metadata: TGetResultSetMetadataResp): Schema = {
     val columns = Option(metadata).flatMap(m => Option(m.getSchema))
       .map(_.getColumns.asScala.toSeq)
       .getOrElse(Seq.empty)
     new Schema(columns.map { column =>
-      val arrowType = Option(column.getTypeDesc)
+      val typeEntry = Option(column.getTypeDesc)
         .flatMap(desc => Option(desc.getTypes).flatMap(_.asScala.headOption))
-        .map(typeEntry => arrowTypeFromEntry(typeEntry, column.getColumnName))
+      val arrowType = typeEntry
+        .map(entry => arrowTypeFromEntry(entry, column.getColumnName))
         .getOrElse(ArrowType.Utf8.INSTANCE)
       new Field(
         column.getColumnName,
-        new FieldType(true, arrowType, null),
+        new FieldType(true, arrowType, null, columnMetadata(typeEntry)),
         Collections.emptyList[Field]())
     }.asJava)
+  }
+
+  private def columnMetadata(typeEntry: Option[TTypeEntry]): java.util.Map[String, String] = {
+    def qualifier(primitive: TPrimitiveTypeEntry, name: String): Option[Int] =
+      Option(primitive.getTypeQualifiers)
+        .flatMap(q => Option(q.getQualifiers))
+        .flatMap(q => Option(q.get(name)))
+        .filter(_.isSetI32Value)
+        .map(_.getI32Value)
+    typeEntry match {
+      case Some(entry) if entry.isSetPrimitiveEntry =>
+        val primitive = entry.getPrimitiveEntry
+        KyuubiFlightColumnMetadata(
+          KyuubiFlightColumnMetadata.baseName(primitive.getType),
+          qualifier(primitive, "precision"),
+          qualifier(primitive, "scale"),
+          qualifier(primitive, "characterMaximumLength"),
+          resultColumn = true)
+      case Some(entry) =>
+        val name =
+          if (entry.isSetArrayEntry) "ARRAY"
+          else if (entry.isSetMapEntry) "MAP"
+          else if (entry.isSetStructEntry) "STRUCT"
+          else "UNION"
+        KyuubiFlightColumnMetadata(name, None, None, None, resultColumn = true)
+      case None =>
+        KyuubiFlightColumnMetadata("STRING", None, None, None, resultColumn = true)
+    }
   }
 
   private def arrowTypeFromEntry(typeEntry: TTypeEntry, columnName: String): ArrowType = {

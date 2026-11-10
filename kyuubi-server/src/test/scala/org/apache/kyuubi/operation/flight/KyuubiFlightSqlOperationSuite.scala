@@ -90,6 +90,43 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
     }
   }
 
+  test("result schemas carry Flight SQL column metadata, also in the stream") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val info = sqlClient.execute("SELECT CAST(1.5 AS DECIMAL(10,2)) AS d, 'x' AS s")
+      val fields = info.getSchemaOptional.get().getFields
+      assert(fields.get(0).getMetadata.get("ARROW:FLIGHT:SQL:TYPE_NAME") === "DECIMAL")
+      assert(fields.get(0).getMetadata.get("ARROW:FLIGHT:SQL:PRECISION") === "10")
+      assert(fields.get(0).getMetadata.get("ARROW:FLIGHT:SQL:SCALE") === "2")
+      assert(fields.get(1).getMetadata.get("ARROW:FLIGHT:SQL:TYPE_NAME") === "STRING")
+      val stream = sqlClient.getStream(info.getEndpoints.get(0).getTicket)
+      try {
+        while (stream.next()) {}
+        assert(stream.getSchema === info.getSchemaOptional.get())
+      } finally {
+        stream.close()
+      }
+    }
+  }
+
+  test("prepared update then its result request runs the statement once") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      // the Arrow Flight SQL JDBC driver runs an update via DoPut and then asks for its
+      // result; running the DDL again would fail with "already exists"
+      val ps = sqlClient.prepare("CREATE TABLE kyuubi_flight_ps_once (a INT) USING parquet")
+      try {
+        assert(ps.executeUpdate() === 0L)
+        val info = ps.execute()
+        assert(info.getSchemaOptional.get().getFields.isEmpty)
+        assert(readAllRows(sqlClient, info).isEmpty)
+        val rows = executeAndCollect(sqlClient, "SHOW TABLES LIKE 'kyuubi_flight_ps_once'")
+        assert(rows.size === 1)
+      } finally {
+        ps.close()
+        sqlClient.executeUpdate("DROP TABLE IF EXISTS kyuubi_flight_ps_once")
+      }
+    }
+  }
+
   test("key metadata requests answer with the Flight SQL schemas instead of UNIMPLEMENTED") {
     withFlightSqlClient() { (_, sqlClient) =>
       val table = TableRef.of(null, "default", "kyuubi_flight_keys")

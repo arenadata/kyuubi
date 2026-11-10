@@ -21,6 +21,8 @@ import java.nio.ByteBuffer
 import java.time.{LocalDate, LocalDateTime, ZoneOffset}
 import java.util
 
+import scala.collection.JavaConverters._
+
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.{DateDayVector, TimeStampVector, TinyIntVector, VectorSchemaRoot}
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
@@ -199,5 +201,36 @@ class KyuubiFlightArrowUtilsSuite extends KyuubiFunSuite {
       root.close()
       allocator.close()
     }
+  }
+
+  test("schemaFromMetadata: Flight SQL column metadata from HS2 types and qualifiers") {
+    def column(name: String, id: TTypeId, qualifiers: (String, Int)*): TColumnDesc = {
+      val primitive = new TPrimitiveTypeEntry(id)
+      if (qualifiers.nonEmpty) {
+        primitive.setTypeQualifiers(new TTypeQualifiers(qualifiers.map { case (k, v) =>
+          k -> TTypeQualifierValue.i32Value(v)
+        }.toMap.asJava))
+      }
+      new TColumnDesc(
+        name,
+        new TTypeDesc(java.util.Collections.singletonList(TTypeEntry.primitiveEntry(primitive))),
+        1)
+    }
+    val resp = new TGetResultSetMetadataResp(new TStatus(TStatusCode.SUCCESS_STATUS))
+    resp.setSchema(new TTableSchema(java.util.Arrays.asList(
+      column("d", TTypeId.DECIMAL_TYPE, "precision" -> 10, "scale" -> 2),
+      column("v", TTypeId.VARCHAR_TYPE, "characterMaximumLength" -> 5),
+      column("s", TTypeId.STRING_TYPE))))
+    val schema = KyuubiFlightArrowUtils.schemaFromMetadata(resp)
+    def meta(i: Int, key: String): String =
+      schema.getFields.get(i).getMetadata.get("ARROW:FLIGHT:SQL:" + key)
+    assert(meta(0, "TYPE_NAME") === "DECIMAL")
+    assert(meta(0, "PRECISION") === "10")
+    assert(meta(0, "SCALE") === "2")
+    assert(meta(0, "IS_READ_ONLY") === "1")
+    assert(meta(1, "TYPE_NAME") === "VARCHAR")
+    assert(meta(1, "PRECISION") === "5")
+    assert(meta(2, "PRECISION") === Int.MaxValue.toString)
+    assert(meta(2, "IS_SEARCHABLE") === "1")
   }
 }
