@@ -35,6 +35,12 @@ abstract class JdbcConnectionProvider extends SupportServiceLoader with Logging 
     driverClass.equalsIgnoreCase(providerClass)
   }
 
+  /**
+   * Extra driver properties derived from the (session) configuration, e.g. a delegation user.
+   * Applied after `kyuubi.engine.jdbc.connection.properties`.
+   */
+  protected def connectionProperties(kyuubiConf: KyuubiConf): Map[String, String] = Map.empty
+
   def getConnection(kyuubiConf: KyuubiConf): Connection = {
     val properties = new Properties()
     val url = kyuubiConf.get(ENGINE_JDBC_CONNECTION_URL).get
@@ -58,6 +64,7 @@ abstract class JdbcConnectionProvider extends SupportServiceLoader with Logging 
       val tuple = prop.split("=", 2).map(_.trim)
       properties.setProperty(tuple(0), tuple(1))
     }
+    connectionProperties(kyuubiConf).foreach { case (k, v) => properties.setProperty(k, v) }
     info(s"Starting to get connection to $url")
     val connection = DriverManager.getConnection(url, properties)
     info(s"Got the connection to $url")

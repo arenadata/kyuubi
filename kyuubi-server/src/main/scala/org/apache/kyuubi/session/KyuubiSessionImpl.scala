@@ -65,16 +65,28 @@ class KyuubiSessionImpl(
       sessionManager.groupProvider.groups(user, normalizedConf.asJava).toSeq,
       normalizedConf)
 
+  /**
+   * The client's session settings without [[KyuubiSessionImpl.SERVER_ONLY_CONF_KEYS]]: those
+   * come only from the server configuration (defaults, user defaults, engine profiles).
+   */
+  private val clientConf: Map[String, String] = {
+    val (dropped, kept) = KyuubiSessionImpl.partitionServerOnly(normalizedConf)
+    if (dropped.nonEmpty) {
+      warn(s"Ignoring server-only session settings sent by $user: ${dropped.keys.mkString(", ")}")
+    }
+    kept
+  }
+
   private[kyuubi] val optimizedConf: Map[String, String] = {
     val confOverlay = sessionManager.sessionConfAdvisor.map(_.getConfOverlay(
       user,
       normalizedConf.asJava).asScala).reduce(_ ++ _)
     val mergedConf =
       if (confOverlay != null) {
-        normalizedConf ++ confOverlay
+        clientConf ++ confOverlay
       } else {
         warn(s"the server plugin return null value for user: $user, ignore it")
-        normalizedConf
+        clientConf
       }
     engineProfile match {
       case Some(profile) =>
@@ -358,4 +370,21 @@ class KyuubiSessionImpl(
     if (client.engineConnectionClosed) return false
     !client.remoteEngineBroken
   }
+}
+
+object KyuubiSessionImpl {
+
+  /**
+   * Session settings a client must not choose because they decide which identity the engine
+   * uses: with Impala impersonation off, the JDBC engine runs the session in Impala as the
+   * Kyuubi service user.
+   */
+  val SERVER_ONLY_CONF_KEYS: Set[String] = Set(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED.key)
+
+  /** (server-only settings, the rest) of a client session configuration. */
+  private[session] def partitionServerOnly(
+      conf: Map[String, String]): (Map[String, String], Map[String, String]) =
+    conf.partition { case (key, _) =>
+      SERVER_ONLY_CONF_KEYS.exists(_.equalsIgnoreCase(key.trim))
+    }
 }

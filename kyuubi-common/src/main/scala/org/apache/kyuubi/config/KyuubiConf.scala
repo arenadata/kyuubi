@@ -296,6 +296,18 @@ object KyuubiConf {
     kyuubiConfEntries.values()
   }
 
+  /**
+   * The registered config key equal to `key` ignoring case, or `key` itself. Used where keys
+   * arrive lower-cased, e.g. as gRPC/HTTP2 header names.
+   */
+  def canonicalKey(key: String): String = {
+    if (kyuubiConfEntries.containsKey(key)) {
+      key
+    } else {
+      kyuubiConfEntries.keySet().asScala.find(_.equalsIgnoreCase(key)).getOrElse(key)
+    }
+  }
+
   private[config] def containsConfigEntry(entry: ConfigEntry[_]): Boolean = {
     getConfigEntry(entry.key) == entry
   }
@@ -3794,6 +3806,18 @@ object KyuubiConf {
       .version("1.6.0")
       .stringConf
       .createOptional
+
+  val ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.jdbc.impala.impersonation.enabled")
+      .doc("Whether the Impala JDBC connection provider runs each session as the Kyuubi " +
+        "session user via Impala delegation (`impala.doas.user`). The JDBC engine connects " +
+        "to Impala with its own credentials (e.g. the Kyuubi keytab), so Impala must allow " +
+        "that user to delegate, e.g. `--authorized_proxy_user_config=kyuubi=*` on impalad. " +
+        "Only the server configuration (defaults, engine profiles) sets it; client session " +
+        "values are ignored.")
+      .version("1.11.1")
+      .booleanConf
+      .createWithDefault(false)
 
   val ENGINE_JDBC_INITIALIZE_SQL: ConfigEntry[Seq[String]] =
     buildConf("kyuubi.engine.jdbc.initialize.sql")

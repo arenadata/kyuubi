@@ -43,6 +43,21 @@ import org.apache.kyuubi.service.authentication.{AuthenticationProviderFactory, 
 object KyuubiFlightAuthHandler {
   private val NEGOTIATE_PREFIX = "Negotiate "
 
+  /**
+   * True when an authentication failure comes from an unreachable directory (connection
+   * refused, timeout, unknown host, LDAP server unavailable) rather than bad credentials.
+   * The LDAP provider keeps the JNDI exception as the cause.
+   */
+  private[flight] def isServiceUnavailable(e: Throwable): Boolean =
+    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).take(16).exists {
+      case _: javax.naming.CommunicationException => true
+      case _: javax.naming.ServiceUnavailableException => true
+      case _: java.net.ConnectException => true
+      case _: java.net.SocketTimeoutException => true
+      case _: java.net.UnknownHostException => true
+      case _ => false
+    }
+
   def create(conf: KyuubiConf): CallHeaderAuthenticator = {
     val delegate = new KyuubiFlightAuthHandler(conf)
     if (delegate.issuesBearerTokens) {
@@ -163,7 +178,26 @@ class KyuubiFlightAuthHandler(conf: KyuubiConf)
     }
     val user = decoded.substring(0, separator)
     val password = decoded.substring(separator + 1)
-    passwordProvider.get.authenticate(user, password)
+    try {
+      passwordProvider.get.authenticate(user, password)
+    } catch {
+      // Providers signal failures with checked or wrapped exceptions (LDAP throws
+      // IllegalStateException(AuthenticationException)); Flight would report those as a
+      // bare UNKNOWN. An unreachable directory is UNAVAILABLE (the client may retry), every
+      // other provider failure is UNAUTHENTICATED.
+      case NonFatal(e) if KyuubiFlightAuthHandler.isServiceUnavailable(e) =>
+        warn(s"Flight SQL basic authentication of $user failed, provider unavailable", e)
+        throw CallStatus.UNAVAILABLE
+          .withDescription("Authentication service unavailable, try again later")
+          .withCause(e)
+          .toRuntimeException
+      case NonFatal(e) =>
+        warn(s"Flight SQL basic authentication failed for user $user: ${e.getMessage}")
+        throw CallStatus.UNAUTHENTICATED
+          .withDescription("Invalid username or password")
+          .withCause(e)
+          .toRuntimeException
+    }
     authResult(user)
   }
 

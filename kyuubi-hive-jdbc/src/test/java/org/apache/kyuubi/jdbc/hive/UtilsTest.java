@@ -306,6 +306,29 @@ public class UtilsTest {
   }
 
   @Test
+  public void testImpalaDoasUserFromPropertiesAndUrl() throws JdbcUriParseException {
+    String url = "jdbc:hive2://impalad:21050/default;ssl=true;principal=impala/_HOST@REALM";
+
+    Properties props = new Properties();
+    props.setProperty(JdbcConnectionParams.IMPALA_DOAS_USER, "alice");
+    JdbcConnectionParams fromProps = Utils.extractURLComponents(url, props);
+    assertEquals("alice", fromProps.getSessionVars().get(JdbcConnectionParams.IMPALA_DOAS_USER));
+    // a session var, not a hive conf (Impala ignores set:hiveconf:impala.doas.user)
+    assertEquals(null, fromProps.getHiveConfs().get(JdbcConnectionParams.IMPALA_DOAS_USER));
+
+    JdbcConnectionParams fromUrl =
+        Utils.extractURLComponents(url + ";impala.doas.user=bob", new Properties());
+    assertEquals("bob", fromUrl.getSessionVars().get(JdbcConnectionParams.IMPALA_DOAS_USER));
+
+    // the URL wins over connection properties
+    JdbcConnectionParams both = Utils.extractURLComponents(url + ";impala.doas.user=bob", props);
+    assertEquals("bob", both.getSessionVars().get(JdbcConnectionParams.IMPALA_DOAS_USER));
+
+    JdbcConnectionParams none = Utils.extractURLComponents(url, new Properties());
+    assertEquals(null, none.getSessionVars().get(JdbcConnectionParams.IMPALA_DOAS_USER));
+  }
+
+  @Test
   public void testParsePropertyFromUrlWithoutQueryString() {
     // Test case without query string
     String url = "jdbc:hive2://localhost:10009/db;auth=KERBEROS;transportMode=binary";
