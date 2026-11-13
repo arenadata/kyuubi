@@ -23,6 +23,7 @@ import org.apache.arrow.flight.sql.util.TableRef
 
 import org.apache.kyuubi.{FlightSqlTestHelper, WithFlightSqlServer}
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 
 class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTestHelper {
 
@@ -141,6 +142,34 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
         // the Spark engine declares no keys (or does not support the request at all)
         assert(readAllRows(sqlClient, info).isEmpty)
       }
+    }
+  }
+
+  private def openOperations: Long =
+    MetricsSystem.counterValue(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN).getOrElse(0L)
+
+  test("failed queries leave no open operation, also when the result type is unsupported") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val before = openOperations
+      intercept[FlightRuntimeException] {
+        sqlClient.execute("SELECT * FROM kyuubi_flight_missing_table_open")
+      }
+      // ARRAY results have no Flight SQL mapping yet: the schema conversion fails after the
+      // statement ran
+      val e = intercept[FlightRuntimeException] {
+        sqlClient.execute("SELECT array(1, 2) AS a")
+      }
+      assert(Option(e.getMessage).getOrElse("").contains("Unsupported"), e.getMessage)
+      assert(openOperations === before)
+    }
+  }
+
+  test("a query sent through the update path reports 0 rows") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      // only the first rows are read to look for an update count
+      assert(sqlClient.executeUpdate("SELECT id FROM range(1000000)") === 0L)
+      // the statement ran; a result type without a Flight SQL mapping only means no count
+      assert(sqlClient.executeUpdate("SELECT array(1, 2) AS a") === 0L)
     }
   }
 }

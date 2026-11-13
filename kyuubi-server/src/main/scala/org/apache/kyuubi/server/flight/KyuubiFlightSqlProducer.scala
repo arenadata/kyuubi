@@ -19,7 +19,7 @@ package org.apache.kyuubi.server.flight
 
 import java.nio.charset.StandardCharsets
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
@@ -44,6 +44,7 @@ import org.apache.kyuubi.server.flight.KyuubiFlightPreparedStatements._
 import org.apache.kyuubi.service.BackendService
 import org.apache.kyuubi.session.SessionHandle
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
+import org.apache.kyuubi.util.ThreadUtils
 
 class KyuubiFlightSqlProducer(
     backend: BackendService,
@@ -83,7 +84,7 @@ class KyuubiFlightSqlProducer(
     try {
       registerQuery(executeQuery(command.getQuery, context), descriptor)
     } catch {
-      case e: RuntimeException => throw e
+      case e: FlightRuntimeException => throw e
       case NonFatal(e) => throw flightError(CallStatus.INTERNAL, e)
     }
   }
@@ -109,8 +110,9 @@ class KyuubiFlightSqlProducer(
           }
           throw e
       }
+    var operation: OperationHandle = null
     try {
-      val operation = backend.executeStatement(
+      operation = backend.executeStatement(
         session,
         sql,
         Map.empty,
@@ -119,20 +121,18 @@ class KyuubiFlightSqlProducer(
       val status = waitForCompletion(operation, () => context.isCancelled)
       // Check the state before asking for metadata: a failed operation has no result
       // schema, and the engine error (e.g. an Impala ParseException) must reach the client.
-      if (status.state != OperationState.FINISHED) {
-        closeResources(session, operation)
-        MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
-        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
-        throw operationError(status)
-      }
+      if (status.state != OperationState.FINISHED) throw operationError(status)
       val schema =
         KyuubiFlightArrowUtils.schemaFromMetadata(backend.getResultSetMetadata(operation))
       QueryState(owner, session, operation, schema, location().getUri.toString)
     } catch {
+      // every failure after the session is open (engine error, unsupported result type, ...)
+      // releases the operation and the session once and is counted as a failed operation
       case NonFatal(e) =>
-        try backend.closeSession(session)
-        catch {
-          case NonFatal(closeError) => warn("Failed to close Flight SQL session", closeError)
+        closeResources(session, operation)
+        MetricsSystem.tracing { ms =>
+          ms.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
+          ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL)
         }
         throw e
     }
@@ -177,7 +177,7 @@ class KyuubiFlightSqlProducer(
       new SchemaResult(
         KyuubiFlightArrowUtils.schemaFromMetadata(backend.getResultSetMetadata(operation)))
     } catch {
-      case e: RuntimeException => throw e
+      case e: FlightRuntimeException => throw e
       case NonFatal(e) => throw flightError(CallStatus.INTERNAL, e)
     } finally {
       closeResources(session, operation)
@@ -524,6 +524,26 @@ class KyuubiFlightSqlProducer(
 
   private val preparedStatementIdleTimeoutMs = conf.get(FRONTEND_FLIGHT_SQL_TOKEN_TTL)
 
+  // Prepared statements of clients that disconnect without closing them keep their
+  // prepare-time result (engine session and operation) until they expire; sweep them
+  // periodically instead of only when another statement is prepared.
+  private val preparedStatementSweeper = {
+    val executor = ThreadUtils.newDaemonSingleThreadScheduledExecutor(
+      "flight-sql-prepared-statement-sweeper",
+      executeExistingDelayedTasksAfterShutdown = false)
+    val intervalMs = sweepIntervalMs(preparedStatementIdleTimeoutMs)
+    executor.scheduleWithFixedDelay(
+      () =>
+        try expireIdlePreparedStatements()
+        catch {
+          case NonFatal(e) => warn("Failed to expire idle Flight SQL prepared statements", e)
+        },
+      intervalMs,
+      intervalMs,
+      TimeUnit.MILLISECONDS)
+    executor
+  }
+
   private val emptySchema = new Schema(java.util.Collections.emptyList())
 
   override def createPreparedStatement(
@@ -593,7 +613,7 @@ class KyuubiFlightSqlProducer(
         case Run => registerQuery(executeQuery(state.sql, context), descriptor)
       }
     } catch {
-      case e: RuntimeException => throw e
+      case e: FlightRuntimeException => throw e
       case NonFatal(e) => throw flightError(CallStatus.INTERNAL, e)
     }
   }
@@ -714,7 +734,18 @@ class KyuubiFlightSqlProducer(
         Map.empty,
         runAsync = true,
         queryTimeout = 0)
-      val rows = collectMetadataRows(context, operation)
+      val status = waitForCompletion(operation, () => context.isCancelled)
+      if (status.state != OperationState.FINISHED) throw operationError(status)
+      // an update count is a single value: read at most two rows, so a query sent through
+      // the update path is not collected on the server
+      val rows =
+        try collectMetadataRows(context, operation, maxRows = Some(2))
+        catch {
+          // the statement has run; a result that cannot be read only means no count
+          case NonFatal(e) =>
+            warn(s"Flight SQL update ran, but its result could not be read: ${e.getMessage}")
+            Seq.empty
+        }
       rows match {
         case Seq(row) if row.size == 1 =>
           row.values.head match {
@@ -791,6 +822,7 @@ class KyuubiFlightSqlProducer(
   }
 
   override def close(): Unit = {
+    preparedStatementSweeper.shutdownNow()
     queryStates.entrySet().asScala.foreach(entry => closeState(entry.getKey, entry.getValue))
     queryStates.clear()
     preparedStates.values().asScala.foreach(state => releasePending(state.takePending()))
@@ -817,7 +849,8 @@ class KyuubiFlightSqlProducer(
    */
   private def collectMetadataRows(
       context: CallContext,
-      operation: OperationHandle): Seq[KyuubiFlightMetadata.MetadataRow] = {
+      operation: OperationHandle,
+      maxRows: Option[Int] = None): Seq[KyuubiFlightMetadata.MetadataRow] = {
     try {
       val status = waitForCompletion(operation, () => context.isCancelled)
       if (status.state != OperationState.FINISHED) throw operationError(status)
@@ -828,11 +861,12 @@ class KyuubiFlightSqlProducer(
         val loader = new VectorLoader(source)
         val rows = ArrayBuffer[KyuubiFlightMetadata.MetadataRow]()
         var more = true
-        while (more && !context.isCancelled) {
+        val pageSize = maxRows.map(math.min(_, fetchPageSize)).getOrElse(fetchPageSize)
+        while (more && !context.isCancelled && maxRows.forall(rows.size < _)) {
           val rowSet = backend.fetchResults(
             operation,
             FetchOrientation.FETCH_NEXT,
-            fetchPageSize,
+            pageSize,
             fetchLog = false).getResults
           if (KyuubiFlightArrowUtils.isEmpty(rowSet)) {
             more = false
@@ -848,7 +882,7 @@ class KyuubiFlightSqlProducer(
             more = source.getRowCount > 0
           }
         }
-        rows.toSeq
+        maxRows.map(rows.take).getOrElse(rows).toSeq
       } finally {
         source.close()
       }

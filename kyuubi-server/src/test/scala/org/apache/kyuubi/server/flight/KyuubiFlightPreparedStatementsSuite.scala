@@ -47,4 +47,10 @@ class KyuubiFlightPreparedStatementsSuite extends KyuubiFunSuite {
   test("a query executed after going through the update path runs again") {
     assert(nextExecution(UpdateRan(now), isQuery = true, now) === Run)
   }
+
+  test("idle prepared statements are swept every half timeout, between 1 s and 1 min") {
+    assert(sweepIntervalMs(500L) === 1000L)
+    assert(sweepIntervalMs(10000L) === 5000L)
+    assert(sweepIntervalMs(24L * 60 * 60 * 1000) === 60000L)
+  }
 }

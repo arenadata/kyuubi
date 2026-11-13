@@ -52,6 +52,13 @@ private[flight] object KyuubiFlightPreparedStatements {
   /** The JDBC driver asks for the result right after the update. */
   val UpdateResultWindowMs: Long = 60000L
 
+  /**
+   * How often idle prepared statements are swept: half the idle timeout, between 1 second
+   * and 1 minute, so a statement is released at most about a minute after it expires.
+   */
+  def sweepIntervalMs(idleTimeoutMs: Long): Long =
+    math.min(math.max(idleTimeoutMs / 2, 1000L), 60000L)
+
   def nextExecution[Q](pending: Pending[Q], isQuery: Boolean, nowMs: Long): Execution[Q] =
     pending match {
       case Cached(result) => UseCached(result)
