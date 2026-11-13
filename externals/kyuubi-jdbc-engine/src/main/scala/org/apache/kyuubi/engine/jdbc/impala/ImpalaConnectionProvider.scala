@@ -16,8 +16,12 @@
  */
 package org.apache.kyuubi.engine.jdbc.impala
 
+import java.sql.Connection
+import java.util.Locale
+
+import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED
+import org.apache.kyuubi.config.KyuubiConf.{ENGINE_JDBC_CONNECTION_PROPERTIES, ENGINE_JDBC_CONNECTION_URL, ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED}
 import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY
 import org.apache.kyuubi.engine.jdbc.connection.JdbcConnectionProvider
 
@@ -34,6 +38,11 @@ class ImpalaConnectionProvider extends JdbcConnectionProvider {
    */
   override protected def connectionProperties(kyuubiConf: KyuubiConf): Map[String, String] =
     ImpalaConnectionProvider.delegationProperties(kyuubiConf)
+
+  override def getConnection(kyuubiConf: KyuubiConf): Connection = {
+    ImpalaConnectionProvider.checkNoExplicitDelegation(kyuubiConf)
+    super.getConnection(kyuubiConf)
+  }
 }
 
 object ImpalaConnectionProvider {
@@ -43,6 +52,24 @@ object ImpalaConnectionProvider {
 
   /** Impala delegation key, sent by the Kyuubi Hive driver as a raw OpenSession config. */
   val IMPALA_DOAS_USER = "impala.doas.user"
+
+  /**
+   * Rejects `impala.doas.user` in the connection URL or `kyuubi.engine.jdbc.connection.properties`.
+   * The Kyuubi service user may delegate to anyone on impalad, so a delegation user from there
+   * would let a session run as any user; it is set only by [[delegationProperties]].
+   */
+  def checkNoExplicitDelegation(kyuubiConf: KyuubiConf): Unit = {
+    val inUrl = kyuubiConf.get(ENGINE_JDBC_CONNECTION_URL)
+      .exists(_.toLowerCase(Locale.ROOT).contains(IMPALA_DOAS_USER))
+    val inProperties = kyuubiConf.get(ENGINE_JDBC_CONNECTION_PROPERTIES)
+      .exists(_.split("=", 2).head.trim.equalsIgnoreCase(IMPALA_DOAS_USER))
+    if (inUrl || inProperties) {
+      throw KyuubiSQLException(
+        s"$IMPALA_DOAS_USER must not be set in ${ENGINE_JDBC_CONNECTION_URL.key} or " +
+          s"${ENGINE_JDBC_CONNECTION_PROPERTIES.key}; enable " +
+          s"${ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED.key} to run sessions as their user")
+    }
+  }
 
   def delegationProperties(kyuubiConf: KyuubiConf): Map[String, String] = {
     if (kyuubiConf.get(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED)) {

@@ -18,7 +18,7 @@
 package org.apache.kyuubi.server.flight
 
 import org.apache.kyuubi.KyuubiFunSuite
-import org.apache.kyuubi.server.flight.KyuubiFlightSqlStatements.{firstKeyword, isQuery}
+import org.apache.kyuubi.server.flight.KyuubiFlightSqlStatements.{firstKeyword, isQuery, topLevelWords}
 
 class KyuubiFlightSqlStatementsSuite extends KyuubiFunSuite {
 
@@ -68,5 +68,39 @@ class KyuubiFlightSqlStatementsSuite extends KyuubiFunSuite {
     assert(isQuery("/* hint */ SELECT 1"))
     assert(!isQuery("-- only a comment"))
     assert(!isQuery("/* unterminated"))
+  }
+
+  test("WITH followed by DML is not a query") {
+    Seq(
+      "WITH s AS (SELECT 1 AS a) INSERT INTO t SELECT * FROM s",
+      "with s as (select 1) insert overwrite table t select * from s",
+      "WITH a AS (SELECT 1), b (x) AS (SELECT 2) INSERT INTO t SELECT * FROM a, b",
+      "WITH s AS (SELECT 1) FROM s INSERT INTO t SELECT *",
+      "WITH s AS (SELECT 1) UPSERT INTO t SELECT * FROM s",
+      "WITH s AS (SELECT 1) UPDATE t SET a = 1",
+      "WITH s AS (SELECT 1) DELETE FROM t",
+      "WITH s AS (SELECT 1) MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN DELETE",
+      "/* c */ WITH s AS (SELECT ')' AS p) -- ) select\n INSERT INTO t SELECT * FROM s").foreach {
+      sql => assert(!isQuery(sql), sql)
+    }
+  }
+
+  test("WITH queries stay queries when DML words are nested or quoted") {
+    Seq(
+      "WITH s AS (SELECT 'insert' AS a) SELECT * FROM s",
+      "WITH s AS (SELECT `update` FROM t) SELECT * FROM s",
+      "WITH s AS (SELECT \"delete\" FROM t) SELECT * FROM s",
+      "WITH s AS (SELECT 1 /* insert */) SELECT * FROM s -- delete",
+      "WITH s AS (SELECT 'it''s (' AS a) SELECT * FROM s",
+      "WITH s AS (SELECT 'a\\'b' AS a) SELECT * FROM s",
+      "WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a UNION ALL SELECT * FROM b",
+      "WITH s AS (SELECT 1) (SELECT * FROM s)").foreach { sql =>
+      assert(isQuery(sql), sql)
+    }
+  }
+
+  test("top-level words skip parentheses, literals and comments") {
+    assert(topLevelWords("WITH s AS (SELECT x FROM y) INSERT INTO t SELECT 'a b' -- c\n") ===
+      Seq("with", "s", "as", "insert", "into", "t", "select"))
   }
 }

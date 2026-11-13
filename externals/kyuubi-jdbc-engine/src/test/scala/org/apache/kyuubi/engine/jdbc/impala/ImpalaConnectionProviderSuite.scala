@@ -17,14 +17,14 @@
 
 package org.apache.kyuubi.engine.jdbc.impala
 
-import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.{KyuubiFunSuite, KyuubiSQLException}
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED
+import org.apache.kyuubi.config.KyuubiConf.{ENGINE_JDBC_CONNECTION_PROPERTIES, ENGINE_JDBC_CONNECTION_URL, ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED}
 import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY
 
 class ImpalaConnectionProviderSuite extends KyuubiFunSuite {
 
-  import ImpalaConnectionProvider.{delegationProperties, IMPALA_DOAS_USER}
+  import ImpalaConnectionProvider.{checkNoExplicitDelegation, delegationProperties, IMPALA_DOAS_USER}
 
   test("impersonation is off by default") {
     val conf = KyuubiConf(false).set(KYUUBI_SESSION_USER_KEY, "alice")
@@ -42,5 +42,31 @@ class ImpalaConnectionProviderSuite extends KyuubiFunSuite {
     val enabled = KyuubiConf(false).set(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED, true)
     assert(delegationProperties(enabled).isEmpty)
     assert(delegationProperties(enabled.clone.set(KYUUBI_SESSION_USER_KEY, "  ")).isEmpty)
+  }
+
+  private val url = "jdbc:hive2://impalad:21050/default;ssl=true;principal=impala/_HOST@EXAMPLE.COM"
+
+  test("explicit impala.doas.user in the URL or connection properties is rejected") {
+    Seq(
+      KyuubiConf(false).set(ENGINE_JDBC_CONNECTION_URL, s"$url;impala.doas.user=admin"),
+      KyuubiConf(false).set(ENGINE_JDBC_CONNECTION_URL, s"$url;IMPALA.DOAS.USER=admin"),
+      KyuubiConf(false).set(ENGINE_JDBC_CONNECTION_URL, s"$url?impala.doas.user=admin"),
+      KyuubiConf(false)
+        .set(ENGINE_JDBC_CONNECTION_URL, url)
+        .set(ENGINE_JDBC_CONNECTION_PROPERTIES, Seq("fetchSize=100", " impala.doas.user = admin")),
+      KyuubiConf(false)
+        .set(ENGINE_JDBC_CONNECTION_URL, s"$url;impala.doas.user=admin")
+        .set(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED, true)).foreach { conf =>
+      val e = intercept[KyuubiSQLException](checkNoExplicitDelegation(conf))
+      assert(e.getMessage.contains(IMPALA_DOAS_USER))
+    }
+  }
+
+  test("connections without an explicit delegation user are allowed") {
+    checkNoExplicitDelegation(KyuubiConf(false))
+    checkNoExplicitDelegation(KyuubiConf(false)
+      .set(ENGINE_JDBC_CONNECTION_URL, url)
+      .set(ENGINE_JDBC_CONNECTION_PROPERTIES, Seq("fetchSize=100"))
+      .set(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED, true))
   }
 }

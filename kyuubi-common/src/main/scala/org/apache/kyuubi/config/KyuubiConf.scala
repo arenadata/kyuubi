@@ -3812,7 +3812,9 @@ object KyuubiConf {
       .doc("Whether the Impala JDBC connection provider runs each session as the Kyuubi " +
         "session user via Impala delegation (`impala.doas.user`). The JDBC engine connects " +
         "to Impala with its own credentials (e.g. the Kyuubi keytab), so Impala must allow " +
-        "that user to delegate, e.g. `--authorized_proxy_user_config=kyuubi=*` on impalad.")
+        "that user to delegate, e.g. `--authorized_proxy_user_config=kyuubi=*` on impalad. " +
+        "Only the server configuration (defaults, engine profiles) sets it; client session " +
+        "values are ignored.")
       .version("1.11.1")
       .booleanConf
       .createWithDefault(false)
