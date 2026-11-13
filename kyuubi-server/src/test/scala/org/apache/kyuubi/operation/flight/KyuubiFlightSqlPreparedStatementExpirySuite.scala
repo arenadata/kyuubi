@@ -41,9 +41,10 @@ class KyuubiFlightSqlPreparedStatementExpirySuite
   test("an abandoned prepared statement expires without another prepare") {
     withFlightSqlClient() { (_, sqlClient) =>
       val ps = sqlClient.prepare("DROP TABLE IF EXISTS kyuubi_flight_ps_abandoned", alice)
-      // Not closed by the client. Every use of the handle refreshes its idle time (and executing
-      // it would run the statement), so wait past the 2 s timeout plus one 1 s sweep first.
-      Thread.sleep(4500)
+      // Not closed by the client. This cannot poll with `eventually`: every use of the handle
+      // refreshes its idle time, and executing it before it expires would run the DROP (and
+      // launch an engine). Wait once, well past the 2 s timeout plus one 1 s sweep.
+      Thread.sleep(6000)
       val e = intercept[FlightRuntimeException](ps.executeUpdate(alice))
       assert(e.status().code() === FlightStatusCode.NOT_FOUND, e.getMessage)
     }

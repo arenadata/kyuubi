@@ -150,6 +150,9 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
 
   test("failed queries leave no open operation, also when the result type is unsupported") {
     withFlightSqlClient() { (_, sqlClient) =>
+      // warm up so the counter exists; without metrics the check below would compare 0 with 0
+      readAllRows(sqlClient, sqlClient.execute("SELECT 1"))
+      assert(MetricsSystem.counterValue(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN).isDefined)
       val before = openOperations
       intercept[FlightRuntimeException] {
         sqlClient.execute("SELECT * FROM kyuubi_flight_missing_table_open")

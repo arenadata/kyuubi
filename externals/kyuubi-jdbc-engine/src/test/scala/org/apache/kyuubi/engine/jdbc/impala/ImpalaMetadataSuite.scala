@@ -33,7 +33,9 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
 
   private def names(values: String*): Seq[Map[String, String]] = values.map(v => Map("name" -> v))
 
-  private class FakeImpala(showViewsFails: Boolean = false) {
+  private class FakeImpala(
+      showViewsFails: Boolean = false,
+      describeFails: Set[String] = Set.empty) {
     val executed = ArrayBuffer[String]()
 
     def run(sql: String): Seq[Map[String, String]] = {
@@ -51,6 +53,8 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
         case "SHOW TABLES IN `vdmitriev`" => names("table_parquet", "events")
         case v if v.startsWith("SHOW VIEWS IN") && showViewsFails =>
           throw new java.sql.SQLException("ParseException: Syntax error")
+        case d if d.startsWith("DESCRIBE ") && describeFails.contains(d.stripPrefix("DESCRIBE ")) =>
+          throw new java.sql.SQLException(s"AuthorizationException: no privilege for $d")
         case "SHOW VIEWS IN `sales_db`" => names("store_view")
         case v if v.startsWith("SHOW VIEWS IN") => Seq.empty
         case "DESCRIBE `sales_db`.`store_sales`" =>
@@ -143,6 +147,17 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
 
     assert(impala.metadata.columns("vdmitriev", "%", "d%").map(r => (col(r, 2), col(r, 3))) ===
       Seq(("table_parquet", "data"), ("events", "device_id")))
+  }
+
+  test("a table that cannot be described is skipped, the other tables keep their columns") {
+    val impala = new FakeImpala(describeFails = Set("`sales_db`.`store_view`"))
+    val rows = impala.metadata.columns("sales_db", "%", "%")
+    assert(rows.map(r => (col(r, 2), col(r, 3))) === Seq(
+      ("store_sales", "ss_item_sk"),
+      ("store_sales", "ss_list_price"),
+      ("store_sales", "ss_sold_date_sk"),
+      ("items", "id")))
+    assert(impala.executed.contains("DESCRIBE `sales_db`.`store_view`"))
   }
 
   test("Impala type strings map to JDBC types") {

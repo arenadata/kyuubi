@@ -923,7 +923,16 @@ class KyuubiFlightSqlProducer(
               Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
             Seq.empty
         }
-      val schemasByTable = tableSchemas.map(_(session)).getOrElse(Map.empty)
+      // The table list is already collected; when the column lookup for include_schema fails
+      // (e.g. a table that cannot be described), answer with empty table schemas instead.
+      val schemasByTable =
+        try tableSchemas.map(_(session)).getOrElse(Map.empty)
+        catch {
+          case NonFatal(e) =>
+            warn("Flight SQL GetTables could not read table schemas, returning empty ones: " +
+              Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+            Map.empty[KyuubiFlightMetadata.TableKey, Array[Byte]]
+        }
       val root = VectorSchemaRoot.create(schema, allocator)
       try {
         listener.start(root)

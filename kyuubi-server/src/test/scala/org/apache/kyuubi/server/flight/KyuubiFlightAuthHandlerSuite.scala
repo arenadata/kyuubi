@@ -24,7 +24,7 @@ import org.apache.arrow.flight.{CallHeaders, FlightRuntimeException, FlightStatu
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_CUSTOM_CLASS, AUTHENTICATION_METHOD}
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_CUSTOM_CLASS, AUTHENTICATION_LDAP_BASE_DN, AUTHENTICATION_LDAP_URL, AUTHENTICATION_METHOD}
 import org.apache.kyuubi.service.authentication.UserDefineAuthenticationProviderImpl
 
 class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
@@ -83,6 +83,38 @@ class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
     assert(!e.getMessage.contains("wrong"), "the password must not leak into the error")
 
     assert(auth.authenticate(basic("user", "password")).getPeerIdentity === "user")
+  }
+
+  test("an unreachable LDAP server is UNAVAILABLE, not UNAUTHENTICATED") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("LDAP"))
+      // nothing listens on port 1: the connection is refused at once
+      .set(AUTHENTICATION_LDAP_URL, "ldap://127.0.0.1:1")
+      .set(AUTHENTICATION_LDAP_BASE_DN, "ou=people,dc=example,dc=com")
+    val auth = new KyuubiFlightAuthHandler(conf)
+    val headers = new MapCallHeaders
+    headers.insert(
+      "authorization",
+      "Basic " + Base64.getEncoder.encodeToString("alice:secret".getBytes("UTF-8")))
+    val e = intercept[FlightRuntimeException](auth.authenticate(headers))
+    assert(e.status().code() === FlightStatusCode.UNAVAILABLE, e.getMessage)
+    assert(!e.getMessage.contains("secret"), "the password must not leak into the error")
+  }
+
+  test("only connection failures in the cause chain count as an unavailable provider") {
+    import KyuubiFlightAuthHandler.isServiceUnavailable
+    val refused = new javax.naming.CommunicationException("127.0.0.1:1")
+    refused.setRootCause(new java.net.ConnectException("Connection refused"))
+    val wrapped = new IllegalStateException(
+      new javax.security.sasl.AuthenticationException("Error validating LDAP user", refused))
+    assert(isServiceUnavailable(wrapped))
+    assert(isServiceUnavailable(new java.net.SocketTimeoutException("Read timed out")))
+
+    val badPassword = new IllegalStateException(new javax.security.sasl.AuthenticationException(
+      "Error validating LDAP user",
+      new javax.naming.AuthenticationException("[LDAP: error code 49 - Invalid Credentials]")))
+    assert(!isServiceUnavailable(badPassword))
+    assert(!isServiceUnavailable(new javax.security.sasl.AuthenticationException("no such user")))
   }
 
   private class MapCallHeaders extends CallHeaders {

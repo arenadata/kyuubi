@@ -67,9 +67,23 @@ class ImpalaMetadata(run: String => Seq[Map[String, String]]) extends Logging {
     for {
       db <- databases(schemaPattern)
       table <- showNames(s"SHOW TABLES IN ${quote(db)}") if tableMatcher(table)
-      (column, position) <- describe(db, table).zipWithIndex
+      (column, position) <- describeOrSkip(db, table).zipWithIndex
       if columnMatcher(column.name)
     } yield columnRow(db, table, column, position + 1)
+  }
+
+  /**
+   * Columns of a table, or none when it cannot be described (e.g. Ranger allows listing but
+   * not describing it, or its files are missing): one such table must not fail GetColumns
+   * for all others.
+   */
+  private def describeOrSkip(db: String, table: String): Seq[ImpalaColumn] = {
+    try describe(db, table)
+    catch {
+      case NonFatal(e) =>
+        warn(s"Skipping columns of $db.$table, DESCRIBE failed: ${e.getMessage}")
+        Seq.empty
+    }
   }
 
   private def databases(schemaPattern: String): Seq[String] = {
