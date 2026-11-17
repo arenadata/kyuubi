@@ -31,6 +31,7 @@ import org.apache.kyuubi.ha.client.{FlightSqlServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.server.flight.{KyuubiFlightAllocator, KyuubiFlightAuthHandler, KyuubiFlightSessionConfMiddleware, KyuubiFlightSqlProducer, KyuubiFlightTlsUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service}
+import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
 import org.apache.kyuubi.util.{JavaUtils, NamedThreadFactory}
 
 class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
@@ -82,6 +83,12 @@ class KyuubiFlightSqlFrontendService(override val serverable: Serverable)
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
+    // The Thrift frontends initialize it through KyuubiAuthenticationFactory; without it a
+    // server with only the Flight SQL frontend cannot launch engines with
+    // kyuubi.engine.security.enabled (KyuubiSessionImpl issues the engine token).
+    if (conf.get(ENGINE_SECURITY_ENABLED)) {
+      InternalSecurityAccessor.initialize(conf, isServer = true)
+    }
     configuredPort = this.conf.get(FRONTEND_FLIGHT_SQL_BIND_PORT)
     KyuubiFlightAllocator.useUnsafeAllocator()
     info("Flight SQL Arrow allocator pinned to Unsafe")

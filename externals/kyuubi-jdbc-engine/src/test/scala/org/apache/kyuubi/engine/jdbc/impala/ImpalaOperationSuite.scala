@@ -117,4 +117,16 @@ abstract class ImpalaOperationSuite extends WithImpalaEngine with HiveJDBCTestHe
       }
     }
   }
+
+  test("impala - get type info") {
+    withJdbcStatement() { statement =>
+      val rs = statement.getConnection.getMetaData.getTypeInfo
+      val types = ArrayBuffer[(String, Int)]()
+      while (rs.next()) types += rs.getString("TYPE_NAME") -> rs.getInt("DATA_TYPE")
+      assert(types.contains("INT" -> java.sql.Types.INTEGER))
+      assert(types.contains("STRING" -> java.sql.Types.VARCHAR))
+      assert(types.contains("DECIMAL" -> java.sql.Types.DECIMAL))
+      assert(types.map(_._2) === types.map(_._2).sorted)
+    }
+  }
 }

@@ -145,6 +145,21 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
     }
   }
 
+  test("GetXdbcTypeInfo maps the engine's JDBC type info by name") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      val info = sqlClient.getXdbcTypeInfo()
+      assert(info.getSchemaOptional.get() === Schemas.GET_TYPE_INFO_SCHEMA)
+      val rows = readAllRows(sqlClient, info)
+      val names = rows.map(_.head.toString)
+      assert(names.contains("INTEGER") && names.contains("STRING"), names)
+      val dataTypes = rows.map(_(1).asInstanceOf[Int])
+      assert(dataTypes === dataTypes.sorted)
+      // filtered by data type
+      val ints = readAllRows(sqlClient, sqlClient.getXdbcTypeInfo(java.sql.Types.INTEGER))
+      assert(ints.map(_.head.toString) === Seq("INTEGER"))
+    }
+  }
+
   private def openOperations: Long =
     MetricsSystem.counterValue(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN).getOrElse(0L)
 

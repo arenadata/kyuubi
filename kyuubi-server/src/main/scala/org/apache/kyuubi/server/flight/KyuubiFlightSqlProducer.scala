@@ -26,9 +26,9 @@ import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
 import com.google.protobuf.{Any => ProtoAny, ByteString}
-import org.apache.arrow.flight.{CallStatus, FlightDescriptor, FlightEndpoint, FlightInfo, FlightRuntimeException, FlightStream, Location, PutResult, Result, SchemaResult, Ticket}
+import org.apache.arrow.flight.{CallStatus, CancelFlightInfoRequest, CancelStatus, FlightDescriptor, FlightEndpoint, FlightInfo, FlightRuntimeException, FlightStream, Location, PutResult, Result, SchemaResult, Ticket}
 import org.apache.arrow.flight.FlightProducer.{CallContext, ServerStreamListener, StreamListener}
-import org.apache.arrow.flight.sql.{CancelResult, NoOpFlightSqlProducer, SqlInfoBuilder}
+import org.apache.arrow.flight.sql.{NoOpFlightSqlProducer, SqlInfoBuilder}
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
 import org.apache.arrow.flight.sql.impl.FlightSql._
 import org.apache.arrow.memory.BufferAllocator
@@ -37,7 +37,7 @@ import org.apache.arrow.vector.types.pojo.Schema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, FRONTEND_FLIGHT_SQL_TOKEN_TTL, OPERATION_RESULT_FORMAT}
+import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT, FRONTEND_FLIGHT_SQL_TOKEN_TTL, OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
 import org.apache.kyuubi.operation.{FetchOrientation, OperationHandle, OperationState, OperationStatus}
 import org.apache.kyuubi.server.flight.KyuubiFlightPreparedStatements._
@@ -60,7 +60,18 @@ class KyuubiFlightSqlProducer(
       schema: Schema,
       ownerEndpoint: String)
 
-  private val queryStates = new ConcurrentHashMap[String, QueryState]()
+  /**
+   * An executed query by ticket id, from GetFlightInfo until its DoGet ends. DoGet marks it
+   * `streaming` (so it stays cancellable) and releases it at the end; cancel releases one that
+   * is not streamed yet; the sweeper releases one not fetched within
+   * [[FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT]], so a client that exits between GetFlightInfo
+   * and DoGet does not keep the engine session open.
+   */
+  private case class Registered(state: QueryState, registeredAt: Long, streaming: Boolean)
+
+  private val queryStates = new ConcurrentHashMap[String, Registered]()
+
+  private val resultIdleTimeoutMs = conf.get(FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT)
 
   private val fetchPageSize = conf.get(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS)
 
@@ -92,7 +103,7 @@ class KyuubiFlightSqlProducer(
   /**
    * Run a statement for the session owner and wait for it. On success the returned state owns
    * an open session/operation (counted in FLIGHT_SQL_OPERATION_OPEN) that is released by
-   * [[closeState]] after DoGet or by [[releaseQuery]].
+   * [[releaseQuery]] after DoGet, on cancel or when the result expires unfetched.
    */
   private def executeQuery(sql: String, context: CallContext): QueryState = {
     MetricsSystem.tracing { ms =>
@@ -141,7 +152,7 @@ class KyuubiFlightSqlProducer(
   /** Expose an executed query for DoGet under a statement ticket. */
   private def registerQuery(state: QueryState, descriptor: FlightDescriptor): FlightInfo = {
     val id = UUID.randomUUID().toString
-    queryStates.put(id, state)
+    queryStates.put(id, Registered(state, System.currentTimeMillis(), streaming = false))
     new FlightInfo(
       state.schema,
       descriptor,
@@ -152,8 +163,8 @@ class KyuubiFlightSqlProducer(
 
   /** Release an executed query that will never be streamed (e.g. an unused prepared result). */
   private def releaseQuery(state: QueryState): Unit = {
-    closeResources(state.session, state.operation)
     MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
+    closeResources(state.session, state.operation)
   }
 
   override def getSchemaStatement(
@@ -189,10 +200,9 @@ class KyuubiFlightSqlProducer(
       context: CallContext,
       listener: ServerStreamListener): Unit = {
     val id = ticket.getStatementHandle.toStringUtf8
-    val state = Option(queryStates.get(id)).getOrElse(
-      throw flightError(
-        CallStatus.NOT_FOUND,
-        new IllegalArgumentException("Unknown Flight SQL ticket")))
+    val registered = Option(queryStates.get(id)).filter(!_.streaming)
+      .getOrElse(throw unknownTicket())
+    val state = registered.state
     if (state.owner != ownerOf(context)) {
       throw flightError(
         CallStatus.UNAUTHORIZED,
@@ -206,19 +216,25 @@ class KyuubiFlightSqlProducer(
           s"Flight SQL ticket is owned by ${state.ownerEndpoint}, not $current. " +
             "Retry against the owning endpoint; transparent failover is not supported."))
     }
+    // claim the result: the sweeper and a cancel then leave it to this call, and a second
+    // DoGet of the same ticket does not read the same operation
+    val streaming = registered.copy(streaming = true)
+    if (!queryStates.replace(id, registered, streaming)) throw unknownTicket()
 
-    val iterator = new FlightResultIterator(
-      backend,
-      state.operation,
-      state.schema,
-      allocator,
-      fetchPageSize,
-      () => context.isCancelled || listener.isCancelled)
-    listener.setOnCancelHandler(() => {
-      MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
-      iterator.cancel()
-    })
+    var iterator: FlightResultIterator = null
     try {
+      iterator = new FlightResultIterator(
+        backend,
+        state.operation,
+        state.schema,
+        allocator,
+        fetchPageSize,
+        () => context.isCancelled || listener.isCancelled)
+      val it = iterator
+      listener.setOnCancelHandler(() => {
+        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
+        it.cancel()
+      })
       iterator.start(listener)
       var ok = true
       while (ok && !context.isCancelled && !listener.isCancelled) {
@@ -238,11 +254,16 @@ class KyuubiFlightSqlProducer(
         error(s"Flight SQL DoGet failed for operation ${state.operation}", e)
         if (!context.isCancelled && !listener.isCancelled) listener.error(streamError(e))
     } finally {
-      iterator.close()
-      MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
-      closeState(id, state)
+      if (iterator != null) iterator.close()
+      queryStates.remove(id, streaming)
+      releaseQuery(state)
     }
   }
+
+  private def unknownTicket(): RuntimeException =
+    flightError(
+      CallStatus.NOT_FOUND,
+      new IllegalArgumentException("Unknown or expired Flight SQL ticket"))
 
   override def getFlightInfoCatalogs(
       command: CommandGetCatalogs,
@@ -474,16 +495,26 @@ class KyuubiFlightSqlProducer(
       listener: ServerStreamListener): Unit =
     sqlInfoBuilder.send(command.getInfoList, listener)
 
+  /**
+   * By name like the other metadata requests (the engines return JDBC `getTypeInfo` columns,
+   * whose order and types differ from Flight SQL). An engine without type information
+   * answers with no rows instead of failing the ODBC/BI type discovery.
+   */
   override def getStreamTypeInfo(
       command: CommandGetXdbcTypeInfo,
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    streamMetadata(
+    streamMetadataByName(
       context,
       listener,
       Schemas.GET_TYPE_INFO_SCHEMA,
-      session =>
-        backend.getTypeInfo(session))
+      KyuubiFlightMetadata.TYPE_INFO_SOURCES,
+      session => backend.getTypeInfo(session),
+      emptyOnError = true,
+      selectRows = rows =>
+        KyuubiFlightMetadata.typeInfoRows(
+          rows,
+          if (command.hasDataType) Some(command.getDataType) else None))
 
   // ------------------------------------------------------------------ prepared statements
   //
@@ -525,19 +556,26 @@ class KyuubiFlightSqlProducer(
   private val preparedStatementIdleTimeoutMs = conf.get(FRONTEND_FLIGHT_SQL_TOKEN_TTL)
 
   // Prepared statements of clients that disconnect without closing them keep their
-  // prepare-time result (engine session and operation) until they expire; sweep them
-  // periodically instead of only when another statement is prepared.
-  private val preparedStatementSweeper = {
+  // prepare-time result (engine session and operation) until they expire, and so do query
+  // results that are never fetched; sweep both periodically instead of only when another
+  // statement is prepared.
+  private val sweeper = {
     val executor = ThreadUtils.newDaemonSingleThreadScheduledExecutor(
-      "flight-sql-prepared-statement-sweeper",
+      "flight-sql-sweeper",
       executeExistingDelayedTasksAfterShutdown = false)
-    val intervalMs = sweepIntervalMs(preparedStatementIdleTimeoutMs)
+    val intervalMs =
+      sweepIntervalMs(math.min(preparedStatementIdleTimeoutMs, resultIdleTimeoutMs))
     executor.scheduleWithFixedDelay(
-      () =>
+      () => {
         try expireIdlePreparedStatements()
         catch {
           case NonFatal(e) => warn("Failed to expire idle Flight SQL prepared statements", e)
-        },
+        }
+        try expireUnfetchedResults()
+        catch {
+          case NonFatal(e) => warn("Failed to expire unfetched Flight SQL results", e)
+        }
+      },
       intervalMs,
       intervalMs,
       TimeUnit.MILLISECONDS)
@@ -796,24 +834,45 @@ class KyuubiFlightSqlProducer(
 
   private[flight] def preparedStatementCount: Int = preparedStates.size()
 
-  override def cancelQuery(
-      info: FlightInfo,
+  /** Release query results not fetched within the result idle timeout. */
+  private def expireUnfetchedResults(): Unit = {
+    val cutoff = System.currentTimeMillis() - resultIdleTimeoutMs
+    queryStates.entrySet().asScala.foreach { entry =>
+      val registered = entry.getValue
+      if (!registered.streaming && registered.registeredAt < cutoff &&
+        queryStates.remove(entry.getKey, registered)) {
+        info(s"Released unfetched Flight SQL result ${entry.getKey} of " +
+          s"${registered.state.owner}")
+        releaseQuery(registered.state)
+      }
+    }
+  }
+
+  private[flight] def pendingResultCount: Int = queryStates.size()
+
+  /**
+   * CancelFlightInfo; the legacy CancelQuery action reaches it through the default
+   * `cancelQuery`. A result that is not streamed yet is released at once; a streamed one is
+   * released by its DoGet, which fails on the cancelled operation.
+   */
+  override def cancelFlightInfo(
+      request: CancelFlightInfoRequest,
       context: CallContext,
-      listener: StreamListener[CancelResult]): Unit = {
+      listener: StreamListener[CancelStatus]): Unit = {
     try {
-      val endpoint = info.getEndpoints.get(0)
+      val endpoint = request.getInfo.getEndpoints.get(0)
       val any = ProtoAny.parseFrom(endpoint.getTicket.getBytes)
       val statementTicket = TicketStatementQuery.parseFrom(any.getValue)
       val id = statementTicket.getStatementHandle.toStringUtf8
       Option(queryStates.get(id)) match {
-        case Some(state) if state.owner == ownerOf(context) =>
+        case Some(registered) if registered.state.owner == ownerOf(context) =>
+          val state = registered.state
           cancelState(state)
+          if (!registered.streaming && queryStates.remove(id, registered)) releaseQuery(state)
           MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
-          listener.onNext(CancelResult.CANCELLED)
-        case Some(_) =>
-          listener.onNext(CancelResult.NOT_CANCELLABLE)
-        case None =>
-          listener.onNext(CancelResult.NOT_CANCELLABLE)
+          listener.onNext(CancelStatus.CANCELLED)
+        case _ =>
+          listener.onNext(CancelStatus.NOT_CANCELLABLE)
       }
       listener.onCompleted()
     } catch {
@@ -822,9 +881,12 @@ class KyuubiFlightSqlProducer(
   }
 
   override def close(): Unit = {
-    preparedStatementSweeper.shutdownNow()
-    queryStates.entrySet().asScala.foreach(entry => closeState(entry.getKey, entry.getValue))
-    queryStates.clear()
+    sweeper.shutdownNow()
+    queryStates.entrySet().asScala.foreach { entry =>
+      val registered = entry.getValue
+      if (registered.streaming) cancelState(registered.state)
+      else if (queryStates.remove(entry.getKey, registered)) releaseQuery(registered.state)
+    }
     preparedStates.values().asScala.foreach(state => releasePending(state.takePending()))
     preparedStates.clear()
   }
@@ -907,7 +969,9 @@ class KyuubiFlightSqlProducer(
       operationFactory: SessionHandle => OperationHandle,
       tableSchemas: Option[SessionHandle => Map[KyuubiFlightMetadata.TableKey, Array[Byte]]] =
         None,
-      emptyOnError: Boolean = false): Unit = {
+      emptyOnError: Boolean = false,
+      selectRows: Seq[KyuubiFlightMetadata.MetadataRow] => Seq[KyuubiFlightMetadata.MetadataRow] =
+        identity): Unit = {
     val owner = ownerOf(context)
     val session = openSession(owner, context)
     MetricsSystem.tracing { ms =>
@@ -916,7 +980,7 @@ class KyuubiFlightSqlProducer(
     }
     try {
       val rows =
-        try collectMetadataRows(context, operationFactory(session))
+        try selectRows(collectMetadataRows(context, operationFactory(session)))
         catch {
           case NonFatal(e) if emptyOnError =>
             warn(s"Flight SQL metadata request not answered by the engine, returning no rows: " +
@@ -952,59 +1016,6 @@ class KyuubiFlightSqlProducer(
     } finally {
       MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
       closeResources(session, null)
-    }
-  }
-
-  private def streamMetadata(
-      context: CallContext,
-      listener: ServerStreamListener,
-      schema: Schema,
-      operationFactory: SessionHandle => OperationHandle): Unit = {
-    val owner = ownerOf(context)
-    val session = openSession(owner, context)
-    var operation: OperationHandle = null
-    var iterator: FlightResultIterator = null
-    MetricsSystem.tracing { ms =>
-      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_TOTAL)
-      ms.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN)
-    }
-    try {
-      operation = operationFactory(session)
-      val status = waitForCompletion(operation, () => context.isCancelled || listener.isCancelled)
-      if (status.state != OperationState.FINISHED) throw operationError(status)
-      iterator = new FlightResultIterator(
-        backend,
-        operation,
-        schema,
-        allocator,
-        fetchPageSize,
-        () => context.isCancelled || listener.isCancelled)
-      listener.setOnCancelHandler(() => {
-        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_CANCELLED))
-        iterator.cancel()
-      })
-      iterator.start(listener)
-      var ok = true
-      while (ok && !context.isCancelled && !listener.isCancelled) {
-        ok = iterator.nextBatch()
-        if (ok && iterator.currentRoot.getRowCount > 0) {
-          listener.putNext()
-        }
-      }
-      if (context.isCancelled || listener.isCancelled) {
-        iterator.cancel()
-      } else {
-        listener.completed()
-      }
-    } catch {
-      case NonFatal(e) =>
-        MetricsSystem.tracing(_.incCount(MetricsConstants.FLIGHT_SQL_OPERATION_FAIL))
-        error(s"Flight SQL metadata DoGet failed for operation $operation", e)
-        if (!context.isCancelled && !listener.isCancelled) listener.error(streamError(e))
-    } finally {
-      if (iterator != null) iterator.close()
-      MetricsSystem.tracing(_.decCount(MetricsConstants.FLIGHT_SQL_OPERATION_OPEN))
-      closeResources(session, operation)
     }
   }
 
@@ -1054,12 +1065,6 @@ class KyuubiFlightSqlProducer(
 
   private def ownerOf(context: CallContext): String =
     Option(context.peerIdentity()).filter(_.nonEmpty).getOrElse("anonymous")
-
-  private def closeState(id: String, state: QueryState): Unit = {
-    if (queryStates.remove(id, state)) {
-      closeResources(state.session, state.operation)
-    }
-  }
 
   private def closeResources(session: SessionHandle, operation: OperationHandle): Unit = {
     if (operation != null) {

@@ -23,7 +23,8 @@ import java.util.{Collections, Locale}
 
 import scala.collection.JavaConverters._
 
-import org.apache.arrow.vector.{BaseIntVector, FieldVector, VarBinaryVector, VarCharVector, VectorSchemaRoot}
+import org.apache.arrow.vector.{BaseIntVector, BitVector, FieldVector, VarBinaryVector, VarCharVector, VectorSchemaRoot}
+import org.apache.arrow.vector.complex.ListVector
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.arrow.vector.util.Text
@@ -55,6 +56,37 @@ object KyuubiFlightMetadata {
     "table_type" -> Seq("TABLE_TYPE"))
 
   val TABLE_TYPES_SOURCES: Sources = Map("table_type" -> Seq("TABLE_TYPE"))
+
+  /** GetXdbcTypeInfo from JDBC `getTypeInfo` rows. */
+  val TYPE_INFO_SOURCES: Sources = Map(
+    "type_name" -> Seq("TYPE_NAME"),
+    "data_type" -> Seq("DATA_TYPE"),
+    "column_size" -> Seq("PRECISION", "COLUMN_SIZE"),
+    "literal_prefix" -> Seq("LITERAL_PREFIX"),
+    "literal_suffix" -> Seq("LITERAL_SUFFIX"),
+    "create_params" -> Seq("CREATE_PARAMS"),
+    "nullable" -> Seq("NULLABLE"),
+    "case_sensitive" -> Seq("CASE_SENSITIVE"),
+    "searchable" -> Seq("SEARCHABLE"),
+    "unsigned_attribute" -> Seq("UNSIGNED_ATTRIBUTE"),
+    "fixed_prec_scale" -> Seq("FIXED_PREC_SCALE"),
+    "auto_increment" -> Seq("AUTO_INCREMENT"),
+    "local_type_name" -> Seq("LOCAL_TYPE_NAME"),
+    "minimum_scale" -> Seq("MINIMUM_SCALE"),
+    "maximum_scale" -> Seq("MAXIMUM_SCALE"),
+    "sql_data_type" -> Seq("SQL_DATA_TYPE", "DATA_TYPE"),
+    "datetime_subcode" -> Seq("SQL_DATETIME_SUB"),
+    "num_prec_radix" -> Seq("NUM_PREC_RADIX"))
+
+  /**
+   * GetXdbcTypeInfo rows: only `dataType` when given, ordered by data type and then type
+   * name as Flight SQL requires.
+   */
+  def typeInfoRows(rows: Seq[MetadataRow], dataType: Option[Int]): Seq[MetadataRow] =
+    rows
+      .filter(row => dataType.forall(t => int(row, "DATA_TYPE").contains(t)))
+      .sortBy(row =>
+        (int(row, "DATA_TYPE").getOrElse(Int.MaxValue), Option(string(row, "TYPE_NAME"))))
 
   val PRIMARY_KEYS_SOURCES: Sources = Map(
     "catalog_name" -> Seq("TABLE_CAT"),
@@ -127,6 +159,14 @@ object KyuubiFlightMetadata {
       case _ => None
     }
 
+  private def toBoolean(value: AnyRef): Option[Boolean] = value match {
+    case b: java.lang.Boolean => Some(b.booleanValue())
+    case n: Number => Some(n.intValue() != 0)
+    case s: String if s.trim.equalsIgnoreCase("true") => Some(true)
+    case s: String if s.trim.equalsIgnoreCase("false") => Some(false)
+    case _ => None
+  }
+
   private def toLong(value: AnyRef): Option[Long] = value match {
     case n: Number => Some(n.longValue())
     case s: String if s.trim.nonEmpty => scala.util.Try(s.trim.toLong).toOption
@@ -170,6 +210,26 @@ object KyuubiFlightMetadata {
               case Some(v) => integer.setWithPossibleTruncate(i, v)
               case None if field.isNullable => integer.setNull(i)
               case None => integer.setWithPossibleTruncate(i, INT_DEFAULTS.getOrElse(name, 0L))
+            }
+          case bit: BitVector =>
+            lookup(row, sources.getOrElse(field.getName, Seq.empty)).flatMap(toBoolean) match {
+              case Some(v) => bit.setSafe(i, if (v) 1 else 0)
+              case None if field.isNullable => bit.setNull(i)
+              case None => bit.setSafe(i, 0)
+            }
+          case list: ListVector =>
+            // JDBC CREATE_PARAMS is a comma-separated string, Flight SQL a list of strings
+            val items = lookup(row, sources.getOrElse(field.getName, Seq.empty))
+              .map(_.toString.split(",").map(_.trim).filter(_.nonEmpty).toSeq)
+            items match {
+              case Some(values) =>
+                val data = list.getDataVector.asInstanceOf[VarCharVector]
+                val offset = list.startNewValue(i)
+                values.zipWithIndex.foreach { case (v, k) =>
+                  data.setSafe(offset + k, v.getBytes(StandardCharsets.UTF_8))
+                }
+                list.endValue(i, values.size)
+              case None => list.setNull(i)
             }
           case other => other.setNull(i)
         }

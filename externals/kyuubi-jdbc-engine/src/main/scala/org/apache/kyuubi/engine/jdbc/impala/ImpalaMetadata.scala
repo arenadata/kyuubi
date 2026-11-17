@@ -25,6 +25,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
 import org.apache.kyuubi.Logging
+import org.apache.kyuubi.engine.jdbc.operation.MetadataOperationStopped
 import org.apache.kyuubi.engine.jdbc.schema.{Column, Row}
 import org.apache.kyuubi.util.JdbcUtils
 
@@ -80,6 +81,7 @@ class ImpalaMetadata(run: String => Seq[Map[String, String]]) extends Logging {
   private def describeOrSkip(db: String, table: String): Seq[ImpalaColumn] = {
     try describe(db, table)
     catch {
+      case e: MetadataOperationStopped => throw e
       case NonFatal(e) =>
         warn(s"Skipping columns of $db.$table, DESCRIBE failed: ${e.getMessage}")
         Seq.empty
@@ -95,6 +97,7 @@ class ImpalaMetadata(run: String => Seq[Map[String, String]]) extends Logging {
     val views =
       try showNames(s"SHOW VIEWS IN ${quote(db)}").toSet
       catch {
+        case e: MetadataOperationStopped => throw e
         // SHOW VIEWS exists since Impala 4.1; older versions report everything as TABLE
         case NonFatal(e) =>
           debug(s"SHOW VIEWS failed for $db, reporting all objects as TABLE: ${e.getMessage}")
@@ -167,6 +170,9 @@ object ImpalaMetadata {
   private def smallint(name: String): Column =
     Column(name, "SMALLINT", Types.SMALLINT, 5, 0, name, 6)
 
+  private def boolean(name: String): Column =
+    Column(name, "BOOLEAN", Types.BOOLEAN, 1, 0, name, 5)
+
   val CATALOGS_COLUMNS: List[Column] = List(string("TABLE_CAT"))
 
   val SCHEMAS_COLUMNS: List[Column] = List(string("TABLE_SCHEM"), string("TABLE_CATALOG"))
@@ -235,6 +241,94 @@ object ImpalaMetadata {
     string("FK_NAME"),
     string("PK_NAME"),
     smallint("DEFERRABILITY"))
+
+  /** `DatabaseMetaData.getTypeInfo` columns. */
+  val TYPE_INFO_COLUMNS: List[Column] = List(
+    string("TYPE_NAME"),
+    int("DATA_TYPE"),
+    int("PRECISION"),
+    string("LITERAL_PREFIX"),
+    string("LITERAL_SUFFIX"),
+    string("CREATE_PARAMS"),
+    smallint("NULLABLE"),
+    boolean("CASE_SENSITIVE"),
+    smallint("SEARCHABLE"),
+    boolean("UNSIGNED_ATTRIBUTE"),
+    boolean("FIXED_PREC_SCALE"),
+    boolean("AUTO_INCREMENT"),
+    string("LOCAL_TYPE_NAME"),
+    smallint("MINIMUM_SCALE"),
+    smallint("MAXIMUM_SCALE"),
+    int("SQL_DATA_TYPE"),
+    int("SQL_DATETIME_SUB"),
+    int("NUM_PREC_RADIX"))
+
+  sealed private trait TypeKind
+  private case object Numeric extends TypeKind
+  private case object Text extends TypeKind
+  private case object Temporal extends TypeKind
+  private case object Other extends TypeKind
+  private case object Complex extends TypeKind
+
+  private def typeInfoRow(
+      name: String,
+      sqlType: Int,
+      precision: Option[Int],
+      kind: TypeKind,
+      createParams: String = null,
+      maxScale: Int = 0): Row = {
+    import java.sql.DatabaseMetaData._
+    val quoted = kind == Text || kind == Temporal
+    val searchable = kind match {
+      case Text => typeSearchable
+      case Complex => typePredNone
+      case _ => typePredBasic
+    }
+    Row(List(
+      name, // TYPE_NAME
+      Int.box(sqlType), // DATA_TYPE
+      precision.map(Int.box).orNull, // PRECISION
+      if (quoted) "'" else null, // LITERAL_PREFIX
+      if (quoted) "'" else null, // LITERAL_SUFFIX
+      createParams, // CREATE_PARAMS
+      Int.box(typeNullable), // NULLABLE
+      Boolean.box(kind == Text), // CASE_SENSITIVE
+      Int.box(searchable), // SEARCHABLE
+      if (kind == Numeric) Boolean.box(false) else null, // UNSIGNED_ATTRIBUTE
+      Boolean.box(false), // FIXED_PREC_SCALE
+      if (kind == Numeric) Boolean.box(false) else null, // AUTO_INCREMENT
+      name, // LOCAL_TYPE_NAME
+      Int.box(0), // MINIMUM_SCALE
+      Int.box(maxScale), // MAXIMUM_SCALE
+      Int.box(sqlType), // SQL_DATA_TYPE
+      null, // SQL_DATETIME_SUB
+      if (kind == Numeric) Int.box(10) else null // NUM_PREC_RADIX
+    ))
+  }
+
+  /**
+   * Impala data types for `DatabaseMetaData.getTypeInfo` / Flight SQL GetXdbcTypeInfo,
+   * ordered by DATA_TYPE; type codes and sizes as [[toJdbcType]] reports them for columns.
+   */
+  val TYPE_INFO_ROWS: Seq[Row] = Seq(
+    typeInfoRow("ARRAY", Types.ARRAY, None, Complex),
+    typeInfoRow("STRUCT", Types.STRUCT, None, Complex),
+    typeInfoRow("BINARY", Types.BINARY, Some(Int.MaxValue), Other),
+    typeInfoRow("MAP", Types.JAVA_OBJECT, None, Complex),
+    typeInfoRow("TINYINT", Types.TINYINT, Some(3), Numeric),
+    typeInfoRow("BIGINT", Types.BIGINT, Some(19), Numeric),
+    typeInfoRow("CHAR", Types.CHAR, Some(255), Text, createParams = "length"),
+    typeInfoRow("DECIMAL", Types.DECIMAL, Some(38), Numeric, "precision,scale", maxScale = 38),
+    typeInfoRow("INT", Types.INTEGER, Some(10), Numeric),
+    typeInfoRow("SMALLINT", Types.SMALLINT, Some(5), Numeric),
+    typeInfoRow("FLOAT", Types.FLOAT, Some(7), Numeric),
+    typeInfoRow("DOUBLE", Types.DOUBLE, Some(15), Numeric),
+    typeInfoRow("STRING", Types.VARCHAR, Some(Int.MaxValue), Text),
+    typeInfoRow("VARCHAR", Types.VARCHAR, Some(65535), Text, createParams = "max length"),
+    typeInfoRow("BOOLEAN", Types.BOOLEAN, None, Other),
+    typeInfoRow("DATE", Types.DATE, Some(10), Temporal),
+    typeInfoRow("TIMESTAMP", Types.TIMESTAMP, Some(29), Temporal, maxScale = 9))
+    .sortBy(row => row.values(1).asInstanceOf[Integer].intValue())
 
   /**
    * Informational primary keys (`PRIMARY KEY ... DISABLE NOVALIDATE RELY`, Kudu keys) through
@@ -393,8 +487,14 @@ object ImpalaMetadata {
   /** Back-quoted Impala identifier. */
   def quote(identifier: String): String = "`" + identifier.replace("`", "``") + "`"
 
-  /** Runs a statement on `connection`, returning rows as `lower-case column label -> value`. */
-  def runner(connection: Connection): String => Seq[Map[String, String]] = sql => {
+  /**
+   * Runs a statement on `connection`, returning rows as `lower-case column label -> value`.
+   * `beforeEach` runs before every statement (it may throw to stop the metadata request).
+   */
+  def runner(
+      connection: Connection,
+      beforeEach: () => Unit = () => ()): String => Seq[Map[String, String]] = sql => {
+    beforeEach()
     JdbcUtils.withCloseable(connection.createStatement()) { statement =>
       JdbcUtils.withCloseable(statement.executeQuery(sql)) { rs =>
         val meta = rs.getMetaData

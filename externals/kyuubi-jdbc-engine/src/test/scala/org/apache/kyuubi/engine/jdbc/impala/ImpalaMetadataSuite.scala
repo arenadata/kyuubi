@@ -23,6 +23,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.engine.jdbc.impala.ImpalaMetadata._
+import org.apache.kyuubi.engine.jdbc.operation.MetadataOperationStopped
 import org.apache.kyuubi.engine.jdbc.schema.Row
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.TProtocolVersion
 import org.apache.kyuubi.shaded.thrift.protocol.TBinaryProtocol
@@ -160,6 +161,73 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
     assert(impala.executed.contains("DESCRIBE `sales_db`.`store_view`"))
   }
 
+  test("a stopped metadata request is not skipped like a table that cannot be described") {
+    val impala = new FakeImpala
+    var statements = 0
+    // what JdbcMetadataOperation's check does once the request is cancelled or timed out
+    val metadata = new ImpalaMetadata(sql => {
+      statements += 1
+      if (statements > 3) throw new MetadataOperationStopped("stopped")
+      impala.run(sql)
+    })
+    // SHOW DATABASES, SHOW TABLES x2, then the first DESCRIBE is stopped (not skipped)
+    intercept[MetadataOperationStopped](metadata.columns("%", "%", "%"))
+    assert(statements === 4)
+    // SHOW VIEWS is skipped on error too, but not when stopped
+    statements = 2 // SHOW DATABASES runs, the first SHOW VIEWS is stopped
+    intercept[MetadataOperationStopped](metadata.tables("%", "%", Seq.empty))
+    assert(statements === 4)
+  }
+
+  test("type info lists the Impala types in JDBC getTypeInfo shape, ordered by DATA_TYPE") {
+    assert(TYPE_INFO_ROWS.forall(_.values.size === TYPE_INFO_COLUMNS.size))
+    val types = TYPE_INFO_ROWS.map(r => col(r, 1).asInstanceOf[Int])
+    assert(types === types.sorted)
+    val byName = TYPE_INFO_ROWS.map(r => col(r, 0) -> r).toMap
+    assert(byName.keySet === Set(
+      "BOOLEAN",
+      "TINYINT",
+      "SMALLINT",
+      "INT",
+      "BIGINT",
+      "FLOAT",
+      "DOUBLE",
+      "DECIMAL",
+      "STRING",
+      "VARCHAR",
+      "CHAR",
+      "TIMESTAMP",
+      "DATE",
+      "BINARY",
+      "ARRAY",
+      "MAP",
+      "STRUCT"))
+    // the same type codes as GetColumns reports for columns of that type
+    Seq(
+      "boolean",
+      "tinyint",
+      "smallint",
+      "int",
+      "bigint",
+      "float",
+      "double",
+      "decimal",
+      "string",
+      "timestamp",
+      "date",
+      "binary").foreach { t =>
+      val name = if (t == "decimal") "DECIMAL" else toJdbcType(t).typeName
+      assert(col(byName(name), 1) === toJdbcType(t).sqlType, t)
+    }
+    val decimal = byName("DECIMAL")
+    assert(col(decimal, 2) === 38) // PRECISION
+    assert(col(decimal, 5) === "precision,scale") // CREATE_PARAMS
+    assert(col(decimal, 14) === 38) // MAXIMUM_SCALE
+    assert(col(byName("STRING"), 3) === "'") // LITERAL_PREFIX
+    assert(col(byName("STRING"), 7) === true) // CASE_SENSITIVE
+    assert(col(byName("INT"), 17) === 10) // NUM_PREC_RADIX
+  }
+
   test("Impala type strings map to JDBC types") {
     assert(toJdbcType("int") === JdbcType(Types.INTEGER, "INT", Some(10), Some(0), Some(10)))
     assert(toJdbcType("string").sqlType === Types.VARCHAR)
@@ -187,7 +255,8 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
       (impala.metadata.schemas(null), SCHEMAS_COLUMNS),
       (impala.metadata.tables(null, "%", Seq.empty), TABLES_COLUMNS),
       (impala.metadata.columns(null, "%", "%"), COLUMNS_COLUMNS),
-      (TABLE_TYPES_ROWS, TABLE_TYPES_COLUMNS)).foreach { case (rows, columns) =>
+      (TABLE_TYPES_ROWS, TABLE_TYPES_COLUMNS),
+      (TYPE_INFO_ROWS, TYPE_INFO_COLUMNS)).foreach { case (rows, columns) =>
       val rowSet = generator.toTRowSet(
         rows.map(_.values),
         columns,

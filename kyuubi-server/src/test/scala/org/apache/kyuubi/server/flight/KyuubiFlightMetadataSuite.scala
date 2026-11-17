@@ -151,6 +151,45 @@ class KyuubiFlightMetadataSuite extends KyuubiFunSuite {
     }
   }
 
+  test("GetXdbcTypeInfo: JDBC getTypeInfo rows by name, CREATE_PARAMS as a list") {
+    def typeRow(name: String, dataType: Int, createParams: String, caseSensitive: Boolean) =
+      Map[String, AnyRef](
+        "type_name" -> name,
+        "data_type" -> Int.box(dataType),
+        "precision" -> Int.box(38),
+        "create_params" -> createParams,
+        "nullable" -> Short.box(1),
+        "case_sensitive" -> Boolean.box(caseSensitive),
+        "searchable" -> Short.box(3),
+        "unsigned_attribute" -> null,
+        "fixed_prec_scale" -> Boolean.box(false),
+        "num_prec_radix" -> Int.box(10))
+    val rows = Seq(
+      typeRow("STRING", Types.VARCHAR, null, caseSensitive = true),
+      typeRow("DECIMAL", Types.DECIMAL, "precision, scale", caseSensitive = false),
+      typeRow("VARCHAR", Types.VARCHAR, "max length", caseSensitive = true))
+    withRoot(Schemas.GET_TYPE_INFO_SCHEMA) { root =>
+      fill(root, typeInfoRows(rows, None), TYPE_INFO_SOURCES)
+      // ordered by data type, then type name
+      assert(strings(root, "type_name") === Seq("DECIMAL", "STRING", "VARCHAR"))
+      assert(strings(root, "data_type") ===
+        Seq(Types.DECIMAL, Types.VARCHAR, Types.VARCHAR).map(_.toString))
+      assert(strings(root, "column_size") === Seq("38", "38", "38"))
+      assert(strings(
+        root,
+        "create_params") === Seq("[\"precision\",\"scale\"]", null, "[\"max length\"]"))
+      assert(strings(root, "case_sensitive") === Seq("false", "true", "true"))
+      assert(strings(root, "unsigned_attribute") === Seq(null, null, null))
+      // not reported: required fields get defaults, sql_data_type falls back to DATA_TYPE
+      assert(strings(root, "auto_increment") === Seq(null, null, null))
+      assert(strings(root, "sql_data_type") === strings(root, "data_type"))
+    }
+    withRoot(Schemas.GET_TYPE_INFO_SCHEMA) { root =>
+      fill(root, typeInfoRows(rows, Some(Types.DECIMAL)), TYPE_INFO_SOURCES)
+      assert(strings(root, "type_name") === Seq("DECIMAL"))
+    }
+  }
+
   test("JDBC types map to Arrow types") {
     assert(toArrowType(Types.INTEGER, None, None) === new ArrowType.Int(32, true))
     assert(toArrowType(Types.VARCHAR, Some(Int.MaxValue), None) === ArrowType.Utf8.INSTANCE)

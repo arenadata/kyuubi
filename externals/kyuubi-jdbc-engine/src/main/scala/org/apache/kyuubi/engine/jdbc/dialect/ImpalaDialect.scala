@@ -34,9 +34,9 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
 
   // JDBC metadata (GetCatalogs/GetSchemas/GetTables/GetTableTypes/GetColumns) is assembled
   // from SHOW/DESCRIBE output by ImpalaMetadata; GetPrimaryKeys/GetCrossReference go to
-  // Impala's own HiveServer2 calls; the query-string methods below
-  // (getTablesQuery, getColumnsQuery) are kept for compatibility but no longer used by the
-  // operation manager.
+  // Impala's own HiveServer2 calls; GetTypeInfo is a fixed list of Impala types. The
+  // query-string methods below (getTablesQuery, getColumnsQuery) are kept for compatibility
+  // but no longer used by the operation manager.
 
   private def metadataOperation(
       session: Session,
@@ -44,7 +44,8 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
     new JdbcMetadataOperation(
       session,
       columns,
-      connection => rows(new ImpalaMetadata(ImpalaMetadata.runner(connection))))
+      (connection, checkRunning) =>
+        rows(new ImpalaMetadata(ImpalaMetadata.runner(connection, checkRunning))))
 
   override def catalogsOperation(session: Session): Operation =
     metadataOperation(session, CATALOGS_COLUMNS)(_.catalogs())
@@ -82,7 +83,7 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
     new JdbcMetadataOperation(
       session,
       PRIMARY_KEYS_COLUMNS,
-      connection => ImpalaMetadata.primaryKeys(connection, schema, table))
+      (connection, _) => ImpalaMetadata.primaryKeys(connection, schema, table))
 
   override def crossReferenceOperation(
       session: Session,
@@ -95,7 +96,7 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
     new JdbcMetadataOperation(
       session,
       CROSS_REFERENCE_COLUMNS,
-      connection =>
+      (connection, _) =>
         ImpalaMetadata.crossReference(
           connection,
           primarySchema,
@@ -104,7 +105,10 @@ class ImpalaDialect extends JdbcDialect with JdbcMetadataOperations {
           foreignTable))
 
   override def getTableTypesOperation(session: Session): Operation =
-    new JdbcMetadataOperation(session, TABLE_TYPES_COLUMNS, _ => TABLE_TYPES_ROWS)
+    new JdbcMetadataOperation(session, TABLE_TYPES_COLUMNS, (_, _) => TABLE_TYPES_ROWS)
+
+  override def getTypeInfoOperation(session: Session): Operation =
+    new JdbcMetadataOperation(session, TYPE_INFO_COLUMNS, (_, _) => TYPE_INFO_ROWS)
 
   override def getTablesQuery(
       catalog: String,

@@ -1414,6 +1414,18 @@ object KyuubiConf {
       .checkValue(_ > 0, "must be positive")
       .createWithDefault(1000)
 
+  val FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.flight.sql.result.idle.timeout")
+      .doc("How long the result of an executed Arrow Flight SQL query waits for the client " +
+        "to fetch it (DoGet). A result that is not fetched in time is released together with " +
+        "its engine session and operation, e.g. when the client exits between GetFlightInfo " +
+        "and DoGet. Results that are being streamed are not affected.")
+      .version("1.11.1")
+      .serverOnly
+      .timeConf
+      .checkValue(_ > 0, "must be positive")
+      .createWithDefaultString("PT10M")
+
   val FRONTEND_FLIGHT_SQL_TOKEN_TTL: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.flight.sql.token.ttl")
       .doc("Lifetime of Arrow Flight SQL bearer tokens issued after Basic or " +
@@ -3818,6 +3830,18 @@ object KyuubiConf {
       .version("1.11.1")
       .booleanConf
       .createWithDefault(false)
+
+  val ENGINE_JDBC_METADATA_OPERATION_TIMEOUT: ConfigEntry[Long] =
+    buildConf("kyuubi.engine.jdbc.metadata.operation.timeout")
+      .doc("Maximum time of a metadata request (GetSchemas, GetTables, GetColumns, ...) that " +
+        "the JDBC engine assembles from several backend statements, e.g. SHOW and DESCRIBE " +
+        "for Impala. A request still running after it fails, e.g. GetColumns over all " +
+        "tables of a large metastore. It is checked before each backend statement; " +
+        "0 means no limit.")
+      .version("1.11.1")
+      .timeConf
+      .checkValue(_ >= 0, "must be 0 or positive")
+      .createWithDefaultString("PT5M")
 
   val ENGINE_JDBC_INITIALIZE_SQL: ConfigEntry[Seq[String]] =
     buildConf("kyuubi.engine.jdbc.initialize.sql")
