@@ -20,8 +20,7 @@ http://<kyuubi-host>:10019/metrics
 
 |                     Metric                      |        Type        |                     Meaning                      |
 |-------------------------------------------------|--------------------|--------------------------------------------------|
-| `kyuubi.flight.sql.connection.opened`           | gauge/counter pair | Active Flight authenticated connections/sessions |
-| `kyuubi.flight.sql.connection.total`            | counter            | Accepted Flight auth results                     |
+| `kyuubi.flight.sql.connection.total`            | counter            | Successful Flight authentications (Basic/SPNEGO) |
 | `kyuubi.flight.sql.connection.failed`           | counter            | Authentication / TLS handshake failures          |
 | `kyuubi.flight.sql.operation.opened`            | gauge              | Active Flight statement/metadata streams         |
 | `kyuubi.flight.sql.operation.total`             | counter            | Started Flight operations                        |
@@ -38,7 +37,7 @@ address.
 ## Suggested dashboard panels
 
 1. Flight endpoint up / HA membership.
-2. Active Flight connections and operations.
+2. Flight authentication rate and active Flight operations.
 3. Auth failure rate.
 4. Streamed batches / rows / bytes rate.
 5. Cancel and decode/error rate.

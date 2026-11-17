@@ -36,7 +36,8 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
 
   private class FakeImpala(
       showViewsFails: Boolean = false,
-      describeFails: Set[String] = Set.empty) {
+      describeFails: Set[String] = Set.empty,
+      showTablesFails: Set[String] = Set.empty) {
     val executed = ArrayBuffer[String]()
 
     def run(sql: String): Seq[Map[String, String]] = {
@@ -48,6 +49,10 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
             Map("name" -> "default", "comment" -> "Default Hive database"),
             Map("name" -> "sales_db", "comment" -> ""),
             Map("name" -> "vdmitriev", "comment" -> ""))
+        case t
+            if t.startsWith("SHOW TABLES IN ") &&
+              showTablesFails.contains(t.stripPrefix("SHOW TABLES IN ")) =>
+          throw new java.sql.SQLException(s"AuthorizationException: no privilege for $t")
         case "SHOW TABLES IN `_impala_builtins`" => Seq.empty
         case "SHOW TABLES IN `default`" => names("t_default")
         case "SHOW TABLES IN `sales_db`" => names("store_sales", "store_view", "items")
@@ -159,6 +164,17 @@ class ImpalaMetadataSuite extends KyuubiFunSuite {
       ("store_sales", "ss_sold_date_sk"),
       ("items", "id")))
     assert(impala.executed.contains("DESCRIBE `sales_db`.`store_view`"))
+  }
+
+  test("a database whose tables cannot be listed is skipped in GetTables and GetColumns") {
+    val impala = new FakeImpala(showTablesFails = Set("`sales_db`"))
+    val tables = impala.metadata.tables("%", "%", Seq.empty).map(r => (col(r, 1), col(r, 2)))
+    assert(tables === Seq(
+      ("default", "t_default"),
+      ("vdmitriev", "table_parquet"),
+      ("vdmitriev", "events")))
+    val columns = impala.metadata.columns("%", "%", "%").map(r => col(r, 1)).distinct
+    assert(columns === Seq("default", "vdmitriev"))
   }
 
   test("a stopped metadata request is not skipped like a table that cannot be described") {

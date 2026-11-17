@@ -58,7 +58,6 @@ object MetricsConstants {
   final val REST_CONN_FAIL: String = REST_CONN + "failed"
   final val REST_CONN_TOTAL: String = REST_CONN + "total"
 
-  final val FLIGHT_SQL_CONN_OPEN: String = FLIGHT_SQL_CONN + "opened"
   final val FLIGHT_SQL_CONN_FAIL: String = FLIGHT_SQL_CONN + "failed"
   final val FLIGHT_SQL_CONN_TOTAL: String = FLIGHT_SQL_CONN + "total"
 

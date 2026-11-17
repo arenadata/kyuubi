@@ -85,6 +85,46 @@ class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
     assert(auth.authenticate(basic("user", "password")).getPeerIdentity === "user")
   }
 
+  test("the authorization scheme is case-insensitive, also for issued bearer tokens") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("CUSTOM"))
+      .set(
+        AUTHENTICATION_CUSTOM_CLASS,
+        classOf[UserDefineAuthenticationProviderImpl].getCanonicalName)
+    val auth = KyuubiFlightAuthHandler.create(conf)
+
+    val basic = new MapCallHeaders
+    basic.insert(
+      "authorization",
+      "basic " + Base64.getEncoder.encodeToString("user:password".getBytes("UTF-8")))
+    val result = auth.authenticate(basic)
+    assert(result.getPeerIdentity === "user")
+
+    val outgoing = new MapCallHeaders
+    result.appendToOutgoingHeaders(outgoing)
+    val token = outgoing.get("authorization")
+    assert(token.startsWith("Bearer "), token)
+    val bearer = new MapCallHeaders
+    bearer.insert("authorization", "BEARER " + token.stripPrefix("Bearer "))
+    assert(auth.authenticate(bearer).getPeerIdentity === "user")
+  }
+
+  test("scheme normalization keeps the other headers and leaves canonical ones untouched") {
+    val headers = new MapCallHeaders
+    headers.insert("authorization", "negotiate abc")
+    headers.insert("kyuubi.engine.profile", "impala")
+    val normalized = KyuubiFlightAuthHandler.normalizeScheme(headers)
+    assert(normalized.get("authorization") === "Negotiate abc")
+    assert(normalized.get("kyuubi.engine.profile") === "impala")
+
+    val canonical = new MapCallHeaders
+    canonical.insert("authorization", "Basic abc")
+    assert(KyuubiFlightAuthHandler.normalizeScheme(canonical) eq canonical)
+    val other = new MapCallHeaders
+    other.insert("authorization", "Digest abc")
+    assert(KyuubiFlightAuthHandler.normalizeScheme(other) eq other)
+  }
+
   test("an unreachable LDAP server is UNAVAILABLE, not UNAUTHENTICATED") {
     val conf = KyuubiConf()
       .set(AUTHENTICATION_METHOD, Seq("LDAP"))

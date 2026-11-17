@@ -28,14 +28,14 @@ import scala.util.control.NonFatal
 import com.google.protobuf.{Any => ProtoAny, ByteString}
 import org.apache.arrow.flight.{CallStatus, CancelFlightInfoRequest, CancelStatus, FlightDescriptor, FlightEndpoint, FlightInfo, FlightRuntimeException, FlightStream, Location, PutResult, Result, SchemaResult, Ticket}
 import org.apache.arrow.flight.FlightProducer.{CallContext, ServerStreamListener, StreamListener}
-import org.apache.arrow.flight.sql.{NoOpFlightSqlProducer, SqlInfoBuilder}
 import org.apache.arrow.flight.sql.FlightSqlProducer.Schemas
+import org.apache.arrow.flight.sql.NoOpFlightSqlProducer
 import org.apache.arrow.flight.sql.impl.FlightSql._
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
 import org.apache.arrow.vector.types.pojo.Schema
 
-import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
+import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.{KyuubiConf, KyuubiReservedKeys}
 import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS, FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT, FRONTEND_FLIGHT_SQL_TOKEN_TTL, OPERATION_RESULT_FORMAT}
 import org.apache.kyuubi.metrics.{MetricsConstants, MetricsSystem}
@@ -74,19 +74,6 @@ class KyuubiFlightSqlProducer(
   private val resultIdleTimeoutMs = conf.get(FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT)
 
   private val fetchPageSize = conf.get(FRONTEND_FLIGHT_SQL_FETCH_MAX_ROWS)
-
-  private val sqlInfoBuilder = new SqlInfoBuilder()
-    .withFlightSqlServerName("Kyuubi")
-    .withFlightSqlServerVersion(KYUUBI_VERSION)
-    .withFlightSqlServerArrowVersion("16.0.0")
-    .withFlightSqlServerSql(true)
-    .withFlightSqlServerSubstrait(false)
-    .withFlightSqlServerCancel(true)
-    .withFlightSqlServerTransaction(SqlSupportedTransaction.SQL_SUPPORTED_TRANSACTION_NONE)
-    .withSqlIdentifierQuoteChar("`")
-    .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_UNKNOWN)
-    .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_UNKNOWN)
-    .withSqlNullOrdering(SqlNullOrdering.SQL_NULLS_SORTED_AT_END)
 
   override def getFlightInfoStatement(
       command: CommandStatementQuery,
@@ -493,7 +480,7 @@ class KyuubiFlightSqlProducer(
       command: CommandGetSqlInfo,
       context: CallContext,
       listener: ServerStreamListener): Unit =
-    sqlInfoBuilder.send(command.getInfoList, listener)
+    KyuubiFlightSqlInfo.send(command.getInfoList, allocator, listener)
 
   /**
    * By name like the other metadata requests (the engines return JDBC `getTypeInfo` columns,

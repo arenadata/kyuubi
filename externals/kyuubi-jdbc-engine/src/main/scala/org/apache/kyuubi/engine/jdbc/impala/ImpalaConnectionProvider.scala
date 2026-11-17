@@ -19,7 +19,7 @@ package org.apache.kyuubi.engine.jdbc.impala
 import java.sql.Connection
 import java.util.Locale
 
-import org.apache.kyuubi.KyuubiSQLException
+import org.apache.kyuubi.{KyuubiSQLException, Logging}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf.{ENGINE_JDBC_CONNECTION_PROPERTIES, ENGINE_JDBC_CONNECTION_URL, ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED}
 import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY
@@ -45,7 +45,7 @@ class ImpalaConnectionProvider extends JdbcConnectionProvider {
   }
 }
 
-object ImpalaConnectionProvider {
+object ImpalaConnectionProvider extends Logging {
   // we should use kyuubi hive driver instead of original hive one in order
   // to get fixed getMoreResults()
   val driverClass: String = "org.apache.kyuubi.jdbc.KyuubiHiveDriver"
@@ -73,11 +73,13 @@ object ImpalaConnectionProvider {
 
   def delegationProperties(kyuubiConf: KyuubiConf): Map[String, String] = {
     if (kyuubiConf.get(ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED)) {
-      kyuubiConf.getOption(KYUUBI_SESSION_USER_KEY)
-        .map(_.trim)
-        .filter(_.nonEmpty)
-        .map(user => IMPALA_DOAS_USER -> user)
-        .toMap
+      val user = kyuubiConf.getOption(KYUUBI_SESSION_USER_KEY).map(_.trim).filter(_.nonEmpty)
+      if (user.isEmpty) {
+        // e.g. the engine's own connection for kyuubi.engine.jdbc.initialize.sql
+        warn(s"${ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED.key} is enabled, but the connection " +
+          s"has no session user ($KYUUBI_SESSION_USER_KEY): it runs as the engine's own user")
+      }
+      user.map(u => IMPALA_DOAS_USER -> u).toMap
     } else {
       Map.empty
     }

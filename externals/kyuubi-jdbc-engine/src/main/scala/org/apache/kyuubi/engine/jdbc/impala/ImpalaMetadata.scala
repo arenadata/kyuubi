@@ -67,7 +67,7 @@ class ImpalaMetadata(run: String => Seq[Map[String, String]]) extends Logging {
     val columnMatcher = matcher(columnNamePattern)
     for {
       db <- databases(schemaPattern)
-      table <- showNames(s"SHOW TABLES IN ${quote(db)}") if tableMatcher(table)
+      table <- tablesOrSkip(db) if tableMatcher(table)
       (column, position) <- describeOrSkip(db, table).zipWithIndex
       if columnMatcher(column.name)
     } yield columnRow(db, table, column, position + 1)
@@ -103,8 +103,23 @@ class ImpalaMetadata(run: String => Seq[Map[String, String]]) extends Logging {
           debug(s"SHOW VIEWS failed for $db, reporting all objects as TABLE: ${e.getMessage}")
           Set.empty[String]
       }
-    showNames(s"SHOW TABLES IN ${quote(db)}").map { table =>
+    tablesOrSkip(db).map { table =>
       table -> (if (views.contains(table)) VIEW else TABLE)
+    }
+  }
+
+  /**
+   * Tables of a database, or none when they cannot be listed (e.g. Ranger allows the database
+   * in SHOW DATABASES but not SHOW TABLES in it): one such database must not fail GetTables or
+   * GetColumns for all others.
+   */
+  private def tablesOrSkip(db: String): Seq[String] = {
+    try showNames(s"SHOW TABLES IN ${quote(db)}")
+    catch {
+      case e: MetadataOperationStopped => throw e
+      case NonFatal(e) =>
+        warn(s"Skipping tables of $db, SHOW TABLES failed: ${e.getMessage}")
+        Seq.empty
     }
   }
 

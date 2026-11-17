@@ -195,7 +195,11 @@ class KyuubiFlightMetadataSuite extends KyuubiFunSuite {
   }
 
   test("GetXdbcTypeInfo: JDBC getTypeInfo rows by name, CREATE_PARAMS as a list") {
-    def typeRow(name: String, dataType: Int, createParams: String, caseSensitive: Boolean) =
+    def typeRow(
+        name: String,
+        dataType: Int,
+        createParams: String,
+        caseSensitive: Boolean): MetadataRow =
       Map[String, AnyRef](
         "type_name" -> name,
         "data_type" -> Int.box(dataType),
