@@ -128,6 +128,27 @@ class KyuubiFlightSqlOperationSuite extends WithFlightSqlServer with FlightSqlTe
     }
   }
 
+  test("retried result requests of a prepared update do not run it again") {
+    withFlightSqlClient() { (_, sqlClient) =>
+      sqlClient.executeUpdate("CREATE TABLE kyuubi_flight_ps_retry (a INT) USING parquet")
+      val ps = sqlClient.prepare("INSERT INTO kyuubi_flight_ps_retry VALUES (1)")
+      try {
+        ps.executeUpdate()
+        (1 to 3).foreach { _ =>
+          val info = ps.execute()
+          assert(readAllRows(sqlClient, info).isEmpty)
+        }
+        assert(executeAndCollect(sqlClient, "SELECT a FROM kyuubi_flight_ps_retry").size === 1)
+        // a new DoPut runs it again
+        ps.executeUpdate()
+        assert(executeAndCollect(sqlClient, "SELECT a FROM kyuubi_flight_ps_retry").size === 2)
+      } finally {
+        ps.close()
+        sqlClient.executeUpdate("DROP TABLE IF EXISTS kyuubi_flight_ps_retry")
+      }
+    }
+  }
+
   test("key metadata requests answer with the Flight SQL schemas instead of UNIMPLEMENTED") {
     withFlightSqlClient() { (_, sqlClient) =>
       val table = TableRef.of(null, "default", "kyuubi_flight_keys")

@@ -43,15 +43,22 @@ object KyuubiFlightMetadata {
   /** Flight field -> candidate JDBC source columns (first non-null wins). */
   type Sources = Map[String, Seq[String]]
 
-  val CATALOGS_SOURCES: Sources = Map("catalog_name" -> Seq("TABLE_CAT", "TABLE_CATALOG"))
+  // Besides the JDBC names, the INFORMATION_SCHEMA names some JDBC engine dialects return
+  // (PostgreSQL: CATALOG_NAME/SCHEMA_NAME, TABLE_CATALOG/TABLE_SCHEMA; MySQL, ClickHouse:
+  // TABLE_CATALOG/TABLE_SCHEMA; Oracle: OWNER AS TABLE_SCHEMA).
+
+  private val CATALOG_COLUMNS = Seq("TABLE_CAT", "TABLE_CATALOG")
+  private val SCHEMA_COLUMNS = Seq("TABLE_SCHEM", "TABLE_SCHEMA")
+
+  val CATALOGS_SOURCES: Sources = Map("catalog_name" -> (CATALOG_COLUMNS :+ "CATALOG_NAME"))
 
   val SCHEMAS_SOURCES: Sources = Map(
-    "catalog_name" -> Seq("TABLE_CATALOG", "TABLE_CAT"),
-    "db_schema_name" -> Seq("TABLE_SCHEM"))
+    "catalog_name" -> Seq("TABLE_CATALOG", "TABLE_CAT", "CATALOG_NAME"),
+    "db_schema_name" -> (SCHEMA_COLUMNS :+ "SCHEMA_NAME"))
 
   val TABLES_SOURCES: Sources = Map(
-    "catalog_name" -> Seq("TABLE_CAT", "TABLE_CATALOG"),
-    "db_schema_name" -> Seq("TABLE_SCHEM"),
+    "catalog_name" -> CATALOG_COLUMNS,
+    "db_schema_name" -> SCHEMA_COLUMNS,
     "table_name" -> Seq("TABLE_NAME"),
     "table_type" -> Seq("TABLE_TYPE"))
 
@@ -177,7 +184,10 @@ object KyuubiFlightMetadata {
     (Option(catalog).getOrElse(""), Option(schema).getOrElse(""), table)
 
   private def rowTableKey(row: MetadataRow): TableKey =
-    tableKey(string(row, "TABLE_CAT"), string(row, "TABLE_SCHEM"), string(row, "TABLE_NAME"))
+    tableKey(
+      lookup(row, CATALOG_COLUMNS).map(_.toString).orNull,
+      lookup(row, SCHEMA_COLUMNS).map(_.toString).orNull,
+      string(row, "TABLE_NAME"))
 
   /**
    * Fill `root` (a Flight SQL metadata schema) from JDBC-shaped rows. Non-nullable Utf8 fields
@@ -272,7 +282,7 @@ object KyuubiFlightMetadata {
               decimal.map(_.getScale),
               int(c, "COLUMN_SIZE"),
               resultColumn = false,
-              Option(string(c, "TABLE_SCHEM")),
+              lookup(c, SCHEMA_COLUMNS).map(_.toString),
               Option(string(c, "TABLE_NAME")))
             new Field(
               string(c, "COLUMN_NAME"),

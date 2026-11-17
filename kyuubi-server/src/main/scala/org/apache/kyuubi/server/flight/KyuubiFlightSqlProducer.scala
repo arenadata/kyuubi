@@ -543,6 +543,16 @@ class KyuubiFlightSqlProducer(
     }
 
     def setPending(next: Pending[QueryState]): Unit = synchronized { pending = next }
+
+    /**
+     * What a GetFlightInfo execution does. The pending work is taken, except the marker of an
+     * update that just ran: retried result requests must not run the update again either.
+     */
+    def takeExecution(nowMs: Long): Execution[QueryState] = synchronized {
+      val next = nextExecution(pending, isQuery, nowMs)
+      if (next != EmptyResult) pending = Idle
+      next
+    }
   }
 
   /** Releases a result started at prepare time that will not be used. */
@@ -636,7 +646,7 @@ class KyuubiFlightSqlProducer(
       descriptor: FlightDescriptor): FlightInfo = {
     try {
       val state = preparedState(command.getPreparedStatementHandle, context)
-      nextExecution(state.takePending(), state.isQuery, System.currentTimeMillis()) match {
+      state.takeExecution(System.currentTimeMillis()) match {
         case UseCached(result) => registerQuery(result, descriptor)
         case EmptyResult =>
           // an update that just ran through DoPut: do not run it again; the ticket is the

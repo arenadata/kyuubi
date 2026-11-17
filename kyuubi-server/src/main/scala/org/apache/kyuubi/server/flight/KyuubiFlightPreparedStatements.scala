@@ -25,6 +25,8 @@ package org.apache.kyuubi.server.flight
  * runs an update with DoPut and then also asks for its result with GetFlightInfo; that
  * request must not run the statement again (DDL would fail, DML would be applied twice),
  * so it gets an empty result when it comes within [[UpdateResultWindowMs]] of the update.
+ * Repeated result requests (client retries) in that window get the same empty result; only
+ * a new DoPut runs the update again.
  */
 private[flight] object KyuubiFlightPreparedStatements {
 

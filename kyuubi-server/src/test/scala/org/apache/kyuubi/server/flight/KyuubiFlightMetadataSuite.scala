@@ -106,6 +106,49 @@ class KyuubiFlightMetadataSuite extends KyuubiFunSuite {
     }
   }
 
+  test("INFORMATION_SCHEMA names of PostgreSQL, MySQL and Oracle dialects are mapped too") {
+    // PostgreSQL getCatalogs / getSchemas
+    withRoot(Schemas.GET_CATALOGS_SCHEMA) { root =>
+      fill(root, Seq(Map[String, AnyRef]("catalog_name" -> "postgres")), CATALOGS_SOURCES)
+      assert(strings(root, "catalog_name") === Seq("postgres"))
+    }
+    withRoot(Schemas.GET_SCHEMAS_SCHEMA) { root =>
+      val rows = Seq(Map[String, AnyRef](
+        "catalog_name" -> "postgres",
+        "schema_name" -> "public",
+        "schema_owner" -> "pg"))
+      fill(root, rows, SCHEMAS_SOURCES)
+      assert(strings(root, "catalog_name") === Seq("postgres"))
+      assert(strings(root, "db_schema_name") === Seq("public"))
+    }
+    // PostgreSQL/MySQL/ClickHouse getTables (TABLE_CATALOG, TABLE_SCHEMA), Oracle (OWNER AS
+    // TABLE_SCHEMA, no catalog), with table schemas from columns of the same shape
+    val tableRows = Seq(
+      Map[String, AnyRef](
+        "table_catalog" -> "postgres",
+        "table_schema" -> "public",
+        "table_name" -> "orders",
+        "table_type" -> "BASE TABLE"),
+      Map[String, AnyRef]("table_schema" -> "HR", "table_name" -> "EMP", "table_type" -> "TABLE"))
+    val columnRows = Seq(
+      Map[String, AnyRef](
+        "table_catalog" -> "postgres",
+        "table_schema" -> "public",
+        "table_name" -> "orders",
+        "column_name" -> "id",
+        "ordinal_position" -> Int.box(1)),
+      Map[String, AnyRef]("table_schema" -> "HR", "table_name" -> "EMP", "column_name" -> "ENAME"))
+    withRoot(Schemas.GET_TABLES_SCHEMA) { root =>
+      fill(root, tableRows, TABLES_SOURCES, tableSchemas(columnRows))
+      assert(strings(root, "catalog_name") === Seq("postgres", null))
+      assert(strings(root, "db_schema_name") === Seq("public", "HR"))
+      assert(strings(root, "table_name") === Seq("orders", "EMP"))
+      val bytes = root.getVector(TABLE_SCHEMA_FIELD).asInstanceOf[VarBinaryVector]
+      assert(readSchema(bytes.get(0)).getFields.asScala.map(_.getName) === Seq("id"))
+      assert(readSchema(bytes.get(1)).getFields.asScala.map(_.getName) === Seq("ENAME"))
+    }
+  }
+
   test("GetTables with schema: table_schema is an IPC Arrow schema built from GetColumns") {
     val columnRows = Seq(
       // deliberately out of ordinal order
