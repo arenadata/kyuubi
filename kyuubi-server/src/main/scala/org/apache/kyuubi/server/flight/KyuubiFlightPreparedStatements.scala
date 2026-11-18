@@ -23,21 +23,22 @@ package org.apache.kyuubi.server.flight
  * Queries start when they are prepared (the result schema is known only once a statement
  * runs); the first execution gets that result. The Arrow Flight SQL JDBC driver (DBeaver)
  * runs an update with DoPut and then also asks for its result with GetFlightInfo; that
- * request must not run the statement again (DDL would fail, DML would be applied twice),
- * so it gets an empty result when it comes within [[UpdateResultWindowMs]] of the update.
- * Repeated result requests (client retries) in that window get the same empty result; only
- * a new DoPut runs the update again.
+ * request must not run the statement again (DDL would fail, DML would be applied twice).
+ * After a DoPut, every result request (also client retries, however late) gets an empty
+ * result until the next DoPut runs the update again or the handle is closed (by the client
+ * or the idle sweeper). Clients re-execute updates with a new DoPut; a statement that was
+ * never sent through DoPut still runs on every GetFlightInfo.
  */
 private[flight] object KyuubiFlightPreparedStatements {
 
-  /** Pending work of a prepared statement; taken (and reset to [[Idle]]) by an execution. */
+  /** Pending work of a prepared statement, see [[nextExecution]]. */
   sealed trait Pending[+Q]
 
   /** The result started at prepare time. */
   final case class Cached[Q](result: Q) extends Pending[Q]
 
-  /** The statement ran through the update path (DoPut) at `atMs`. */
-  final case class UpdateRan(atMs: Long) extends Pending[Nothing]
+  /** The statement ran through the update path (DoPut). */
+  case object UpdateRan extends Pending[Nothing]
 
   case object Idle extends Pending[Nothing]
 
@@ -51,9 +52,6 @@ private[flight] object KyuubiFlightPreparedStatements {
 
   case object Run extends Execution[Nothing]
 
-  /** The JDBC driver asks for the result right after the update. */
-  val UpdateResultWindowMs: Long = 60000L
-
   /**
    * How often idle prepared statements are swept: half the idle timeout, between 1 second
    * and 1 minute, so a statement is released at most about a minute after it expires.
@@ -61,10 +59,15 @@ private[flight] object KyuubiFlightPreparedStatements {
   def sweepIntervalMs(idleTimeoutMs: Long): Long =
     math.min(math.max(idleTimeoutMs / 2, 1000L), 60000L)
 
-  def nextExecution[Q](pending: Pending[Q], isQuery: Boolean, nowMs: Long): Execution[Q] =
+  /**
+   * What a GetFlightInfo execution does, and the pending work it leaves. The prepare-time
+   * result is used once; the marker of an update that ran stays, so no result request runs
+   * the update again (a query sent through the update path runs normally).
+   */
+  def nextExecution[Q](pending: Pending[Q], isQuery: Boolean): (Execution[Q], Pending[Q]) =
     pending match {
-      case Cached(result) => UseCached(result)
-      case UpdateRan(atMs) if !isQuery && nowMs - atMs <= UpdateResultWindowMs => EmptyResult
-      case _ => Run
+      case Cached(result) => (UseCached(result), Idle)
+      case UpdateRan if !isQuery => (EmptyResult, UpdateRan)
+      case _ => (Run, Idle)
     }
 }

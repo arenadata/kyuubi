@@ -531,14 +531,11 @@ class KyuubiFlightSqlProducer(
 
     def setPending(next: Pending[QueryState]): Unit = synchronized { pending = next }
 
-    /**
-     * What a GetFlightInfo execution does. The pending work is taken, except the marker of an
-     * update that just ran: retried result requests must not run the update again either.
-     */
-    def takeExecution(nowMs: Long): Execution[QueryState] = synchronized {
-      val next = nextExecution(pending, isQuery, nowMs)
-      if (next != EmptyResult) pending = Idle
-      next
+    /** What a GetFlightInfo execution does (see [[nextExecution]]). */
+    def takeExecution(): Execution[QueryState] = synchronized {
+      val (execution, next) = nextExecution(pending, isQuery)
+      pending = next
+      execution
     }
   }
 
@@ -633,10 +630,10 @@ class KyuubiFlightSqlProducer(
       descriptor: FlightDescriptor): FlightInfo = {
     try {
       val state = preparedState(command.getPreparedStatementHandle, context)
-      state.takeExecution(System.currentTimeMillis()) match {
+      state.takeExecution() match {
         case UseCached(result) => registerQuery(result, descriptor)
         case EmptyResult =>
-          // an update that just ran through DoPut: do not run it again; the ticket is the
+          // an update that ran through DoPut: do not run it again; the ticket is the
           // command itself, answered by getStreamPreparedStatement
           new FlightInfo(
             emptySchema,
@@ -689,7 +686,7 @@ class KyuubiFlightSqlProducer(
       // a query sent through the update path: its prepare-time result is not needed
       releasePending(state.takePending())
       val count = executeUpdate(state.sql, context)
-      state.setPending(UpdateRan(System.currentTimeMillis()))
+      state.setPending(UpdateRan)
       sendUpdateCount(ackStream, count)
     } catch {
       case NonFatal(e) => ackStream.onError(streamError(e))

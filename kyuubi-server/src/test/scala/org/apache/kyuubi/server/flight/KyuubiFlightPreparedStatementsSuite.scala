@@ -22,30 +22,32 @@ import org.apache.kyuubi.server.flight.KyuubiFlightPreparedStatements._
 
 class KyuubiFlightPreparedStatementsSuite extends KyuubiFunSuite {
 
-  private val now = 1000000L
+  /** Executions of `n` GetFlightInfo requests in a row, starting from `pending`. */
+  private def executions[Q](pending: Pending[Q], isQuery: Boolean, n: Int): Seq[Execution[Q]] =
+    Iterator.iterate[(Option[Execution[Q]], Pending[Q])]((None, pending)) { case (_, p) =>
+      val (execution, next) = nextExecution(p, isQuery)
+      (Some(execution), next)
+    }.drop(1).take(n).flatMap(_._1).toSeq
 
-  test("the result started at prepare time is used by the first execution") {
-    assert(nextExecution(Cached("q"), isQuery = true, now) === UseCached("q"))
+  test("the result started at prepare time is used by the first execution only") {
+    assert(nextExecution(Cached("q"), isQuery = true) === (UseCached("q"), Idle))
+    assert(executions(Cached("q"), isQuery = true, 3) === Seq(UseCached("q"), Run, Run))
   }
 
-  test("nothing pending: the statement runs") {
-    assert(nextExecution(Idle, isQuery = true, now) === Run)
-    assert(nextExecution(Idle, isQuery = false, now) === Run)
+  test("nothing pending: the statement runs on every execution") {
+    assert(executions(Idle, isQuery = true, 3) === Seq(Run, Run, Run))
+    // a prepared update executed only through GetFlightInfo (never DoPut) runs every time
+    assert(executions(Idle, isQuery = false, 3) === Seq(Run, Run, Run))
   }
 
-  test("right after an update, its result request does not run it again") {
-    assert(nextExecution(UpdateRan(now), isQuery = false, now) === EmptyResult)
-    assert(nextExecution(UpdateRan(now - UpdateResultWindowMs), isQuery = false, now) ===
-      EmptyResult)
-  }
-
-  test("an execution long after an update runs the statement again") {
-    assert(nextExecution(UpdateRan(now - UpdateResultWindowMs - 1), isQuery = false, now) ===
-      Run)
+  test("after an update ran, no result request runs it again, and the marker stays") {
+    assert(nextExecution(UpdateRan, isQuery = false) === (EmptyResult, UpdateRan))
+    // retries, however late: there is no time window
+    assert(executions(UpdateRan, isQuery = false, 100).forall(_ == EmptyResult))
   }
 
   test("a query executed after going through the update path runs again") {
-    assert(nextExecution(UpdateRan(now), isQuery = true, now) === Run)
+    assert(nextExecution(UpdateRan, isQuery = true) === (Run, Idle))
   }
 
   test("idle prepared statements are swept every half timeout, between 1 s and 1 min") {
