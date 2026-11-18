@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1.3-4.5.0-0</version>
+        <version>1.11.1.3-4.5.0-1</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -270,4 +270,48 @@
         <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
         <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
     </build>
+
+    <profiles>
+        <profile>
+            <id>flink-1.20</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>scala-reflect</artifactId>
+                    <version>${scala.version}</version>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <configuration>
+                            <!-- Spark 4 uses Scala 2.13, while the supported Flink 1.20 distribution retains 2.12.
+                                 Keep the engine's Scala private across its Java-only Flink boundary. -->
+                            <artifactSet>
+                                <includes combine.children="append">
+                                    <include>org.scala-lang:scala-library</include>
+                                    <include>org.scala-lang:scala-reflect</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations combine.children="append">
+                                <relocation>
+                                    <pattern>scala</pattern>
+                                    <shadedPattern>${kyuubi.shade.packageName}.scala</shadedPattern>
+                                </relocation>
+                                <!-- Properties builds /library.properties from the category string.
+                                     Relocate both it and the resources, keeping Flink Scala metadata intact. -->
+                                <relocation>
+                                    <pattern>^(library|library[.]properties|reflect[.]properties)$</pattern>
+                                    <shadedPattern>META-INF/kyuubi-scala/$0</shadedPattern>
+                                    <rawString>true</rawString>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

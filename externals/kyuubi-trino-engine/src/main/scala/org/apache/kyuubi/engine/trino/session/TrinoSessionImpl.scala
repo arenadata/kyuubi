@@ -100,7 +100,7 @@ class TrinoSessionImpl(
 
     ClientSession.builder()
       .server(URI.create(connectionUrl))
-      .principal(Optional.of(sessionUser))
+      .user(Optional.of(sessionUser))
       .source("kyuubi")
       .catalog(catalogName)
       .schema(databaseName)
@@ -136,6 +136,7 @@ class TrinoSessionImpl(
         Optional.ofNullable(keystorePath.orNull),
         Optional.ofNullable(keystorePassword.orNull),
         Optional.ofNullable(keystoreType.orNull),
+        false,
         Optional.ofNullable(truststorePath.orNull),
         Optional.ofNullable(truststorePassword.orNull),
         Optional.ofNullable(truststoreType.orNull),
@@ -175,7 +176,8 @@ class TrinoSessionImpl(
         Optional.ofNullable(configFile.orNull),
         Optional.ofNullable(keytabFile.orNull),
         Optional.ofNullable(credCacheFile.orNull),
-        delegatedKerberos)
+        delegatedKerberos,
+        Optional.empty())
     }
 
     KyuubiHadoopUtils.getPassword(sessionConf, KyuubiConf.ENGINE_TRINO_CONNECTION_PASSWORD)

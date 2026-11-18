@@ -1278,7 +1278,13 @@ abstract class FlinkOperationSuite extends HiveJDBCTestHelper with WithFlinkTest
           while (resultSet.next()) {}
         }
       })
-    assert(exception.getMessage === "Futures timed out after [60000 milliseconds]")
+    // Scala 2.13 uses the singular Future in TimeoutException messages.
+    val future = if (scala.util.Properties.versionNumberString.startsWith("2.13.")) {
+      "Future"
+    } else {
+      "Futures"
+    }
+    assert(exception.getMessage === s"$future timed out after [60000 milliseconds]")
   }
 
   test("execute statement - help") {

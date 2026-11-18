@@ -79,25 +79,27 @@ class TrinoOperationSuite extends WithTrinoEngine with TrinoQueryTests {
         "KdbTree",
         "CodePoints",
         "JsonPath",
-        "Regressor",
         "JoniRegExp",
         "unknown",
-        "ObjectId",
         "SetDigest",
         "Re2JRegExp",
-        "Model",
         "tdigest",
         "LikePattern",
         "function",
-        "Classifier",
         "json2016",
-        "JsonPath2016")
+        "JsonPath2016",
+        NUMBER,
+        VARIANT)
+      // These types are registered by optional ML and MongoDB plugins, not the core server.
+      val pluginTypes = Set("Regressor", "Classifier", "Model", "ObjectId")
       val typeInfos: Set[String] = Set()
       while (typeInfo.next()) {
-        assert(expectedTypes.contains(typeInfo.getString(TYPE_NAME)))
+        assert((expectedTypes ++ pluginTypes).contains(typeInfo.getString(TYPE_NAME)))
         typeInfos += typeInfo.getString(TYPE_NAME)
       }
-      assert(expectedTypes.size === typeInfos.size)
+      assert(
+        expectedTypes.subsetOf(typeInfos),
+        s"Missing core types: ${expectedTypes -- typeInfos}")
     }
   }
 
@@ -539,6 +541,7 @@ class TrinoOperationSuite extends WithTrinoEngine with TrinoQueryTests {
           case TIME_WITH_TIME_ZONE => s"$TIME(3) with time zone"
           case TIMESTAMP => s"$TIMESTAMP(3)"
           case TIMESTAMP_WITH_TIME_ZONE => s"$TIMESTAMP(3) with time zone"
+          case row if row == s"$ROW(c $VARCHAR)" => s"""$ROW("c" $VARCHAR)"""
           case columnType => columnType
         }
         assert(columns.getString(TYPE_NAME) === expectType)

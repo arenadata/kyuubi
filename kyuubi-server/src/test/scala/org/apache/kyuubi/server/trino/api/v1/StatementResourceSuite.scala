@@ -22,7 +22,7 @@ import javax.ws.rs.core.{MediaType, Response}
 
 import scala.collection.JavaConverters._
 
-import io.trino.client.{QueryError, QueryResults}
+import io.trino.client.{JsonIterators, JsonQueryData, QueryError, QueryResults}
 import io.trino.client.ProtocolHeaders.TRINO_HEADERS
 
 import org.apache.kyuubi.{KyuubiFunSuite, KyuubiSQLException, TrinoRestFrontendTestHelper}
@@ -97,7 +97,14 @@ class StatementResourceSuite extends KyuubiFunSuite with TrinoRestFrontendTestHe
       assert(response.getStatus == 200)
       val qr = response.readEntity(classOf[QueryResults])
       val nextData = Option(qr.getData)
-        .map(_.asScala.toList.map(_.asScala.toList))
+        .filterNot(_.isNull)
+        .map { data =>
+          val rows = JsonIterators.forJsonParser(
+            data.asInstanceOf[JsonQueryData].getJsonParser,
+            qr.getColumns,
+            false)
+          try rows.asScala.toList.map(_.asScala.toList) finally rows.close()
+        }
         .getOrElse(List[List[Any]]())
       val nextResponse = Option(qr.getNextUri).map {
         uri =>

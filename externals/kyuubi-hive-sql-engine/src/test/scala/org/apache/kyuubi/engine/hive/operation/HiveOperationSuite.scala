@@ -17,7 +17,7 @@
 
 package org.apache.kyuubi.engine.hive.operation
 
-import org.apache.commons.lang3.{JavaVersion, SystemUtils}
+import org.apache.hive.common.util.HiveVersionInfo
 
 import org.apache.kyuubi.{HiveEngineTests, KYUUBI_VERSION, Utils}
 import org.apache.kyuubi.config.KyuubiReservedKeys
@@ -26,6 +26,9 @@ import org.apache.kyuubi.jdbc.hive.KyuubiStatement
 import org.apache.kyuubi.util.command.CommandLineUtils._
 
 class HiveOperationSuite extends HiveEngineTests {
+
+  override protected def supportsHiveEngineTestsOnCurrentJava: Boolean =
+    HiveVersionInfo.getVersion.startsWith("4.") || super.supportsHiveEngineTestsOnCurrentJava
 
   override def beforeAll(): Unit = {
     val metastore = Utils.createTempDir(prefix = getClass.getSimpleName)
@@ -38,6 +41,16 @@ class HiveOperationSuite extends HiveEngineTests {
       // left over from schema auto-creation, causing JDOUserException on the first query.
       "datanucleus.connectionPoolingType=None",
       CONF,
+      "tez.local.mode=true",
+      CONF,
+      s"hive.jar.directory=${Utils.createTempDir(prefix = "kyuubi_hive_jars")}",
+      CONF,
+      "tez.am.mode.session=false",
+      CONF,
+      "hive.tez.container.size=512",
+      CONF,
+      "hive.tez.cpu.vcores=1",
+      CONF,
       s"${KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY}=kyuubi")
     HiveSQLEngine.main(args)
     super.beforeAll()
@@ -48,7 +61,7 @@ class HiveOperationSuite extends HiveEngineTests {
   }
 
   test("test get query id") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement("hive_engine_test") { statement =>
       statement.execute("CREATE TABLE hive_engine_test(id int, value string) stored as orc")
       statement.execute("INSERT INTO hive_engine_test SELECT 1, '2'")

@@ -54,7 +54,7 @@ class SchemaHelperSuite extends KyuubiFunSuite {
       column("c19", TIMESTAMP_WITH_TIME_ZONE),
       column("c20", IPADDRESS),
       column("c21", UUID),
-      column("c22", UNKNOWN))
+      column("c22", SchemaHelper.UNKNOWN))
 
   test("toTTypeId") {
     assert(toTTypeId(outerSchema.head.getTypeSignature) === TTypeId.BOOLEAN_TYPE)

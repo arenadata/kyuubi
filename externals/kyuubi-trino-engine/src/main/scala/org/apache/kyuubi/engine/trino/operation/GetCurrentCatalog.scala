@@ -36,7 +36,7 @@ class GetCurrentCatalog(session: Session)
   override protected def runInternal(): Unit = {
     try {
       val session = trinoContext.clientSession.get
-      val catalog = session.getCatalog
+      val catalog = session.getCatalog.orElse(null)
 
       val clientTypeSignature = new ClientTypeSignature(
         VARCHAR,

@@ -26,15 +26,18 @@ import org.apache.kyuubi.operation.meta.ResultSetSchemaConstant._
 import org.apache.kyuubi.util.JdbcUtils
 
 /**
- * hive tests disabled for JAVA 11
+ * Hive 3 tests require Java 8. Engines using a newer Hive version can override the capability.
  * https://issues.apache.org/jira/browse/HIVE-22415
  * https://issues.apache.org/jira/browse/HIVE-21584
  * hive 3.x not works with java 11
  */
 trait HiveEngineTests extends HiveJDBCTestHelper {
 
+  protected def supportsHiveEngineTestsOnCurrentJava: Boolean =
+    SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8)
+
   test("get catalogs") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       val catalogs = statement.getConnection.getMetaData.getCatalogs
       assert(!catalogs.next())
@@ -42,7 +45,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get schemas") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withDatabases("test_schema") { statement =>
       statement.execute("CREATE SCHEMA IF NOT EXISTS test_schema")
       val metaData = statement.getConnection.getMetaData
@@ -65,7 +68,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get tables") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withDatabases("test_schema") { statement =>
       statement.execute("CREATE SCHEMA IF NOT EXISTS test_schema")
       statement.execute("CREATE TABLE IF NOT EXISTS test_schema.test_table(a string)")
@@ -133,7 +136,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get columns") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withDatabases("test_schema") { statement =>
       statement.execute("CREATE SCHEMA IF NOT EXISTS test_schema")
       statement.execute("CREATE TABLE IF NOT EXISTS test_schema.test_table(a int, b string)")
@@ -208,7 +211,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get functions") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       val metaData = statement.getConnection.getMetaData
       Seq("from_unixtime", "to_date", "date_format", "date_format", "round", "sin").foreach {
@@ -227,7 +230,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get table types") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       val resultSet = statement.getConnection.getMetaData.getTableTypes
       val hive2_1Expected = Set("TABLE", "VIEW", "INDEX_TABLE")
@@ -240,7 +243,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get primary keys") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withDatabases("test_schema") { statement =>
       statement.execute("CREATE SCHEMA IF NOT EXISTS test_schema")
       statement.execute("CREATE TABLE IF NOT EXISTS test_schema.test_table(a string, " +
@@ -265,7 +268,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("get cross reference") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withDatabases("test_schema") { statement =>
       statement.execute("CREATE SCHEMA IF NOT EXISTS test_schema")
       statement.execute("CREATE TABLE IF NOT EXISTS test_schema.test_table1(a string, " +
@@ -312,7 +315,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("basic execute statements, create, insert query") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement("hive_engine_test") { statement =>
       statement.execute("CREATE TABLE hive_engine_test(id int, value string) stored as textfile")
       statement.execute("INSERT INTO hive_engine_test SELECT 1, '2'")
@@ -330,7 +333,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("test getTypeInfo") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       val typeInfo = statement.getConnection.getMetaData.getTypeInfo
       typeInfo.next()
@@ -382,6 +385,11 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
       assert(typeInfo.getInt(DATA_TYPE) === java.sql.Types.DATE)
 
       typeInfo.next()
+      // Hive 4 lists the local-time-zone timestamp before TIMESTAMP; Hive 3 lists it after.
+      if (typeInfo.getString(TYPE_NAME) == "TIMESTAMP WITH LOCAL TIME ZONE") {
+        assert(typeInfo.getInt(DATA_TYPE) === java.sql.Types.OTHER)
+        typeInfo.next()
+      }
       assert(typeInfo.getString(TYPE_NAME) === "TIMESTAMP")
       assert(typeInfo.getInt(DATA_TYPE) === java.sql.Types.TIMESTAMP)
 
@@ -430,7 +438,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("test setClientInfo") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       val res = statement.getConnection.getMetaData.getClientInfoProperties
       assert(res.next())
@@ -445,7 +453,7 @@ trait HiveEngineTests extends HiveJDBCTestHelper {
   }
 
   test("test set command") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(supportsHiveEngineTestsOnCurrentJava)
     withJdbcStatement() { statement =>
       statement.execute("set hive.query.name=test")
       val resultSet = statement.executeQuery("set hive.query.name")

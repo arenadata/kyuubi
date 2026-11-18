@@ -21,6 +21,7 @@ import javax.ws.rs.ext.ContextResolver
 
 import com.fasterxml.jackson.databind.{DeserializationFeature, MapperFeature, ObjectMapper}
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module
+import io.trino.client.QueryDataJacksonModule
 
 class TrinoScalaObjectMapper extends ContextResolver[ObjectMapper] {
 
@@ -37,6 +38,7 @@ class TrinoScalaObjectMapper extends ContextResolver[ObjectMapper] {
     .disable(MapperFeature.INFER_PROPERTY_MUTATORS)
     .disable(MapperFeature.ALLOW_FINAL_FIELDS_AS_MUTATORS)
     .registerModule(new Jdk8Module)
+    .registerModule(new QueryDataJacksonModule)
 
   override def getContext(aClass: Class[_]): ObjectMapper = mapper
 }

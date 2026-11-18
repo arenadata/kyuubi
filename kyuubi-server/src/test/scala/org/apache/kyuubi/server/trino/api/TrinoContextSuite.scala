@@ -24,6 +24,7 @@ import javax.ws.rs.core.MediaType
 import scala.collection.JavaConverters._
 
 import io.trino.client.ProtocolHeaders.TRINO_HEADERS
+import io.trino.client.TypedQueryData
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
@@ -93,7 +94,7 @@ class TrinoContextSuite extends KyuubiFunSuite with RestFrontendTestHelper {
 
     print(results.toString)
     assert(results.getColumns.get(0).getType.equals("integer"))
-    assert(results.getData.asScala.last.get(0) == 1)
+    assert(results.getData.asInstanceOf[TypedQueryData].getIterable.asScala.last.get(0) == 1)
   }
 
   test("test convert from table") {
@@ -120,7 +121,7 @@ class TrinoContextSuite extends KyuubiFunSuite with RestFrontendTestHelper {
 
     print(results.toString)
     assert(results.getColumns.get(0).getType.equals("integer"))
-    assert(results.getData.asScala.last.get(0) != null)
+    assert(results.getData.asInstanceOf[TypedQueryData].getIterable.asScala.last.get(0) != null)
   }
 
   def getOpHandleStr(statement: String = "show tables"): String = {

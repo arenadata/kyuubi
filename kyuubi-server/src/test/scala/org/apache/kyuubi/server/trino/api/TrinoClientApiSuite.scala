@@ -74,8 +74,8 @@ class TrinoClientApiSuite extends KyuubiFunSuite with TrinoRestFrontendTestHelpe
     // update catalog and schema
     if (trino.getSetCatalog.isPresent || trino.getSetSchema.isPresent) {
       builder = builder
-        .catalog(trino.getSetCatalog.orElse(session.getCatalog))
-        .schema(trino.getSetSchema.orElse(session.getSchema))
+        .catalog(trino.getSetCatalog.orElse(session.getCatalog.orElse(null)))
+        .schema(trino.getSetSchema.orElse(session.getSchema.orElse(null)))
     }
 
     // update path if present
@@ -97,10 +97,11 @@ class TrinoClientApiSuite extends KyuubiFunSuite with TrinoRestFrontendTestHelpe
     @tailrec
     def getData(trino: StatementClient): (Boolean, List[List[Any]]) = {
       if (trino.isRunning) {
-        val data = trino.currentData().getData()
+        val rows = trino.currentRows()
+        val data = try rows.asScala.toList.map(_.asScala.toList) finally rows.close()
         trino.advance()
-        if (data != null) {
-          (true, data.asScala.toList.map(_.asScala.toList))
+        if (data.nonEmpty) {
+          (true, data)
         } else {
           getData(trino)
         }
@@ -125,7 +126,6 @@ class TrinoClientApiSuite extends KyuubiFunSuite with TrinoRestFrontendTestHelpe
   private def createTestClientSession(connectUrl: URI): ClientSession = {
     ClientSession.builder()
       .server(connectUrl)
-      .principal(Optional.of("kyuubi_test"))
       .user(Optional.of("test_user"))
       .source("kyuubi")
       .traceToken(Optional.of("test_token_tracing"))

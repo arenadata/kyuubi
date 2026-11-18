@@ -28,6 +28,7 @@ import com.google.common.base.Verify
 import io.trino.client.ClientSession
 import io.trino.client.ClientTypeSignature
 import io.trino.client.Column
+import io.trino.client.ResultRows
 import io.trino.client.StatementClient
 import io.trino.client.StatementClientFactory
 
@@ -68,9 +69,9 @@ class TrinoStatement(
 
   def getTrinoClient: StatementClient = trino
 
-  def getCurrentCatalog: String = trinoContext.clientSession.get.getCatalog
+  def getCurrentCatalog: String = trinoContext.clientSession.get.getCatalog.orElse(null)
 
-  def getCurrentDatabase: String = trinoContext.clientSession.get.getSchema
+  def getCurrentDatabase: String = trinoContext.clientSession.get.getSchema.orElse(null)
 
   def getColumns: List[Column] = {
     while (trino.isRunning) {
@@ -100,12 +101,12 @@ class TrinoStatement(
       @tailrec
       def getData(): (Boolean, List[List[Any]]) = {
         if (trino.isRunning) {
-          val data = trino.currentData().getData()
+          // Decode and close each result page before advancing to the next one.
+          val rows = TrinoStatement.readRows(trino.currentRows())
           trino.advance()
-          if (data != null) {
-            (true, data.asScala.toList.map(_.asScala.toList))
-          } else {
-            getData()
+          rows match {
+            case Some(data) => (true, data)
+            case None => getData()
           }
         } else {
           timer.shutdown()
@@ -135,8 +136,8 @@ class TrinoStatement(
     // update catalog and schema
     if (trino.getSetCatalog.isPresent || trino.getSetSchema.isPresent) {
       builder = builder
-        .catalog(trino.getSetCatalog.orElse(session.getCatalog))
-        .schema(trino.getSetSchema.orElse(session.getSchema))
+        .catalog(trino.getSetCatalog.orElse(session.getCatalog.orElse(null)))
+        .schema(trino.getSetSchema.orElse(session.getSchema.orElse(null)))
     }
 
     // update path if present
@@ -175,6 +176,14 @@ class TrinoStatement(
 }
 
 object TrinoStatement {
+  private[trino] def readRows(rows: ResultRows): Option[List[List[Any]]] = {
+    try {
+      if (rows.isNull) None else Some(rows.asScala.toList.map(_.asScala.toList))
+    } finally {
+      rows.close()
+    }
+  }
+
   def apply(
       trinoContext: TrinoContext,
       kyuubiConf: KyuubiConf,
