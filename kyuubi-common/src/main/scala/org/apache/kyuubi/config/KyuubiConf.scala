@@ -296,6 +296,18 @@ object KyuubiConf {
     kyuubiConfEntries.values()
   }
 
+  /**
+   * The registered config key equal to `key` ignoring case, or `key` itself. Used where keys
+   * arrive lower-cased, e.g. as gRPC/HTTP2 header names.
+   */
+  def canonicalKey(key: String): String = {
+    if (kyuubiConfEntries.containsKey(key)) {
+      key
+    } else {
+      kyuubiConfEntries.keySet().asScala.find(_.equalsIgnoreCase(key)).getOrElse(key)
+    }
+  }
+
   private[config] def containsConfigEntry(entry: ConfigEntry[_]): Boolean = {
     getConfigEntry(entry.key) == entry
   }
@@ -1401,6 +1413,18 @@ object KyuubiConf {
       .intConf
       .checkValue(_ > 0, "must be positive")
       .createWithDefault(1000)
+
+  val FRONTEND_FLIGHT_SQL_RESULT_IDLE_TIMEOUT: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.flight.sql.result.idle.timeout")
+      .doc("How long the result of an executed Arrow Flight SQL query waits for the client " +
+        "to fetch it (DoGet). A result that is not fetched in time is released together with " +
+        "its engine session and operation, e.g. when the client exits between GetFlightInfo " +
+        "and DoGet. Results that are being streamed are not affected.")
+      .version("1.11.1")
+      .serverOnly
+      .timeConf
+      .checkValue(_ > 0, "must be positive")
+      .createWithDefaultString("PT10M")
 
   val FRONTEND_FLIGHT_SQL_TOKEN_TTL: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.flight.sql.token.ttl")
@@ -3794,6 +3818,30 @@ object KyuubiConf {
       .version("1.6.0")
       .stringConf
       .createOptional
+
+  val ENGINE_JDBC_IMPALA_IMPERSONATION_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.engine.jdbc.impala.impersonation.enabled")
+      .doc("Whether the Impala JDBC connection provider runs each session as the Kyuubi " +
+        "session user via Impala delegation (`impala.doas.user`). The JDBC engine connects " +
+        "to Impala with its own credentials (e.g. the Kyuubi keytab), so Impala must allow " +
+        "that user to delegate, e.g. `--authorized_proxy_user_config=kyuubi=*` on impalad. " +
+        "Only the server configuration (defaults, engine profiles) sets it; client session " +
+        "values are ignored.")
+      .version("1.11.1")
+      .booleanConf
+      .createWithDefault(false)
+
+  val ENGINE_JDBC_METADATA_OPERATION_TIMEOUT: ConfigEntry[Long] =
+    buildConf("kyuubi.engine.jdbc.metadata.operation.timeout")
+      .doc("Maximum time of a metadata request (GetSchemas, GetTables, GetColumns, ...) that " +
+        "the JDBC engine assembles from several backend statements, e.g. SHOW and DESCRIBE " +
+        "for Impala. A request still running after it fails, e.g. GetColumns over all " +
+        "tables of a large metastore. It is checked before each backend statement; " +
+        "0 means no limit.")
+      .version("1.11.1")
+      .timeConf
+      .checkValue(_ >= 0, "must be 0 or positive")
+      .createWithDefaultString("PT5M")
 
   val ENGINE_JDBC_INITIALIZE_SQL: ConfigEntry[Seq[String]] =
     buildConf("kyuubi.engine.jdbc.initialize.sql")

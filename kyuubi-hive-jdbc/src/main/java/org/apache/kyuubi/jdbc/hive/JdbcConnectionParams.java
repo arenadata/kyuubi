@@ -44,6 +44,9 @@ public class JdbcConnectionParams {
   public static final String AUTH_SIMPLE = "noSasl";
   public static final String AUTH_USER = "user";
   public static final String AUTH_PRINCIPAL = "principal";
+  // Impala delegation: the connected (service) user runs the session as this user. Impala only
+  // reads it as a raw OpenSession configuration key, not as set:hiveconf:.
+  public static final String IMPALA_DOAS_USER = "impala.doas.user";
   // kyuubiServerPrincipal is alias to principal. And principal will take precedence
   // over kyuubiServerPrincipal when both are set.
   public static final String AUTH_KYUUBI_SERVER_PRINCIPAL = "kyuubiServerPrincipal";

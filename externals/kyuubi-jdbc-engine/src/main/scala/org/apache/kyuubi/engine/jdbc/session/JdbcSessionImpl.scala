@@ -23,7 +23,7 @@ import scala.util.{Failure, Success, Try}
 import org.apache.kyuubi.KyuubiSQLException
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_HANDLE_KEY
+import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_SESSION_HANDLE_KEY, KYUUBI_SESSION_USER_KEY}
 import org.apache.kyuubi.engine.jdbc.connection.ConnectionProvider
 import org.apache.kyuubi.engine.jdbc.util.KyuubiJdbcUtils
 import org.apache.kyuubi.session.{AbstractSession, SessionHandle, SessionManager}
@@ -54,6 +54,9 @@ class JdbcSessionImpl(
       kyuubiConf.set(ENGINE_JDBC_CONNECTION_PASSWORD, password)
     }
     conf.foreach { case (k, v) => kyuubiConf.set(k, v) }
+    // the user of this session (not necessarily the engine owner); used e.g. for Impala
+    // delegation by ImpalaConnectionProvider
+    kyuubiConf.set(KYUUBI_SESSION_USER_KEY, user)
     kyuubiConf
   }
 

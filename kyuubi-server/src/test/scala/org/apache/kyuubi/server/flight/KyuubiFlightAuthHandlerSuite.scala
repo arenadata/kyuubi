@@ -20,11 +20,12 @@ package org.apache.kyuubi.server.flight
 import java.util
 import java.util.Base64
 
-import org.apache.arrow.flight.CallHeaders
+import org.apache.arrow.flight.{CallHeaders, FlightRuntimeException, FlightStatusCode}
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.config.KyuubiConf.AUTHENTICATION_METHOD
+import org.apache.kyuubi.config.KyuubiConf.{AUTHENTICATION_CUSTOM_CLASS, AUTHENTICATION_LDAP_BASE_DN, AUTHENTICATION_LDAP_URL, AUTHENTICATION_METHOD}
+import org.apache.kyuubi.service.authentication.UserDefineAuthenticationProviderImpl
 
 class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
 
@@ -56,6 +57,104 @@ class KyuubiFlightAuthHandlerSuite extends KyuubiFunSuite {
     intercept[RuntimeException] {
       auth.authenticate(headers)
     }
+  }
+
+  test("wrong basic credentials are UNAUTHENTICATED, valid ones authenticate") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("CUSTOM"))
+      .set(
+        AUTHENTICATION_CUSTOM_CLASS,
+        classOf[UserDefineAuthenticationProviderImpl].getCanonicalName)
+    val auth = new KyuubiFlightAuthHandler(conf)
+
+    def basic(user: String, password: String): MapCallHeaders = {
+      val headers = new MapCallHeaders
+      headers.insert(
+        "authorization",
+        "Basic " + Base64.getEncoder.encodeToString(s"$user:$password".getBytes("UTF-8")))
+      headers
+    }
+
+    val e = intercept[FlightRuntimeException] {
+      auth.authenticate(basic("user", "wrong"))
+    }
+    assert(e.status().code() === FlightStatusCode.UNAUTHENTICATED)
+    assert(e.getMessage.contains("Invalid username or password"))
+    assert(!e.getMessage.contains("wrong"), "the password must not leak into the error")
+
+    assert(auth.authenticate(basic("user", "password")).getPeerIdentity === "user")
+  }
+
+  test("the authorization scheme is case-insensitive, also for issued bearer tokens") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("CUSTOM"))
+      .set(
+        AUTHENTICATION_CUSTOM_CLASS,
+        classOf[UserDefineAuthenticationProviderImpl].getCanonicalName)
+    val auth = KyuubiFlightAuthHandler.create(conf)
+
+    val basic = new MapCallHeaders
+    basic.insert(
+      "authorization",
+      "basic " + Base64.getEncoder.encodeToString("user:password".getBytes("UTF-8")))
+    val result = auth.authenticate(basic)
+    assert(result.getPeerIdentity === "user")
+
+    val outgoing = new MapCallHeaders
+    result.appendToOutgoingHeaders(outgoing)
+    val token = outgoing.get("authorization")
+    assert(token.startsWith("Bearer "), token)
+    val bearer = new MapCallHeaders
+    bearer.insert("authorization", "BEARER " + token.stripPrefix("Bearer "))
+    assert(auth.authenticate(bearer).getPeerIdentity === "user")
+  }
+
+  test("scheme normalization keeps the other headers and leaves canonical ones untouched") {
+    val headers = new MapCallHeaders
+    headers.insert("authorization", "negotiate abc")
+    headers.insert("kyuubi.engine.profile", "impala")
+    val normalized = KyuubiFlightAuthHandler.normalizeScheme(headers)
+    assert(normalized.get("authorization") === "Negotiate abc")
+    assert(normalized.get("kyuubi.engine.profile") === "impala")
+
+    val canonical = new MapCallHeaders
+    canonical.insert("authorization", "Basic abc")
+    assert(KyuubiFlightAuthHandler.normalizeScheme(canonical) eq canonical)
+    val other = new MapCallHeaders
+    other.insert("authorization", "Digest abc")
+    assert(KyuubiFlightAuthHandler.normalizeScheme(other) eq other)
+  }
+
+  test("an unreachable LDAP server is UNAVAILABLE, not UNAUTHENTICATED") {
+    val conf = KyuubiConf()
+      .set(AUTHENTICATION_METHOD, Seq("LDAP"))
+      // nothing listens on port 1: the connection is refused at once
+      .set(AUTHENTICATION_LDAP_URL, "ldap://127.0.0.1:1")
+      .set(AUTHENTICATION_LDAP_BASE_DN, "ou=people,dc=example,dc=com")
+    val auth = new KyuubiFlightAuthHandler(conf)
+    val headers = new MapCallHeaders
+    headers.insert(
+      "authorization",
+      "Basic " + Base64.getEncoder.encodeToString("alice:secret".getBytes("UTF-8")))
+    val e = intercept[FlightRuntimeException](auth.authenticate(headers))
+    assert(e.status().code() === FlightStatusCode.UNAVAILABLE, e.getMessage)
+    assert(!e.getMessage.contains("secret"), "the password must not leak into the error")
+  }
+
+  test("only connection failures in the cause chain count as an unavailable provider") {
+    import KyuubiFlightAuthHandler.isServiceUnavailable
+    val refused = new javax.naming.CommunicationException("127.0.0.1:1")
+    refused.setRootCause(new java.net.ConnectException("Connection refused"))
+    val wrapped = new IllegalStateException(
+      new javax.security.sasl.AuthenticationException("Error validating LDAP user", refused))
+    assert(isServiceUnavailable(wrapped))
+    assert(isServiceUnavailable(new java.net.SocketTimeoutException("Read timed out")))
+
+    val badPassword = new IllegalStateException(new javax.security.sasl.AuthenticationException(
+      "Error validating LDAP user",
+      new javax.naming.AuthenticationException("[LDAP: error code 49 - Invalid Credentials]")))
+    assert(!isServiceUnavailable(badPassword))
+    assert(!isServiceUnavailable(new javax.security.sasl.AuthenticationException("no such user")))
   }
 
   private class MapCallHeaders extends CallHeaders {

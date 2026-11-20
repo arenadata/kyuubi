@@ -373,6 +373,11 @@ public class Utils {
       connParams.getSessionVars().put(AUTH_TYPE, info.getProperty(AUTH_TYPE));
     }
 
+    if (!connParams.getSessionVars().containsKey(IMPALA_DOAS_USER)
+        && info.containsKey(IMPALA_DOAS_USER)) {
+      connParams.getSessionVars().put(IMPALA_DOAS_USER, info.getProperty(IMPALA_DOAS_USER));
+    }
+
     String authorityStr = connParams.getSuppliedURLAuthority();
     // If we're using ZooKeeper, the final host, port will be read from ZooKeeper
     // (in a different method call). Therefore, we put back the original authority string

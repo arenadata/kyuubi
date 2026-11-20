@@ -22,10 +22,11 @@ import java.nio.ByteBuffer
 import java.nio.channels.Channels
 import java.nio.charset.StandardCharsets
 import java.sql.{Date, Timestamp}
-import java.time.{Instant, LocalDate, LocalDateTime, OffsetDateTime, ZonedDateTime}
+import java.time.{Instant, LocalDate, LocalDateTime, OffsetDateTime, ZonedDateTime, ZoneId, ZoneOffset}
 import java.util.{BitSet, Collections}
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector._
@@ -47,20 +48,53 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
  */
 object KyuubiFlightArrowUtils {
 
+  /**
+   * Arrow schema of an HS2 result, fields with Flight SQL column metadata
+   * ([[KyuubiFlightColumnMetadata]]).
+   */
   def schemaFromMetadata(metadata: TGetResultSetMetadataResp): Schema = {
     val columns = Option(metadata).flatMap(m => Option(m.getSchema))
       .map(_.getColumns.asScala.toSeq)
       .getOrElse(Seq.empty)
     new Schema(columns.map { column =>
-      val arrowType = Option(column.getTypeDesc)
+      val typeEntry = Option(column.getTypeDesc)
         .flatMap(desc => Option(desc.getTypes).flatMap(_.asScala.headOption))
-        .map(typeEntry => arrowTypeFromEntry(typeEntry, column.getColumnName))
+      val arrowType = typeEntry
+        .map(entry => arrowTypeFromEntry(entry, column.getColumnName))
         .getOrElse(ArrowType.Utf8.INSTANCE)
       new Field(
         column.getColumnName,
-        new FieldType(true, arrowType, null),
+        new FieldType(true, arrowType, null, columnMetadata(typeEntry)),
         Collections.emptyList[Field]())
     }.asJava)
+  }
+
+  private def columnMetadata(typeEntry: Option[TTypeEntry]): java.util.Map[String, String] = {
+    def qualifier(primitive: TPrimitiveTypeEntry, name: String): Option[Int] =
+      Option(primitive.getTypeQualifiers)
+        .flatMap(q => Option(q.getQualifiers))
+        .flatMap(q => Option(q.get(name)))
+        .filter(_.isSetI32Value)
+        .map(_.getI32Value)
+    typeEntry match {
+      case Some(entry) if entry.isSetPrimitiveEntry =>
+        val primitive = entry.getPrimitiveEntry
+        KyuubiFlightColumnMetadata(
+          KyuubiFlightColumnMetadata.baseName(primitive.getType),
+          qualifier(primitive, "precision"),
+          qualifier(primitive, "scale"),
+          qualifier(primitive, "characterMaximumLength"),
+          resultColumn = true)
+      case Some(entry) =>
+        val name =
+          if (entry.isSetArrayEntry) "ARRAY"
+          else if (entry.isSetMapEntry) "MAP"
+          else if (entry.isSetStructEntry) "STRUCT"
+          else "UNION"
+        KyuubiFlightColumnMetadata(name, None, None, None, resultColumn = true)
+      case None =>
+        KyuubiFlightColumnMetadata("STRING", None, None, None, resultColumn = true)
+    }
   }
 
   private def arrowTypeFromEntry(typeEntry: TTypeEntry, columnName: String): ArrowType = {
@@ -277,17 +311,10 @@ object KyuubiFlightArrowUtils {
           rowIndex,
           new java.math.BigDecimal(value.toString))
       case _: ArrowType.Date =>
-        val days = value match {
-          case d: Date => (d.getTime / (24L * 60L * 60L * 1000L)).toInt
-          case ld: LocalDate => ld.toEpochDay.toInt
-          case _ => number(value).intValue()
-        }
-        vector.asInstanceOf[DateDayVector].setSafe(rowIndex, days)
+        vector.asInstanceOf[DateDayVector].setSafe(rowIndex, epochDays(value))
       case ts: ArrowType.Timestamp =>
-        val micros = timestampMicros(value)
+        val micros = timestampMicros(value, zoneOf(ts))
         vector.asInstanceOf[TimeStampVector].setSafe(rowIndex, micros)
-        // Preserve timezone metadata already present on the Arrow field type.
-        val _ = ts
       case _: ArrowType.Null =>
         vector.setNull(rowIndex)
       case other =>
@@ -296,17 +323,46 @@ object KyuubiFlightArrowUtils {
     }
   }
 
-  private def timestampMicros(value: AnyRef): Long = value match {
-    case ts: Timestamp => ts.toInstant.getEpochSecond * 1000000L + ts.getNanos / 1000L
+  /**
+   * Days since epoch for an Arrow Date(DAY) value. Columnar thrift engines
+   * (Hive, Trino, JDBC, ...) send DATE values as `yyyy-MM-dd` strings.
+   */
+  private[flight] def epochDays(value: AnyRef): Int = value match {
+    case d: Date => d.toLocalDate.toEpochDay.toInt
+    case ld: LocalDate => ld.toEpochDay.toInt
+    case s: String => LocalDate.parse(s.trim).toEpochDay.toInt
+    case _ => number(value).intValue()
+  }
+
+  /**
+   * Zone used to interpret wall-clock timestamp values. Arrow timestamps without
+   * a time zone are zone-naive, i.e. the wall-clock fields are stored as if UTC.
+   */
+  private def zoneOf(ts: ArrowType.Timestamp): ZoneId =
+    Option(ts.getTimezone).map(_.trim).filter(_.nonEmpty).map(ZoneId.of).getOrElse(ZoneOffset.UTC)
+
+  private[flight] def timestampMicros(value: AnyRef, zone: ZoneId): Long = value match {
+    case ts: Timestamp => timestampMicros(ts.toLocalDateTime, zone)
     case instant: Instant => instant.getEpochSecond * 1000000L + instant.getNano / 1000L
-    case ldt: LocalDateTime =>
-      timestampMicros(Timestamp.valueOf(ldt))
-    case odt: OffsetDateTime => timestampMicros(odt.toInstant)
-    case zdt: ZonedDateTime => timestampMicros(zdt.toInstant)
+    case ldt: LocalDateTime => timestampMicros(ldt.atZone(zone).toInstant, zone)
+    case odt: OffsetDateTime => timestampMicros(odt.toInstant, zone)
+    case zdt: ZonedDateTime => timestampMicros(zdt.toInstant, zone)
     case n: Number => n.longValue()
-    case s: String => timestampMicros(Timestamp.valueOf(s))
+    case s: String => timestampMicros(parseTimestamp(s.trim), zone)
     case other =>
       throw new IllegalArgumentException(s"Unsupported timestamp value ${other.getClass}")
+  }
+
+  /**
+   * Parses thrift timestamp strings (`yyyy-MM-dd HH:mm:ss[.fffffffff]`, optionally ISO
+   * with `T` and/or an offset) without going through the JVM default time zone.
+   */
+  private def parseTimestamp(s: String): AnyRef = {
+    val iso = s.replace(' ', 'T')
+    Try(LocalDateTime.parse(iso))
+      .orElse(Try(OffsetDateTime.parse(iso)))
+      .orElse(Try(LocalDate.parse(s).atStartOfDay()))
+      .getOrElse(Timestamp.valueOf(s).toLocalDateTime)
   }
 
   private def bytes(value: AnyRef): Array[Byte] = value match {

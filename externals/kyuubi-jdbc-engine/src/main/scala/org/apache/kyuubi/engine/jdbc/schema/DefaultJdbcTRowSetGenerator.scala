@@ -16,6 +16,8 @@
  */
 package org.apache.kyuubi.engine.jdbc.schema
 
+import java.lang.{Short => JShort}
+import java.nio.charset.StandardCharsets
 import java.sql.Date
 import java.sql.Types._
 import java.time.LocalDateTime
@@ -70,11 +72,13 @@ class DefaultJdbcTRowSetGenerator extends JdbcTRowSetGenerator {
   def toBooleanTColumn(rows: Seq[Seq[_]], ordinal: Int): TColumn =
     asBooleanTColumn(rows, ordinal)
 
+  // JDBC drivers return TINYINT/SMALLINT as Byte, Short or Integer (JDBC spec maps both to
+  // Integer), so widen/narrow through Number instead of an unchecked cast to Short.
   def toTinyIntTColumn(rows: Seq[Seq[_]], ordinal: Int): TColumn =
-    asShortTColumn(rows, ordinal)
+    asShortTColumn(rows, ordinal, (row, i) => toJShort(row(i)))
 
   def toSmallIntTColumn(rows: Seq[Seq[_]], ordinal: Int): TColumn =
-    asShortTColumn(rows, ordinal)
+    asShortTColumn(rows, ordinal, (row, i) => toJShort(row(i)))
 
   def toIntegerTColumn(rows: Seq[Seq[_]], ordinal: Int): TColumn =
     asIntegerTColumn(rows, ordinal)
@@ -106,10 +110,10 @@ class DefaultJdbcTRowSetGenerator extends JdbcTRowSetGenerator {
     asBooleanTColumnValue(row, ordinal)
 
   def toTinyIntTColumnValue(row: Seq[_], ordinal: Int): TColumnValue =
-    asShortTColumnValue(row, ordinal)
+    asShortTColumnValue(row, ordinal, toJShort)
 
   def toSmallIntTColumnValue(row: Seq[_], ordinal: Int): TColumnValue =
-    asShortTColumnValue(row, ordinal)
+    asShortTColumnValue(row, ordinal, toJShort)
 
   def toIntegerTColumnValue(row: Seq[_], ordinal: Int): TColumnValue =
     asIntegerTColumnValue(row, ordinal)
@@ -135,8 +139,16 @@ class DefaultJdbcTRowSetGenerator extends JdbcTRowSetGenerator {
   def toDefaultTColumnValue(row: Seq[_], ordinal: Int, sqlType: Int): TColumnValue =
     asStringTColumnValue(row, ordinal, rawValue => toHiveString(rawValue, sqlType))
 
+  protected def toJShort(value: Any): JShort = value match {
+    case s: JShort => s
+    case n: Number => JShort.valueOf(n.shortValue())
+    case other => JShort.valueOf(other.toString.trim.toShort)
+  }
+
   def toHiveString(data: Any, sqlType: Int): String =
     (data, sqlType) match {
+      // BINARY/VARBINARY/LONGVARBINARY: drivers return byte[]; render like Hive (UTF-8 text)
+      case (bytes: Array[Byte], _) => new String(bytes, StandardCharsets.UTF_8)
       case (date: Date, DATE) => formatDate(date)
       case (dateTime: LocalDateTime, TIMESTAMP) => formatLocalDateTime(dateTime)
       case (decimal: java.math.BigDecimal, DECIMAL) => decimal.toPlainString
