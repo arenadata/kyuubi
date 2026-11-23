@@ -157,9 +157,9 @@
         <flink.archive.download.skip>false</flink.archive.download.skip>
         <google.jsr305.version>3.0.2</google.jsr305.version>
         <grpc.version>1.76.2</grpc.version>
-        <guava.version>33.5.0-jre</guava.version>
+        <guava.version>33.7.2-jre</guava.version>
         <guava.failureaccess.version>1.0.3</guava.failureaccess.version>
-        <hadoop.version>3.4.3.2-4.4.0-1</hadoop.version>
+        <hadoop.version>3.4.3.3-4.5.0-0</hadoop.version>
         <hikaricp.version>4.0.3</hikaricp.version>
         <fliptables.verion>1.1.1</fliptables.verion>
         <hive.version>4.3.0.3-4.5.0-0</hive.version>
@@ -173,7 +173,7 @@
         <hudi.artifact>hudi-spark${spark.binary.version}-bundle_${scala.binary.version}</hudi.artifact>
         <iceberg.version>1.10.1.1-4.3.0-3</iceberg.version>
         <iceberg.artifact>iceberg-spark-runtime-${spark.binary.version}_${scala.binary.version}</iceberg.artifact>
-        <jackson.version>2.21.4</jackson.version>
+        <jackson.version>2.21.7</jackson.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
         <!-- 6.0.0 requires JDK 11 -->
         <jakarta.servlet-api.version>5.0.0</jakarta.servlet-api.version>
