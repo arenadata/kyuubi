@@ -1291,9 +1291,7 @@
     <repositories>
         <repository>
             <id>arenadata</id>
-            <url>https://maven.pkg.github.com/arenadata/*</url>
-            <!-- some packages are missed in maven.arenadata.io -->
-            <!-- <url>https://maven.arenadata.io/arenadata</url> -->
+            <url>https://maven.arenadata.io/arenadata</url>
         </repository>
 
         <repository>
