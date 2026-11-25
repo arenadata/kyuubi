@@ -22,7 +22,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1.3-4.5.0-0</version>
+        <version>1.11.1.3-4.5.0-1</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -30,6 +30,57 @@
     <packaging>pom</packaging>
     <name>Kyuubi Project Assembly</name>
     <url>https://kyuubi.apache.org/</url>
+
+    <properties>
+        <trino-client.okhttp.version>5.3.2</trino-client.okhttp.version>
+        <trino-client.okio.version>3.17.0</trino-client.okio.version>
+        <trino-client.kotlin.version>2.3.21</trino-client.kotlin.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keep the server and its assembled runtime aligned with the runtime tested by the Trino client producer. -->
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>33.7.2-jre</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.errorprone</groupId>
+                <artifactId>error_prone_annotations</artifactId>
+                <version>2.50.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>1.0.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-bom</artifactId>
+                <version>${trino-client.kotlin.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio</artifactId>
+                <version>${trino-client.okio.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-jvm</artifactId>
+                <version>${trino-client.okio.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp-bom</artifactId>
+                <version>${trino-client.okhttp.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -125,4 +176,28 @@
             <artifactId>log4j-layout-template-json</artifactId>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-bytecode-version</id>
+                        <configuration>
+                            <rules>
+                                <enforceBytecodeVersion>
+                                    <excludes>
+                                        <!-- Trino probes this optional native codec reflectively and falls
+                                             back to Java codecs on older JVMs; keep the artifact packaged. -->
+                                        <exclude>io.airlift:aircompressor-v3</exclude>
+                                    </excludes>
+                                </enforceBytecodeVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -18,6 +18,7 @@
 package org.apache.kyuubi.engine.hive.operation
 
 import org.apache.commons.lang3.{JavaVersion, SystemUtils}
+import org.apache.hive.common.util.HiveVersionInfo
 
 import org.apache.kyuubi.Utils
 import org.apache.kyuubi.config.KyuubiConf.ENGINE_OPERATION_CONVERT_CATALOG_DATABASE_ENABLED
@@ -47,7 +48,8 @@ class HiveCatalogDatabaseOperationSuite extends HiveJDBCTestHelper {
   }
 
   test("test set/get catalog") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(HiveVersionInfo.getVersion.startsWith("4.") ||
+      SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
     withJdbcStatement()({ statement =>
       val catalog = statement.getConnection.getCatalog
       assert(catalog == "")
@@ -58,7 +60,8 @@ class HiveCatalogDatabaseOperationSuite extends HiveJDBCTestHelper {
   }
 
   test("test set/get database") {
-    assume(SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
+    assume(HiveVersionInfo.getVersion.startsWith("4.") ||
+      SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8))
     withJdbcStatement()({ statement =>
       statement.execute("create database test_hive_db")
       val schema = statement.getConnection.getSchema

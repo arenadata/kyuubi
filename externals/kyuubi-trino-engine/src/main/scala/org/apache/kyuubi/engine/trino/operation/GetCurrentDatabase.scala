@@ -36,7 +36,7 @@ class GetCurrentDatabase(session: Session)
   override protected def runInternal(): Unit = {
     try {
       val session = trinoContext.clientSession.get
-      val catalog = session.getSchema
+      val catalog = session.getSchema.orElse(null)
 
       val clientTypeSignature = new ClientTypeSignature(
         VARCHAR,

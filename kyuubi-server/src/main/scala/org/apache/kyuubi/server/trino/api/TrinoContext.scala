@@ -215,13 +215,15 @@ object TrinoContext {
       nextUri,
       updatedNextUri,
       columnList,
-      rowList,
+      if (rowList == null) null else io.trino.client.TypedQueryData.of(rowList),
       StatementStats.builder.setState(queryStatus.state.name()).setQueued(false)
-        .setElapsedTimeMillis(0).setQueuedTimeMillis(0).build(),
+        .setElapsedTimeMillis(0).setQueuedTimeMillis(0)
+        .setProgressPercentage(java.util.OptionalDouble.empty())
+        .setRunningPercentage(java.util.OptionalDouble.empty()).build(),
       toQueryError(queryStatus),
       defaultWarning,
       updateType,
-      0L)
+      java.util.OptionalLong.of(0L))
   }
 
   private def convertTColumn(columns: TGetResultSetMetadataResp): util.List[Column] = {

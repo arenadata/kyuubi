@@ -17,13 +17,48 @@
 
 package org.apache.kyuubi.engine
 
+import java.net.InetSocketAddress
+import java.nio.charset.StandardCharsets.UTF_8
+import java.util.concurrent.atomic.AtomicReference
+
+import com.sun.net.httpserver.HttpServer
 import io.fabric8.kubernetes.api.model.{ContainerState, ContainerStateWaiting}
+import io.fabric8.kubernetes.client.{ConfigBuilder, KubernetesClientBuilder}
 
 import org.apache.kyuubi.{KyuubiException, KyuubiFunSuite}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.ApplicationState.{FAILED, PENDING}
 
 class KubernetesApplicationOperationSuite extends KyuubiFunSuite {
+
+  test("Kubernetes HTTP client lists pods with the server runtime dependencies") {
+    val requestedPath = new AtomicReference[String]()
+    val server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/", exchange => {
+      requestedPath.set(exchange.getRequestURI.getPath)
+      val response = """{"apiVersion":"v1","kind":"PodList","metadata":{},"items":[
+        |{"apiVersion":"v1","kind":"Pod","metadata":{"name":"release45-driver"}}]}"""
+        .stripMargin.getBytes(UTF_8)
+      exchange.getResponseHeaders.set("Content-Type", "application/json")
+      exchange.sendResponseHeaders(200, response.length)
+      try exchange.getResponseBody.write(response) finally exchange.close()
+    })
+    server.start()
+    val config = new ConfigBuilder()
+      .withMasterUrl(s"http://127.0.0.1:${server.getAddress.getPort}")
+      .withNamespace("release45")
+      .withRequestTimeout(5000)
+      .build()
+    try {
+      val client = new KubernetesClientBuilder().withConfig(config).build()
+      try {
+        val pods = client.pods().inNamespace("release45").list()
+        assert(pods.getItems.size() == 1)
+        assert(pods.getItems.get(0).getMetadata.getName == "release45-driver")
+        assert(requestedPath.get() == "/api/v1/namespaces/release45/pods")
+      } finally client.close()
+    } finally server.stop(0)
+  }
 
   test("test check kubernetes info") {
     val kyuubiConf = KyuubiConf()

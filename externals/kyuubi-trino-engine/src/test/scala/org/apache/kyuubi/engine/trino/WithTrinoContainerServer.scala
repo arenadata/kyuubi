@@ -35,10 +35,12 @@ import org.apache.kyuubi.config.KyuubiConf
 
 trait WithTrinoContainerServer extends KyuubiFunSuite with TestContainerForAll {
 
-  final val IMAGE_VERSION = 411
-  final val DOCKER_IMAGE_NAME = s"trinodb/trino:$IMAGE_VERSION"
+  final val IMAGE_VERSION = 481
+  final val DOCKER_IMAGE_NAME =
+    sys.props.getOrElse("kyuubi.trino.test.image", s"trinodb/trino:$IMAGE_VERSION")
 
-  override val containerDef = TrinoContainer.Def(DockerImageName.parse(DOCKER_IMAGE_NAME))
+  override val containerDef = TrinoContainer.Def(
+    DockerImageName.parse(DOCKER_IMAGE_NAME).asCompatibleSubstituteFor("trinodb/trino"))
 
   val kyuubiConf: KyuubiConf = KyuubiConf()
 
@@ -55,7 +57,7 @@ trait WithTrinoContainerServer extends KyuubiFunSuite with TestContainerForAll {
 
   protected def session(connectionUrl: String): ClientSession = ClientSession.builder()
     .server(URI.create(connectionUrl))
-    .principal(Optional.of("kyuubi_test"))
+    .user(Optional.of("kyuubi_test"))
     .source("kyuubi")
     .catalog(catalog)
     .schema(schema)

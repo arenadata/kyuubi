@@ -21,7 +21,7 @@
     <parent>
         <groupId>org.apache.kyuubi</groupId>
         <artifactId>kyuubi-parent</artifactId>
-        <version>1.11.1.3-4.5.0-0</version>
+        <version>1.11.1.3-4.5.0-1</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -136,6 +136,26 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-bytecode-version</id>
+                        <configuration>
+                            <rules>
+                                <enforceBytecodeVersion>
+                                    <excludes>
+                                        <!-- The coverage aggregator inherits the server Trino client. Its optional
+                                             native codec has the same verified Java fallback as that server. -->
+                                        <exclude>io.airlift:aircompressor-v3</exclude>
+                                    </excludes>
+                                </enforceBytecodeVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
