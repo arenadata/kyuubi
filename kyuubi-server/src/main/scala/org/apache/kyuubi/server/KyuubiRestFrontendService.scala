@@ -42,7 +42,7 @@ import org.apache.kyuubi.server.ui.{JettyServer, JettyUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service, ServiceUtils}
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
 import org.apache.kyuubi.session.{KyuubiBatchSession, KyuubiSessionManager, SessionHandle}
-import org.apache.kyuubi.util.{JavaUtils, KyuubiHadoopUtils, ThreadUtils}
+import org.apache.kyuubi.util.{JavaUtils, KeyStoreUtils, KyuubiHadoopUtils, ThreadUtils}
 import org.apache.kyuubi.util.ThreadUtils.scheduleTolerableRunnableWithFixedDelay
 
 /**
@@ -409,10 +409,12 @@ object KyuubiRestFrontendService extends Logging {
         "not configured for SSL connection, please set the key with: " +
         FRONTEND_REST_SSL_KEYSTORE_PASSWORD.doc)
     }
+    val keyStoreType = conf.get(FRONTEND_SSL_KEYSTORE_TYPE)
     val sslContextFactory = new SslContextFactory.Server
-    sslContextFactory.setKeyStorePath(keyStorePath)
+    sslContextFactory.setKeyStore(
+      KeyStoreUtils.load(keyStorePath, keyStoreType.orNull, keyStorePassword))
     sslContextFactory.setKeyStorePassword(keyStorePassword)
-    conf.get(FRONTEND_SSL_KEYSTORE_TYPE).foreach(sslContextFactory.setKeyStoreType)
+    keyStoreType.foreach(sslContextFactory.setKeyStoreType)
     conf.get(FRONTEND_SSL_KEYSTORE_ALGORITHM)
       .foreach(sslContextFactory.setKeyManagerFactoryAlgorithm)
     // add* keeps the Jetty default exclusions instead of replacing them

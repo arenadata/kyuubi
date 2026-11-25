@@ -20,15 +20,10 @@ package org.apache.kyuubi
 import java.io.{File, InputStream}
 import java.net.{HttpURLConnection, URL}
 import java.nio.charset.StandardCharsets
-import java.nio.file.Paths
 import java.security.cert.X509Certificate
-import java.util.Locale
 import javax.net.ssl.{HttpsURLConnection, SSLContext, SSLSocket, TrustManager, X509TrustManager}
 
 import scala.io.Source
-
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.security.alias.CredentialProviderFactory
 
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -38,7 +33,7 @@ import org.apache.kyuubi.config.KyuubiConf._
  */
 object RestSslTestHelper {
 
-  val KEYSTORE_PASSWORD = "kyuubi-rest-password"
+  val KEYSTORE_PASSWORD: String = KeyStoreTestUtils.PASSWORD
 
   private val TIMEOUT_MS = 30000
 
@@ -49,91 +44,27 @@ object RestSslTestHelper {
    * Generate a keystore with a self-signed certificate valid for the local host and for
    * the host alias used by Testcontainers.
    */
-  def generateKeyStore(dir: File, storeType: String = "JKS"): File = {
-    val keyStore = new File(dir, s"kyuubi-rest.${storeType.toLowerCase(Locale.ROOT)}")
-    keytool(
-      "-genkeypair",
-      "-noprompt",
-      "-alias",
-      "kyuubi",
-      "-keyalg",
-      "RSA",
-      "-keysize",
-      "2048",
-      "-dname",
-      "CN=localhost",
-      "-ext",
-      s"SAN=dns:localhost,dns:$CONTAINER_HOST_ALIAS,ip:127.0.0.1",
-      // backdated to tolerate the clock skew of a Docker VM, the validity counts from it
-      "-startdate",
-      "-1d",
-      "-validity",
-      "2",
-      "-storetype",
-      storeType,
-      "-keystore",
-      keyStore.getAbsolutePath,
-      "-storepass",
-      KEYSTORE_PASSWORD,
-      "-keypass",
-      KEYSTORE_PASSWORD)
-    keyStore
-  }
+  def generateKeyStore(dir: File, storeType: String = "JKS"): File =
+    KeyStoreTestUtils.generateKeyStore(
+      dir.toPath,
+      alias = "kyuubi",
+      sans = Seq("dns:localhost", s"dns:$CONTAINER_HOST_ALIAS", "ip:127.0.0.1"),
+      storeType = storeType).toFile
 
   /** Export the certificate of the keystore in PEM format, to be trusted by external clients. */
-  def exportCertificate(keyStore: File): File = {
-    val pem = new File(keyStore.getParentFile, "kyuubi-rest.pem")
-    keytool(
-      "-exportcert",
-      "-rfc",
-      "-alias",
-      "kyuubi",
-      "-keystore",
-      keyStore.getAbsolutePath,
-      "-storepass",
-      KEYSTORE_PASSWORD,
-      "-file",
-      pem.getAbsolutePath)
-    pem
-  }
+  def exportCertificate(keyStore: File): File = KeyStoreTestUtils.exportPem(keyStore.toPath).toFile
 
-  /** Generate a truststore with the certificate of the JKS keystore, for the Kyuubi clients. */
-  def generateTrustStore(keyStore: File, storeType: String = "JKS"): File = {
-    val trustStore = new File(
-      keyStore.getParentFile,
-      s"kyuubi-rest-truststore.${storeType.toLowerCase(Locale.ROOT)}")
-    keytool(
-      "-importcert",
-      "-noprompt",
-      "-alias",
-      "kyuubi",
-      "-file",
-      exportCertificate(keyStore).getAbsolutePath,
-      "-storetype",
-      storeType,
-      "-keystore",
-      trustStore.getAbsolutePath,
-      "-storepass",
-      KEYSTORE_PASSWORD)
-    trustStore
-  }
+  /** Generate a truststore with the certificate of the keystore, for the Kyuubi clients. */
+  def generateTrustStore(keyStore: File, storeType: String = "JKS"): File =
+    KeyStoreTestUtils.generateTrustStore(keyStore.toPath.getParent, storeType, keyStore.toPath)
+      .toFile
 
   /**
    * Create a JCEKS credential provider holding the given aliases, and return the path to set as
    * hadoop.security.credential.provider.path.
    */
-  def createCredentialProvider(dir: File, aliases: (String, String)*): String = {
-    val providerFile = new File(dir, "kyuubi-rest-credentials.jceks")
-    val providerPath = s"jceks://file${providerFile.getAbsolutePath}"
-    val providerConf = new Configuration(false)
-    providerConf.set(CredentialProviderFactory.CREDENTIAL_PROVIDER_PATH, providerPath)
-    val provider = CredentialProviderFactory.getProviders(providerConf).get(0)
-    aliases.foreach { case (alias, password) =>
-      provider.createCredentialEntry(alias, password.toCharArray)
-    }
-    provider.flush()
-    providerPath
-  }
+  def createCredentialProvider(dir: File, aliases: (String, String)*): String =
+    KeyStoreTestUtils.createCredentialProvider(dir.toPath, aliases: _*)
 
   /** Settings enabling SSL for the RESTful frontend service with the given keystore. */
   def sslConf(conf: KyuubiConf, keyStore: File): KyuubiConf = conf
@@ -181,14 +112,5 @@ object RestSslTestHelper {
     val source = Source.fromInputStream(in, StandardCharsets.UTF_8.name())
     try source.mkString
     finally source.close()
-  }
-
-  private def keytool(args: String*): Unit = {
-    val keytool = Paths.get(System.getProperty("java.home"), "bin", "keytool").toString
-    val process = new ProcessBuilder((keytool +: args): _*)
-      .redirectErrorStream(true)
-      .start()
-    val output = Source.fromInputStream(process.getInputStream).mkString
-    require(process.waitFor() == 0, s"keytool ${args.head} failed: $output")
   }
 }

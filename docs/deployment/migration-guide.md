@@ -24,6 +24,7 @@
 * Since Kyuubi 1.11, the configuration `spark.sql.watchdog.forcedMaxOutputRows` provided by Kyuubi Spark extension is removed, consider using `kyuubi.operation.result.max.rows` instead. Note, the latter works without requirement of installing Kyuubi Spark extension.
 * Since Kyuubi 1.11, if the engine is running in cluster mode, Kyuubi will respect the `kyuubi.session.engine.startup.waitCompletion` config to determine whether to wait for the engine completion or not. If the engine is running in client mode, Kyuubi will always wait for the engine completion. And for Spark engine, Kyuubi will append the `spark.yarn.submit.waitAppCompletion` and `spark.kubernetes.submission.waitAppCompletion` configs to the engine conf based on the value of `kyuubi.session.engine.startup.waitCompletion`.
 * Since Kyuubi 1.11, the configuration `kyuubi.session.engine.spark.initialize.sql` set by the client (via session configuration) is now correctly applied to every session in shared engines (USER, GROUP, SERVER). Previously, only the value set on the server side was applied and only for the first session when the engine started. Now, session-level settings provided by each client are respected.
+* Since Kyuubi 1.11.1, Engine UI proxy through the Kyuubi REST frontend is disabled by default, and the Web UI links directly to the engine URL. To restore proxied Engine UI links, set `kyuubi.frontend.rest.engine.ui.proxy.enabled=true` and configure allowed target hosts with `kyuubi.frontend.rest.engine.ui.proxy.hosts`.
 
 ## Upgrading from Kyuubi 1.9 to 1.10
 

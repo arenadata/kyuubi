@@ -50,5 +50,11 @@
                 <module>kyuubi-gluten-it</module>
             </modules>
         </profile>
+        <profile>
+            <id>kerberized-yarn-it</id>
+            <modules>
+                <module>kyuubi-kerberized-yarn-it</module>
+            </modules>
+        </profile>
     </profiles>
 </project>

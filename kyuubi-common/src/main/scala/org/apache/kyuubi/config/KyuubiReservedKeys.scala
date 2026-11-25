@@ -34,7 +34,14 @@ object KyuubiReservedKeys {
   final val KYUUBI_ENGINE_ID = "kyuubi.engine.id"
   final val KYUUBI_ENGINE_NAME = "kyuubi.engine.name"
   final val KYUUBI_ENGINE_URL = "kyuubi.engine.url"
+  // Service discovery attribute published only by engines whose web UI is served over HTTPS,
+  // with the value "https". The attributes are part of the discovery node name, which cannot
+  // hold the slashes of a URL, so the scheme is kept out of kyuubi.engine.url.
+  final val KYUUBI_ENGINE_URL_SCHEME = "kyuubi.engine.url.scheme"
   final val KYUUBI_ENGINE_CONNECT_URL = "kyuubi.engine.connect.url"
+  // Service discovery attribute published only by engines whose listeners serve TLS, with the
+  // value "true". An engine without it is a plaintext engine.
+  final val KYUUBI_ENGINE_TRANSPORT_SSL = "kyuubi.engine.transport.ssl"
   final val KYUUBI_ENGINE_SUBMIT_TIME_KEY = "kyuubi.engine.submit.time"
   final val KYUUBI_ENGINE_CREDENTIALS_KEY = "kyuubi.engine.credentials"
   final val KYUUBI_ENGINE_APP_MGR_INFO_KEY = "kyuubi.engine.appMgrInfo"

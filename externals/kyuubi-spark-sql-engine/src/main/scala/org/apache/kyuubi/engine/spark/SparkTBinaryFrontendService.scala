@@ -33,7 +33,7 @@ import org.apache.kyuubi.ha.client.{EngineServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.service.{Serverable, Service, TBinaryFrontendService}
 import org.apache.kyuubi.service.TFrontendService._
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift.{TOpenSessionReq, TOpenSessionResp, TRenewDelegationTokenReq, TRenewDelegationTokenResp}
-import org.apache.kyuubi.util.KyuubiHadoopUtils
+import org.apache.kyuubi.util.{EngineSslServerMaterial, KyuubiHadoopUtils}
 import org.apache.kyuubi.util.reflect.DynConstructors
 
 class SparkTBinaryFrontendService(
@@ -42,6 +42,11 @@ class SparkTBinaryFrontendService(
   import SparkTBinaryFrontendService._
 
   private lazy val sc = be.asInstanceOf[SparkSQLBackendService].sparkSession.sparkContext
+
+  // loaded once in SparkSQLEngine.createSpark, from the password that setupConf took out of the
+  // configuration
+  override protected def engineSslMaterial: Option[EngineSslServerMaterial] =
+    SparkSQLEngine.engineSslMaterialFor(conf)
 
   override def RenewDelegationToken(req: TRenewDelegationTokenReq): TRenewDelegationTokenResp = {
     debug(req.toString)
@@ -71,8 +76,7 @@ class SparkTBinaryFrontendService(
       }
 
       val sessionHandle = getSessionHandle(req, resp)
-      // connectUrl must be read after getSessionHandle
-      // SparkConnect starts lazily on first session
+      // connectUrl is set before the engine registers, see SparkSQLEngine.start
       val respConfiguration = (Map(
         KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId,
         KYUUBI_ENGINE_NAME -> KyuubiSparkUtil.engineName,
@@ -104,11 +108,17 @@ class SparkTBinaryFrontendService(
     val extraAttributes = conf.get(KyuubiConf.ENGINE_SPARK_REGISTER_ATTRIBUTES).map { attr =>
       attr -> KyuubiSparkUtil.globalSparkContext.getConf.get(attr, "")
     }.toMap
-    val attributes =
-      super.attributes ++ extraAttributes ++ Map(KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId)
-    // TODO Support Spark Web UI Enabled SSL
+    // only TLS engines carry the transport attribute, so plaintext engines keep their node name
+    val transportAttributes =
+      if (engineSslEnabled) Map(KYUUBI_ENGINE_TRANSPORT_SSL -> "true") else Map.empty
+    val attributes = super.attributes ++ extraAttributes ++ transportAttributes ++
+      Map(KYUUBI_ENGINE_ID -> KyuubiSparkUtil.engineId)
     sc.uiWebUrl match {
-      case Some(url) => attributes ++ Map(KYUUBI_ENGINE_URL -> url.split("//").last)
+      case Some(url) =>
+        // the scheme cannot be part of the url attribute, see KYUUBI_ENGINE_URL_SCHEME
+        val schemeAttributes =
+          if (url.startsWith("https://")) Map(KYUUBI_ENGINE_URL_SCHEME -> "https") else Map.empty
+        attributes ++ schemeAttributes ++ Map(KYUUBI_ENGINE_URL -> url.split("//").last)
       case None => attributes
     }
   }
