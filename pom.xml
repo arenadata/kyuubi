@@ -173,7 +173,7 @@
         <hudi.artifact>hudi-spark${spark.binary.version}-bundle_${scala.binary.version}</hudi.artifact>
         <iceberg.version>1.10.1.1-4.3.0-3</iceberg.version>
         <iceberg.artifact>iceberg-spark-runtime-${spark.binary.version}_${scala.binary.version}</iceberg.artifact>
-        <jackson.version>2.21.7</jackson.version>
+        <jackson.version>2.21.8</jackson.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
         <!-- 6.0.0 requires JDK 11 -->
         <jakarta.servlet-api.version>5.0.0</jakarta.servlet-api.version>
